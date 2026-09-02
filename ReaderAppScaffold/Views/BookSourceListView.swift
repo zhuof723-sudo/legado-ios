@@ -15,6 +15,12 @@ struct BookSourceListView: View {
     @State private var confirmDelete = false
     @State private var showingRawJSON: BookSourceRecord?
     @State private var showLog = false
+    @State private var testingSource: BookSourceRecord?
+    @State private var editingSource: BookSourceRecord?
+    @State private var loginSource: BookSourceRecord?
+    @State private var exportDoc: SourceJSONDocument?
+    @State private var showExporter = false
+    @State private var exportName = "bookSource.json"
 
     private var filtered: [BookSourceRecord] {
         guard !searchText.isEmpty else { return sources }
@@ -57,6 +63,16 @@ struct BookSourceListView: View {
             .sheet(isPresented: $showLog) {
                 NavigationStack { LogView() }
             }
+            .sheet(item: $testingSource) { record in
+                SourceTestView(record: record)
+            }
+            .sheet(item: $editingSource) { record in
+                SourceEditView(record: record)
+            }
+            .sheet(item: $loginSource) { record in
+                SourceLoginView(record: record)
+            }
+            .fileExporter(isPresented: $showExporter, document: exportDoc, contentType: .json, defaultFilename: exportName) { _ in }
             .confirmationDialog("确定删除选中的 \(selected.count) 个书源？", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("删除 \(selected.count) 个", role: .destructive) { deleteSelected() }
                 Button("取消", role: .cancel) {}
@@ -102,22 +118,22 @@ struct BookSourceListView: View {
             if editing { toggleSelect(record) }
         }
         .contextMenu {
-            if let url = URL(string: record.bookSourceUrl), !record.bookSourceUrl.isEmpty {
-                Link(destination: url) {
-                    Label("打开书源主页", systemImage: "safari")
-                }
-            }
-            Button {
-                showingRawJSON = record
-            } label: {
-                Label("查看原始 JSON", systemImage: "doc.text")
-            }
-            Button {
-                UIPasteboard.general.string = record.bookSourceUrl
-            } label: {
-                Label("复制地址", systemImage: "doc.on.doc")
-            }
+            Button { testingSource = record } label: { Label("测试配置", systemImage: "play.circle") }
+            Button { editingSource = record } label: { Label("编辑配置", systemImage: "square.and.pencil") }
+            Button { loginSource = record } label: { Label("登录", systemImage: "person.crop.circle") }
+            Button { export(record) } label: { Label("导出配置文件", systemImage: "square.and.arrow.up") }
+            Divider()
+            Button(role: .destructive) {
+                context.delete(record)
+                try? context.save()
+            } label: { Label("删除配置", systemImage: "trash") }
         }
+    }
+
+    private func export(_ record: BookSourceRecord) {
+        exportName = "\(record.bookSourceName.isEmpty ? "bookSource" : record.bookSourceName).json"
+        exportDoc = SourceJSONDocument(text: record.rawJSON)
+        showExporter = true
     }
 
     private var emptyState: some View {

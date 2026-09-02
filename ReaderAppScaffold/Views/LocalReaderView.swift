@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// 本地 TXT 阅读器：复用 TextPaginator 真分页，轻量控制层
+/// 本地 TXT 阅读器：复用 TextPaginator 真分页，支持左右滑动 + 点击分区翻页
 struct LocalReaderView: View {
     @Environment(\.dismiss) private var dismiss
     let bookName: String
@@ -13,6 +13,7 @@ struct LocalReaderView: View {
     @State private var pageIndex = 0
     @State private var showControls = false
     @State private var showToc = false
+    @State private var pageSizeState: CGSize = .zero
 
     private let hPadding: CGFloat = 20
     private let tPadding: CGFloat = 56
@@ -33,37 +34,34 @@ struct LocalReaderView: View {
 
             ZStack {
                 Theme.readerBackgrounds[1].ignoresSafeArea()
-                if paginatedForKey == key, pageIndex < pages.count {
-                    Text(pages[pageIndex])
-                        .font(.system(size: fontSize))
-                        .lineSpacing(8)
-                        .foregroundStyle(Theme.readerTextColors[1])
-                        .frame(width: pageSize.width, height: pageSize.height, alignment: .topLeading)
-                } else {
-                    ProgressView()
-                }
-                tapZones(width: geo.size.width)
+                content(pageSize: pageSize, key: key)
+                tapZones
                 chrome
             }
+            .onAppear { pageSizeState = pageSize }
             .task(id: key) {
+                pageSizeState = pageSize
                 await repaginate(key: key, pageSize: pageSize)
             }
         }
         .statusBarHidden(!showControls)
         .sheet(isPresented: $showToc) {
             NavigationStack {
-                List(Array(viewModel.chapters.enumerated()), id: \.element.title) { idx, ch in
-                    Button {
-                        viewModel.openChapter(idx)
-                        showToc = false
-                    } label: {
-                        HStack {
-                            Text(ch.title).font(.subheadline)
-                                .foregroundStyle(idx == viewModel.currentIndex ? Theme.accent : .primary)
-                                .lineLimit(1)
-                            Spacer()
-                            if idx == viewModel.currentIndex {
-                                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(Theme.accent)
+                List {
+                    ForEach(0..<viewModel.chapters.count, id: \.self) { idx in
+                        let ch = viewModel.chapters[idx]
+                        Button {
+                            viewModel.openChapter(idx)
+                            showToc = false
+                        } label: {
+                            HStack {
+                                Text(ch.title).font(.subheadline)
+                                    .foregroundStyle(idx == viewModel.currentIndex ? Theme.accent : .primary)
+                                    .lineLimit(1)
+                                Spacer()
+                                if idx == viewModel.currentIndex {
+                                    Image(systemName: "chevron.right").font(.caption2).foregroundStyle(Theme.accent)
+                                }
                             }
                         }
                     }
@@ -71,11 +69,35 @@ struct LocalReaderView: View {
                 .listStyle(.plain)
                 .navigationTitle("目录")
                 .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("关闭") { showToc = false }
+                    }
+                }
             }
         }
     }
 
-    private func tapZones(width: CGFloat) -> some View {
+    @ViewBuilder
+    private func content(pageSize: CGSize, key: String) -> some View {
+        if paginatedForKey == key, !pages.isEmpty {
+            TabView(selection: $pageIndex) {
+                ForEach(pages.indices, id: \.self) { i in
+                    Text(pages[i])
+                        .font(.system(size: fontSize))
+                        .lineSpacing(8)
+                        .foregroundStyle(Theme.readerTextColors[1])
+                        .frame(width: pageSize.width, height: pageSize.height, alignment: .topLeading)
+                        .tag(i)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+        } else {
+            ProgressView()
+        }
+    }
+
+    private var tapZones: some View {
         HStack(spacing: 0) {
             Color.clear.onTapGesture { prevPage() }
             Color.clear.onTapGesture { withAnimation { showControls.toggle() } }
@@ -122,6 +144,7 @@ struct LocalReaderView: View {
                 .glassCard(RoundedRectangle(cornerRadius: 20))
             } else if !pages.isEmpty {
                 Text("\(pageIndex + 1) / \(pages.count)").font(.caption2).foregroundStyle(.secondary)
+                    .padding(.bottom, 10)
             }
         }
         .padding(.horizontal, 12)

@@ -469,6 +469,13 @@ public final class AnalyzeUrl {
                 let (data, response) = try await URLSession.shared.data(for: request)
                 let http = response as? HTTPURLResponse
                 var text = String(data: data, encoding: Self.responseEncoding(from: http, fallback: charset)) ?? ""
+                if text.isEmpty, !data.isEmpty {
+                    // utf8 解不出（多数是国内 GBK 站点未声明编码），退回 GB18030
+                    text = String(data: data, encoding: Self.gb18030Encoding) ?? ""
+                    if !text.isEmpty {
+                        EngineLogger.log("响应未按 UTF-8 解出，已回退 GB18030 解码", tag: "network")
+                    }
+                }
 
                 if let bodyJs = bodyJs {
                     if let evaluated = evalJS(bodyJs, result: text) {
@@ -511,6 +518,11 @@ public final class AnalyzeUrl {
         let base64 = ns.substring(with: m.range(at: 1))
         return Data(base64Encoded: base64)
     }
+
+    private static let gb18030Encoding: String.Encoding = {
+        let cf = CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue))
+        return String.Encoding(rawValue: cf)
+    }()
 
     private static func responseEncoding(from response: HTTPURLResponse?, fallback: String?) -> String.Encoding {
         if let ct = response?.allHeaderFields["Content-Type"] as? String,
