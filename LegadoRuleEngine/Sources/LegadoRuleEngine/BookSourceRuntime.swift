@@ -24,6 +24,26 @@ public struct ChapterInfo: Equatable {
     }
 }
 
+/// 书籍详情信息（ruleBookInfo 解析结果）
+public struct BookInfo {
+    public let name: String
+    public let author: String
+    public let intro: String
+    public let coverUrl: String
+    public let kind: String
+    public let tocUrl: String
+
+    public init(name: String = "", author: String = "", intro: String = "",
+                coverUrl: String = "", kind: String = "", tocUrl: String = "") {
+        self.name = name
+        self.author = author
+        self.intro = intro
+        self.coverUrl = coverUrl
+        self.kind = kind
+        self.tocUrl = tocUrl
+    }
+}
+
 public final class BookSourceRuntime {
     public let source: BookSource
 
@@ -39,7 +59,7 @@ public final class BookSourceRuntime {
 
     // MARK: - 构造
 
-    private func makeAnalyzeUrl(_ urlRule: String, key: String? = nil, page: Int? = nil) -> AnalyzeUrl {
+    private func makeAnalyzeUrl(_ urlRule: String, key: String? = nil, page: Int? = nil, bookUrl: String? = nil) -> AnalyzeUrl {
         let au = AnalyzeUrl(
             url: urlRule,
             key: key,
@@ -49,6 +69,7 @@ public final class BookSourceRuntime {
         )
         au.jsLib = source.jsLib
         au.sourceContext = sourceContext
+        au.bookUrl = bookUrl
         au.ajaxEvaluator = { [weak self] url in self?.blockingAjax(url) }
         au.toastHandler = toastHandler
         au.browserOpener = browserOpener
@@ -170,16 +191,26 @@ public final class BookSourceRuntime {
         if listRule.hasPrefix("-") { reverse = true; listRule = String(listRule.dropFirst()) }
         else if listRule.hasPrefix("+") { listRule = String(listRule.dropFirst()) }
 
+        // 很多源的目录是 JSON 接口/独立地址，由 ruleBookInfo.tocUrl 指定：先解析详情页拿到真正目录地址
+        var tocUrl = bookUrl
+        if let tocRule = source.ruleBookInfo?.tocUrl, !tocRule.isEmpty {
+            let info = try await getBookInfo(bookUrl: bookUrl)
+            if !info.tocUrl.isEmpty {
+                tocUrl = info.tocUrl
+                EngineLogger.log("详情页解析出目录地址: \(tocUrl)", tag: source.bookSourceName)
+            }
+        }
+
         var chapters: [ChapterInfo] = []
         var visited: Set<String> = []
-        var currentUrl: String? = bookUrl
+        var currentUrl: String? = tocUrl
         var pageCount = 0
 
         while let url = currentUrl, pageCount < maxPages, !visited.contains(url) {
             visited.insert(url)
             pageCount += 1
 
-            let au = makeAnalyzeUrl(url)
+            let au = makeAnalyzeUrl(url, bookUrl: bookUrl)
             EngineLogger.log("目录请求: \(au.ruleUrl)", tag: source.bookSourceName)
             await SourceRateLimiter.shared.acquire(key: source.bookSourceUrl, concurrentRate: source.concurrentRate)
             let resp = try await au.getStrResponse()
@@ -190,6 +221,7 @@ public final class BookSourceRuntime {
             let baseUrl = resp.url.isEmpty ? au.url : resp.url
 
             let analyzeRule = makeAnalyzeRule()
+            analyzeRule.bookUrl = bookUrl
             analyzeRule.setContent(body, baseUrl: baseUrl)
 
             let items = analyzeRule.getElements(listRule)
@@ -216,6 +248,40 @@ public final class BookSourceRuntime {
         chapters = chapters.filter { seen.insert($0.url.isEmpty ? $0.name : $0.url).inserted }
         EngineLogger.log("目录共 \(chapters.count) 章", tag: source.bookSourceName)
         return chapters
+    }
+
+    // MARK: - 详情页（ruleBookInfo）
+
+    public func getBookInfo(bookUrl: String) async throws -> BookInfo {
+        guard let rule = source.ruleBookInfo else {
+            return BookInfo(tocUrl: "")
+        }
+        let au = makeAnalyzeUrl(bookUrl, bookUrl: bookUrl)
+        EngineLogger.log("详情请求: \(au.ruleUrl)", tag: source.bookSourceName)
+        await SourceRateLimiter.shared.acquire(key: source.bookSourceUrl, concurrentRate: source.concurrentRate)
+        let resp = try await au.getStrResponse()
+        guard let body = resp.body else {
+            EngineLogger.log("详情响应为空", tag: source.bookSourceName, level: .error)
+            return BookInfo(tocUrl: "")
+        }
+        let baseUrl = resp.url.isEmpty ? au.url : resp.url
+        let analyzeRule = makeAnalyzeRule()
+        analyzeRule.bookUrl = bookUrl
+        analyzeRule.setContent(body, baseUrl: baseUrl)
+
+        func g(_ r: String?, isUrl: Bool = false) -> String {
+            guard let r, !r.isEmpty else { return "" }
+            return analyzeRule.getString(r, isUrl: isUrl)
+        }
+
+        return BookInfo(
+            name: g(rule.name),
+            author: g(rule.author),
+            intro: stripHTML(g(rule.intro)),
+            coverUrl: g(rule.coverUrl, isUrl: true),
+            kind: g(rule.kind),
+            tocUrl: analyzeRule.getRawString(rule.tocUrl)
+        )
     }
 
     // MARK: - 正文
@@ -246,6 +312,7 @@ public final class BookSourceRuntime {
             let baseUrl = resp.url.isEmpty ? au.url : resp.url
 
             let analyzeRule = makeAnalyzeRule()
+            analyzeRule.chapterUrl = url
             analyzeRule.setContent(body, baseUrl: baseUrl)
 
             let text = analyzeRule.getString(contentRule)

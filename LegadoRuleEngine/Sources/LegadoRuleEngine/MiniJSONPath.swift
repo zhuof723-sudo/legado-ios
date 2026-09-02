@@ -37,6 +37,7 @@ public enum MiniJSONPath {
         case slice(Int?, Int?)
         case wildcard
         case recursive(String?) // ..key 或 ..* / ..[*]
+        case filter(String)     // [?(@.field==value)] 过滤表达式
     }
 
     private static func tokenize(_ path: String) throws -> [Token] {
@@ -80,7 +81,10 @@ public enum MiniJSONPath {
                 }
                 i += 1 // 跳过 ]
                 let t = inner.trimmingCharacters(in: .whitespaces)
-                if t == "*" {
+                if t.hasPrefix("?("), t.hasSuffix(")") {
+                    let expr = String(t.dropFirst(2).dropLast())
+                    tokens.append(.filter(expr))
+                } else if t == "*" {
                     tokens.append(.wildcard)
                 } else if t.hasPrefix("'") || t.hasPrefix("\"") {
                     let key = t.trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
@@ -145,6 +149,12 @@ public enum MiniJSONPath {
                 }
             case .recursive(let key):
                 result.append(contentsOf: recursiveCollect(node, key: key))
+            case .filter(let expr):
+                if let arr = node as? [Any] {
+                    for item in arr where matchesFilter(item, expr) {
+                        result.append(item)
+                    }
+                }
             }
         }
         return result
@@ -168,5 +178,85 @@ public enum MiniJSONPath {
             }
         }
         return result
+    }
+
+    // MARK: - 过滤器 [?(@.field==value)] 支持
+
+    private static func matchesFilter(_ item: Any, _ expr: String) -> Bool {
+        let e = expr.trimmingCharacters(in: .whitespaces)
+        for op in ["==", "!="] {
+            if let r = e.range(of: op) {
+                let lhs = String(e[..<r.lowerBound]).trimmingCharacters(in: .whitespaces)
+                let rhs = String(e[r.upperBound...]).trimmingCharacters(in: .whitespaces)
+                let left = resolveField(item, lhs)
+                let right = parseLiteral(rhs)
+                let equal = areEqual(left, right)
+                return op == "==" ? equal : !equal
+            }
+        }
+        var field = e
+        var negate = false
+        if field.hasPrefix("!") {
+            negate = true
+            field = String(field.dropFirst())
+        }
+        let v = resolveField(item, field)
+        let t = truthy(v)
+        return negate ? !t : t
+    }
+
+    private static func resolveField(_ item: Any, _ path: String) -> Any? {
+        var p = path.trimmingCharacters(in: .whitespaces)
+        if p.hasPrefix("@") { p = String(p.dropFirst()) }
+        p = p.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        if p.isEmpty { return item }
+        let keys = p.split(separator: ".").map(String.init)
+        var cur: Any? = item
+        for k in keys {
+            if let dict = cur as? [String: Any] {
+                cur = dict[k]
+            } else {
+                return nil
+            }
+        }
+        return cur
+    }
+
+    private static func parseLiteral(_ s: String) -> Any? {
+        let t = s.trimmingCharacters(in: .whitespaces)
+        if (t.hasPrefix("\"") && t.hasSuffix("\"")) || (t.hasPrefix("'") && t.hasSuffix("'")) {
+            return String(t.dropFirst().dropLast())
+        }
+        if t == "true" { return true }
+        if t == "false" { return false }
+        if t == "null" { return nil }
+        if let i = Int(t) { return i }
+        if let d = Double(t) { return d }
+        return t
+    }
+
+    private static func truthy(_ v: Any?) -> Bool {
+        guard let v else { return false }
+        if let b = v as? Bool { return b }
+        if let n = v as? NSNumber { return n.doubleValue != 0 }
+        if let s = v as? String { return !s.isEmpty }
+        return true
+    }
+
+    private static func areEqual(_ a: Any?, _ b: Any?) -> Bool {
+        if let a = a as? String, let b = b as? String { return a == b }
+        if let a = a as? Bool, let b = b as? Bool { return a == b }
+        if let an = number(from: a), let bn = number(from: b) {
+            return an.doubleValue == bn.doubleValue
+        }
+        return "\(a ?? "")" == "\(b ?? "")"
+    }
+
+    private static func number(from v: Any?) -> NSNumber? {
+        if let n = v as? NSNumber { return n }
+        if let s = v as? String {
+            if let d = Double(s) { return NSNumber(value: d) }
+        }
+        return nil
     }
 }

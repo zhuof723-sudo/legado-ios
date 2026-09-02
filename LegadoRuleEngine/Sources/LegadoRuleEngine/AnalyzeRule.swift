@@ -164,6 +164,9 @@ public final class AnalyzeRule {
 
     public var bookName: String?
     public var chapterTitle: String?
+    /// JS 里 book.bookUrl / chapter.url 用到的上下文
+    public var bookUrl: String?
+    public var chapterUrl: String?
 
     // MARK: - 内部状态
 
@@ -274,6 +277,10 @@ public final class AnalyzeRule {
         context.setObject(baseUrl ?? "", forKeyedSubscript: "baseUrl" as NSString)
         context.setObject(bookName ?? "", forKeyedSubscript: "bookName" as NSString)
         context.setObject(chapterTitle ?? "", forKeyedSubscript: "title" as NSString)
+        var bookObj: [String: Any] = ["bookUrl": bookUrl ?? "", "name": bookName ?? ""]
+        if let baseUrl = baseUrl { bookObj["baseUrl"] = baseUrl }
+        context.setObject(bookObj, forKeyedSubscript: "book" as NSString)
+        context.setObject(["url": chapterUrl ?? "", "title": chapterTitle ?? ""], forKeyedSubscript: "chapter" as NSString)
         if let content = content {
             context.setObject(content, forKeyedSubscript: "src" as NSString)
         }
@@ -423,6 +430,20 @@ public final class AnalyzeRule {
         guard let ruleStr = ruleStr, !ruleStr.isEmpty else { return "" }
         let ruleList = splitSourceRuleCacheString(ruleStr)
         return getString(ruleList, mContent: mContent, isUrl: isUrl)
+    }
+
+    /// 取"字面字符串"规则结果：只做 {{...}} 求值，其余部分原样拼接，不做 CSS/JSONPath 解析。
+    /// 用于 tocUrl 这类本身就是 URL 模板的规则字段。
+    public func getRawString(_ ruleStr: String?, mContent: Any? = nil) -> String {
+        guard let ruleStr = ruleStr, !ruleStr.isEmpty else { return "" }
+        let ruleList = splitSourceRule(ruleStr)
+        var out = ""
+        let ctx = mContent ?? content
+        for sr in ruleList {
+            sr.makeUpRule(ctx)
+            out += sr.rule
+        }
+        return out
     }
 
     public func getString(

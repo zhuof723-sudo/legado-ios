@@ -167,7 +167,7 @@ struct SourceDebugView: View {
     private func debugDetail(_ runtime: BookSourceRuntime, _ source: BookSource, url: String) async {
         add("━━ 详情页 ━━", .header)
         add("详情页 URL: \(url)", .info)
-        add("注：本引擎未实现 ruleBookInfo 详情页解析，直接按目录页处理。若书源依赖详情页才能拿到目录链接，请改用「++目录URL」方式测。", .item)
+        add("引擎会解析 ruleBookInfo.tocUrl 拿到真正目录地址（若书源配置了 JSON 接口/独立目录页）。", .item)
         await debugToc(runtime, source, url: url)
     }
 

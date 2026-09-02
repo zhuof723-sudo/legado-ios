@@ -56,6 +56,8 @@ public final class AnalyzeUrl {
     private let speakSpeed: Int?
     private var infoMap: [String: String]?
     public weak var ruleData: RuleDataInterface?
+    /// JS 里 book.bookUrl 用到的上下文（用于 tocUrl 等 URL 模板里的 {{book.bookUrl...}}）
+    public var bookUrl: String?
     public var chapterVariableGet: ((String) -> String)?
     public var chapterVariablePut: ((String, String) -> Void)?
 
@@ -387,6 +389,7 @@ public final class AnalyzeUrl {
         context.setObject(speakText ?? "", forKeyedSubscript: "speakText" as NSString)
         context.setObject(speakSpeed ?? NSNull(), forKeyedSubscript: "speakSpeed" as NSString)
         context.setObject(infoMap ?? [:], forKeyedSubscript: "infoMap" as NSString)
+        context.setObject(["bookUrl": bookUrl ?? ""], forKeyedSubscript: "book" as NSString)
         if let result = result {
             context.setObject(result, forKeyedSubscript: "result" as NSString)
         }
