@@ -49,7 +49,7 @@ extension View {
         if #available(iOS 26.0, *) {
             self.glassEffect(.regular.interactive(), in: .circle)
         } else {
-            self.background(.regular.material, in: Circle())
+            self.background(.regularMaterial, in: Circle())
                 .shadow(color: Color.black.opacity(0.12), radius: 10, y: 4)
         }
     }
