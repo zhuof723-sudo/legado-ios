@@ -128,7 +128,7 @@ public final class AnalyzeByJSoup {
                     for rl in rs {
                         let es = Elements()
                         for et in current.array() {
-                            es.add(getElements(et, rl).array())
+                            for e in getElements(et, rl).array() { es.add(e) }
                         }
                         current = es
                     }
@@ -150,7 +150,7 @@ public final class AnalyzeByJSoup {
                     }
                 }
             } else {
-                for es in elementsList { elements.add(es.array()) }
+                for es in elementsList { for e in es.array() { elements.add(e) } }
             }
         }
         return elements
@@ -171,7 +171,7 @@ public final class AnalyzeByJSoup {
         for i in 0..<last {
             let es = Elements()
             for elt in elements.array() {
-                es.add(ElementsSingle().getElementsSingle(elt, rules[i]).array())
+                for e in ElementsSingle().getElementsSingle(elt, rules[i]).array() { es.add(e) }
             }
             elements = es
         }
@@ -354,7 +354,7 @@ public final class AnalyzeByJSoup {
                 let excluded = Set(indexSet)
                 let kept = all.enumerated().filter { !excluded.contains($0.offset) }.map { $0.element }
                 let es = Elements()
-                es.add(kept)
+                for e in kept { es.add(e) }
                 return es
             } else if split == "." {
                 let es = Elements()

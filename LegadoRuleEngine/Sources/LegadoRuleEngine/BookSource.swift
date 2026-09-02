@@ -237,6 +237,16 @@ public struct BookSource: Codable, Equatable {
 
     public init() {}
 
+    enum CodingKeys: String, CodingKey {
+        case bookSourceUrl, bookSourceName, bookSourceGroup, bookSourceType
+        case bookUrlPattern, customOrder, enabled, enabledExplore, jsLib
+        case enabledCookieJar, concurrentRate, header, loginUrl, loginUi
+        case loginCheckJs, coverDecodeJs, bookSourceComment, variableComment
+        case lastUpdateTime, respondTime, weight, exploreUrl, exploreScreen
+        case searchUrl, eventListener, customButton
+        case ruleExplore, ruleSearch, ruleBookInfo, ruleToc, ruleContent, ruleReview
+    }
+
     // 自定义解码：极少数书源文件里 ruleXxx 字段是"整个规则被再编码成一段JSON字符串"而不是JSON对象，
     // 这里两种形式都能吃（对应 Kotlin 里几个 rule 类各自注册的 jsonDeserializer）
     public init(from decoder: Decoder) throws {

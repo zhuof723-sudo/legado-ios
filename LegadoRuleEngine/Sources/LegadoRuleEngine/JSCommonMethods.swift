@@ -63,7 +63,7 @@ public enum JSCommonMethods {
 /// 对应 `java.createSymmetricCrypto("AES/CBC/PKCS5Padding", key, iv)` 这类调用，
 /// 返回一个支持 encrypt/decrypt/encryptBase64/decryptStr 的对象。
 /// 支持 AES / DES / 3DES，CBC/ECB 模式，PKCS7(=PKCS5)填充或不填充。
-@objc protocol SymmetricCryptoJSBridgeExport: JSExport {
+@objc public protocol SymmetricCryptoJSBridgeExport: JSExport {
     func encrypt(_ data: [Int]) -> [Int]
     func decrypt(_ data: [Int]) -> [Int]
     func encryptBase64(_ data: String) -> String
@@ -71,7 +71,7 @@ public enum JSCommonMethods {
     func decryptStr(_ data: JSValue) -> String
 }
 
-@objc final class SymmetricCryptoJSBridge: NSObject, SymmetricCryptoJSBridgeExport {
+@objc public final class SymmetricCryptoJSBridge: NSObject, SymmetricCryptoJSBridgeExport {
     private let algorithm: CCAlgorithm
     private let keyData: Data
     private let ivData: Data
@@ -133,24 +133,24 @@ public enum JSCommonMethods {
         return Data(outBuffer.prefix(outLength))
     }
 
-    func encrypt(_ data: [Int]) -> [Int] {
+    public func encrypt(_ data: [Int]) -> [Int] {
         let input = Data(data.map { UInt8(truncatingIfNeeded: $0) })
         guard let out = crypt(input, encrypt: true) else { return [] }
         return out.map { Int($0) }
     }
 
-    func decrypt(_ data: [Int]) -> [Int] {
+    public func decrypt(_ data: [Int]) -> [Int] {
         let input = Data(data.map { UInt8(truncatingIfNeeded: $0) })
         guard let out = crypt(input, encrypt: false) else { return [] }
         return out.map { Int($0) }
     }
 
-    func encryptBase64(_ data: String) -> String {
+    public func encryptBase64(_ data: String) -> String {
         guard let out = crypt(Data(data.utf8), encrypt: true) else { return "" }
         return out.base64EncodedString()
     }
 
-    func decryptStr(_ data: JSValue) -> String {
+    public func decryptStr(_ data: JSValue) -> String {
         var input: Data?
         if data.isString, let s = data.toString() {
             input = Data(base64Encoded: s) ?? Data(s.utf8)

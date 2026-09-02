@@ -32,7 +32,7 @@ public extension RuleDataInterface {
     func get(_ key: String) -> String
     func log(_ msg: String) -> String
     func ajax(_ url: String) -> String?
-    func ajaxAll(_ urls: [String]) -> [String?]
+    func ajaxAll(_ urls: [String]) -> [String]
     func base64Encode(_ s: String) -> String
     func base64Decode(_ s: String) -> String
     func base64DecodeToByteArray(_ s: String) -> [Int]
@@ -72,8 +72,8 @@ public extension RuleDataInterface {
     public func ajax(_ url: String) -> String? {
         rule?.ajaxEvaluator?(url)
     }
-    public func ajaxAll(_ urls: [String]) -> [String?] {
-        urls.map { rule?.ajaxEvaluator?($0) }
+    public func ajaxAll(_ urls: [String]) -> [String] {
+        urls.map { rule?.ajaxEvaluator?($0) ?? "" }
     }
     public func base64Encode(_ s: String) -> String { JSCommonMethods.base64Encode(s) }
     public func base64Decode(_ s: String) -> String { JSCommonMethods.base64Decode(s) }
@@ -634,15 +634,42 @@ public final class AnalyzeRule {
     }
 
     private static func unescapeHTML(_ s: String) -> String {
-        guard let data = s.data(using: .utf8) else { return s }
-        let options: [NSAttributedString.DocumentReadingOptionKey: Any] = [
-            .documentType: NSAttributedString.DocumentType.html,
-            .characterEncoding: String.Encoding.utf8.rawValue
+        var result = s
+        let named: [String: String] = [
+            "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": "\"",
+            "&#39;": "'", "&apos;": "'", "&nbsp;": " ", "&hellip;": "…",
+            "&mdash;": "—", "&ndash;": "–", "&ldquo;": "\u{201C}", "&rdquo;": "\u{201D}",
+            "&lsquo;": "\u{2018}", "&rsquo;": "\u{2019}", "&copy;": "©", "&reg;": "®"
         ]
-        if let attributed = try? NSAttributedString(data: data, options: options, documentAttributes: nil) {
-            return attributed.string
+        for (k, v) in named {
+            result = result.replacingOccurrences(of: k, with: v)
         }
-        return s
+        if result.contains("&#") {
+            let pattern = "&#(x[0-9a-fA-F]+|[0-9]+);"
+            if let regex = try? NSRegularExpression(pattern: pattern) {
+                let ns = result as NSString
+                let matches = regex.matches(in: result, range: NSRange(location: 0, length: ns.length))
+                var output = ""
+                var last = 0
+                for m in matches {
+                    output += ns.substring(with: NSRange(location: last, length: m.range.location - last))
+                    let raw = ns.substring(with: m.range(at: 1))
+                    var code: UInt32 = 0
+                    if raw.lowercased().hasPrefix("x") {
+                        code = UInt32(raw.dropFirst(), radix: 16) ?? 0
+                    } else {
+                        code = UInt32(raw) ?? 0
+                    }
+                    if let scalar = UnicodeScalar(code) {
+                        output += String(scalar)
+                    }
+                    last = m.range.location + m.range.length
+                }
+                output += ns.substring(from: last)
+                result = output
+            }
+        }
+        return result
     }
 
     /// 简化版绝对URL拼接（对应 Kotlin 的 NetworkUtils.getAbsoluteURL）

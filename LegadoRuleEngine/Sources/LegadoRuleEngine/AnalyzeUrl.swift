@@ -66,6 +66,8 @@ public final class AnalyzeUrl {
     public static var cookieStore: CookieStoring = InMemoryCookieStore.shared
     /// useWebView 命中时（urlOption里 "webView":true）如何取结果，需要注入真实 WKWebView 渲染实现
     public var webViewEvaluator: ((_ url: String, _ headerMap: [String: String], _ js: String?) async throws -> HTTPStrResponse)?
+    /// JS 里 java.ajax(url) 用到的网络层，需要注入
+    public var ajaxEvaluator: ((_ url: String) -> String?)?
     /// JS 里 java.xxx() 里除 put/get/log 外的能力，可在这里追加
     public var extraJSSetup: ((JSContext) -> Void)?
     /// 书源的公共JS库（BookSource.jsLib），每次 evalJS 都会先跑一遍
