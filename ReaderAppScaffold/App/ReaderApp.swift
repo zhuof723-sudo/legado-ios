@@ -7,7 +7,7 @@ struct ReaderApp: App {
         WindowGroup {
             RootView()
         }
-        .modelContainer(for: [BookSourceRecord.self, ShelfBook.self])
+        .modelContainer(for: [BookSourceRecord.self, ShelfBook.self, LocalBook.self])
     }
 }
 

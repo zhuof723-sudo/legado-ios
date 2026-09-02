@@ -1,18 +1,8 @@
 import Foundation
 
-/// 不对应 legado 里的某一个单独文件，是把 `BookSource` + `AnalyzeUrl` + `AnalyzeRule`
-/// 串起来的一层胶水代码（legado 里这部分逻辑分散在 WebBook.kt / BookChapterList.kt 等
-/// 多个协程任务类里，和 UI/数据库耦合较深，没有直接照抄的价值，这里按同样的规则驱动
-/// 思路重新写了一版最小可用实现）。
-///
-/// 定位：能直接跑通"搜索 -> 详情/目录 -> 正文"三步，可以当参考实现，
-/// 生产使用建议按需补：分页抓取更多搜索结果（用 AnalyzeUrl 的 page 参数）、
-/// 目录去重/本地缓存、错误重试、详情页(ruleBookInfo)解析（这里只做了搜索页/目录页/正文页，
-/// 详情页同理可以照抄 getToc 的写法加一个 getBookInfo）。
-/// 并发限流已接入：每次请求前都会按 `source.concurrentRate`（形如 "1/1000"）过一遍
-/// `SourceRateLimiter.shared`，同一书源不会无节制地并发/高频打请求。
-/// jsLib/source变量存储/cookie/常用java.*方法（base64、hex、时间格式化、对称加解密等）
-/// 都会自动注入进每次规则JS执行——书源不需要额外配置。
+/// 把 `BookSource` + `AnalyzeUrl` + `AnalyzeRule` 串起来的胶水层：
+/// 搜索 → 目录 → 正文 三步，并对齐 legado 原版的若干行为（目录倒序/去重/空链接兜底）。
+/// 每一步都写引擎日志，方便定位"搜得到但打不开"的问题。
 public struct SearchResult {
     public let name: String
     public let author: String
@@ -24,15 +14,19 @@ public struct SearchResult {
     public let wordCount: String
 }
 
-public struct ChapterInfo {
+public struct ChapterInfo: Equatable {
     public let name: String
     public let url: String
+
+    public init(name: String, url: String) {
+        self.name = name
+        self.url = url
+    }
 }
 
 public final class BookSourceRuntime {
     public let source: BookSource
 
-    /// 书源级别的持久变量+登录信息，不注入的话 `this.source.getVariable()` 等调用只会拿到空值
     public weak var sourceContext: SourceJSContext?
     public var toastHandler: ((_ msg: String) -> Void)?
     public var browserOpener: ((_ url: String, _ title: String?) -> Void)?
@@ -42,6 +36,8 @@ public final class BookSourceRuntime {
     public init(_ source: BookSource) {
         self.source = source
     }
+
+    // MARK: - 构造
 
     private func makeAnalyzeUrl(_ urlRule: String, key: String? = nil, page: Int? = nil) -> AnalyzeUrl {
         let au = AnalyzeUrl(
@@ -71,8 +67,7 @@ public final class BookSourceRuntime {
         return rule
     }
 
-    /// 解析请求头：`header` 字段除了直接是JSON对象字符串，也可能是 `@js:`/`<js>` 动态脚本
-    /// （常见于需要算签名/UA伪装的书源），这种情况下要真正跑一遍JS才能拿到最终的header字典
+    /// 解析请求头
     public func resolveHeaderMap() -> [String: String] {
         guard let header = source.header else { return [:] }
         let trimmed = header.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -101,8 +96,6 @@ public final class BookSourceRuntime {
         return result
     }
 
-    /// 同步阻塞版ajax，供 java.ajax()/java.ajaxAll() 在JS里调用（JS执行天然是同步的，
-    /// 这里用信号量把异步网络请求包成同步调用，legado原版Kotlin实现也是靠runBlocking做同样的事）
     private func blockingAjax(_ urlString: String) -> String? {
         guard let url = URL(string: urlString) else { return nil }
         let semaphore = DispatchSemaphore(value: 0)
@@ -118,36 +111,64 @@ public final class BookSourceRuntime {
         return resultText
     }
 
-    /// 搜索。只抓第一页，需要翻页的话给 page 传 1、2、3... （书源url规则里一般用 `<1,2,3>` 或 `{{page}}` 分页）
+    // MARK: - 搜索
+
     public func search(_ keyword: String, page: Int = 1) async throws -> [SearchResult] {
         guard let searchUrlRule = source.searchUrl, let rule = source.ruleSearch,
-              let listRule = rule.bookList else { return [] }
+              let listRule = rule.bookList else {
+            engineLog("书源缺少 searchUrl 或 ruleSearch.bookList，无法搜索", tag: source.bookSourceName, level: .warn)
+            return []
+        }
 
         let au = makeAnalyzeUrl(searchUrlRule, key: keyword, page: page)
+        engineLog("搜索请求: \(au.ruleUrl)", tag: source.bookSourceName)
         await SourceRateLimiter.shared.acquire(key: source.bookSourceUrl, concurrentRate: source.concurrentRate)
         let resp = try await au.getStrResponse()
+        guard let body = resp.body else {
+            engineLog("搜索响应为空", tag: source.bookSourceName, level: .error)
+            return []
+        }
+        engineLog("搜索响应 \(body.count) 字节 · 重定向 \(resp.url)", tag: source.bookSourceName)
 
         let analyzeRule = makeAnalyzeRule()
-        analyzeRule.setContent(resp.body ?? "", baseUrl: au.url)
+        analyzeRule.setContent(body, baseUrl: resp.url.isEmpty ? au.url : resp.url)
 
         let items = analyzeRule.getElements(listRule)
-        return items.map { item in
-            SearchResult(
-                name: analyzeRule.getString(rule.name, mContent: item),
+        engineLog("列表规则命中 \(items.count) 项", tag: source.bookSourceName)
+
+        return items.compactMap { item in
+            var bookUrl = analyzeRule.getString(rule.bookUrl, mContent: item, isUrl: true)
+            if bookUrl.isEmpty { bookUrl = resp.url.isEmpty ? au.url : resp.url }   // 空详情链接兜底
+            let name = analyzeRule.getString(rule.name, mContent: item)
+            if name.isEmpty { return nil }
+            return SearchResult(
+                name: name,
                 author: analyzeRule.getString(rule.author, mContent: item),
-                intro: analyzeRule.getString(rule.intro, mContent: item),
+                intro: stripHTML(analyzeRule.getString(rule.intro, mContent: item)),
                 kind: analyzeRule.getString(rule.kind, mContent: item),
                 lastChapter: analyzeRule.getString(rule.lastChapter, mContent: item),
-                bookUrl: analyzeRule.getString(rule.bookUrl, mContent: item, isUrl: true),
+                bookUrl: bookUrl,
                 coverUrl: analyzeRule.getString(rule.coverUrl, mContent: item, isUrl: true),
                 wordCount: analyzeRule.getString(rule.wordCount, mContent: item)
             )
         }
     }
 
-    /// 目录。会顺着 nextTocUrl 自动翻页，maxPages 防止规则写错导致死循环
+    // MARK: - 目录
+
     public func getToc(bookUrl: String, maxPages: Int = 50) async throws -> [ChapterInfo] {
-        guard let rule = source.ruleToc, let listRule = rule.chapterList else { return [] }
+        guard let rule = source.ruleToc else {
+            engineLog("书源缺少 ruleToc", tag: source.bookSourceName, level: .warn)
+            return []
+        }
+        var listRule = rule.chapterList ?? ""
+        guard !listRule.isEmpty else {
+            engineLog("书源缺少 ruleToc.chapterList", tag: source.bookSourceName, level: .warn)
+            return []
+        }
+        var reverse = false
+        if listRule.hasPrefix("-") { reverse = true; listRule = String(listRule.dropFirst()) }
+        else if listRule.hasPrefix("+") { listRule = String(listRule.dropFirst()) }
 
         var chapters: [ChapterInfo] = []
         var visited: Set<String> = []
@@ -159,16 +180,25 @@ public final class BookSourceRuntime {
             pageCount += 1
 
             let au = makeAnalyzeUrl(url)
+            engineLog("目录请求: \(au.ruleUrl)", tag: source.bookSourceName)
             await SourceRateLimiter.shared.acquire(key: source.bookSourceUrl, concurrentRate: source.concurrentRate)
             let resp = try await au.getStrResponse()
+            guard let body = resp.body else {
+                engineLog("目录响应为空: \(url)", tag: source.bookSourceName, level: .error)
+                break
+            }
+            let baseUrl = resp.url.isEmpty ? au.url : resp.url
 
             let analyzeRule = makeAnalyzeRule()
-            analyzeRule.setContent(resp.body ?? "", baseUrl: au.url)
+            analyzeRule.setContent(body, baseUrl: baseUrl)
 
             let items = analyzeRule.getElements(listRule)
+            engineLog("目录第 \(pageCount) 页命中 \(items.count) 章", tag: source.bookSourceName)
+
             for item in items {
                 let name = analyzeRule.getString(rule.chapterName, mContent: item)
-                let chapterUrl = analyzeRule.getString(rule.chapterUrl, mContent: item, isUrl: true)
+                var chapterUrl = analyzeRule.getString(rule.chapterUrl, mContent: item, isUrl: true)
+                if chapterUrl.isEmpty { chapterUrl = baseUrl }   // 空章节链接兜底
                 if !name.isEmpty { chapters.append(ChapterInfo(name: name, url: chapterUrl)) }
             }
 
@@ -179,12 +209,22 @@ public final class BookSourceRuntime {
                 currentUrl = nil
             }
         }
+
+        if !reverse { chapters.reverse() }
+        // 去重（按 url，保留先出现的）
+        var seen = Set<String>()
+        chapters = chapters.filter { seen.insert($0.url.isEmpty ? $0.name : $0.url).inserted }
+        engineLog("目录共 \(chapters.count) 章", tag: source.bookSourceName)
         return chapters
     }
 
-    /// 正文。会顺着 nextContentUrl 自动拼接分页正文（有些站点单章内容也是分页的）
+    // MARK: - 正文
+
     public func getContent(chapterUrl: String, maxPages: Int = 20) async throws -> String {
-        guard let rule = source.ruleContent, let contentRule = rule.content else { return "" }
+        guard let rule = source.ruleContent, let contentRule = rule.content else {
+            engineLog("书源缺少 ruleContent.content", tag: source.bookSourceName, level: .warn)
+            return ""
+        }
 
         var pieces: [String] = []
         var visited: Set<String> = []
@@ -196,11 +236,17 @@ public final class BookSourceRuntime {
             pageCount += 1
 
             let au = makeAnalyzeUrl(url)
+            engineLog("正文请求: \(au.ruleUrl)", tag: source.bookSourceName)
             await SourceRateLimiter.shared.acquire(key: source.bookSourceUrl, concurrentRate: source.concurrentRate)
             let resp = try await au.getStrResponse()
+            guard let body = resp.body else {
+                engineLog("正文响应为空: \(url)", tag: source.bookSourceName, level: .error)
+                break
+            }
+            let baseUrl = resp.url.isEmpty ? au.url : resp.url
 
             let analyzeRule = makeAnalyzeRule()
-            analyzeRule.setContent(resp.body ?? "", baseUrl: au.url)
+            analyzeRule.setContent(body, baseUrl: baseUrl)
 
             let text = analyzeRule.getString(contentRule)
             if !text.isEmpty { pieces.append(text) }
@@ -212,6 +258,23 @@ public final class BookSourceRuntime {
                 currentUrl = nil
             }
         }
-        return pieces.joined(separator: "\n")
+        let result = pieces.joined(separator: "\n")
+        engineLog("正文共 \(result.count) 字", tag: source.bookSourceName)
+        return result
+    }
+
+    // MARK: - 简单 HTML 去标签
+
+    private func stripHTML(_ s: String) -> String {
+        guard s.contains("<") else { return s }
+        return s
+            .replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: [.regularExpression])
+            .replacingOccurrences(of: "<[^>]+>", with: "", options: [.regularExpression])
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

@@ -88,6 +88,7 @@ public final class SearchViewModel {
                     }
                     results.append(contentsOf: tagged)
                 case .failure(let error):
+                    engineLog("搜索失败: \(error.localizedDescription)", tag: sourceName, level: .error)
                     errorMessages.append("\(sourceName): \(error.localizedDescription)")
                 }
             }

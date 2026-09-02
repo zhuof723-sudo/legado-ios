@@ -8,13 +8,17 @@ struct ShelfView: View {
     @Query(sort: [SortDescriptor(\ShelfBook.lastReadAt, order: .reverse)])
     private var books: [ShelfBook]
     @Query private var allSources: [BookSourceRecord]
+    @Query(sort: [SortDescriptor(\LocalBook.createdAt, order: .reverse)])
+    private var localBooks: [LocalBook]
 
     @State private var readerVM: ReaderViewModel?
     @State private var openBook: ShelfBook?
+    @State private var openLocal: LocalBook?
     @State private var headerCache = HeaderCacheBox()
     @State private var searchText = ""
     @State private var showImport = false
     @State private var showSourceList = false
+    @State private var showTxtImport = false
     @State private var sortByRecent = true
 
     private var recentBook: ShelfBook? {
@@ -41,13 +45,18 @@ struct ShelfView: View {
                 VStack(alignment: .leading, spacing: 20) {
                     header
                     searchBar
-                    if books.isEmpty {
+                    if books.isEmpty && localBooks.isEmpty {
                         emptyState
                     } else {
                         if let recent = recentBook {
                             recentCard(recent)
                         }
-                        shelfGrid
+                        if !localBooks.isEmpty {
+                            localSection
+                        }
+                        if !books.isEmpty {
+                            shelfGrid
+                        }
                     }
                 }
                 .padding(.horizontal, 16)
@@ -60,6 +69,10 @@ struct ShelfView: View {
             }
             .sheet(isPresented: $showImport) { ImportSourceView() }
             .sheet(isPresented: $showSourceList) { BookSourceListView() }
+            .sheet(isPresented: $showTxtImport) { TxtImportView() }
+            .fullScreenCover(item: $openLocal) { book in
+                LocalReaderView(book: book)
+            }
         }
     }
 
@@ -72,6 +85,7 @@ struct ShelfView: View {
             Menu {
                 Button { showSourceList = true } label: { Label("书源管理", systemImage: "tray.full") }
                 Button { showImport = true } label: { Label("导入书源", systemImage: "square.and.arrow.down") }
+                Button { showTxtImport = true } label: { Label("导入 TXT", systemImage: "doc.text") }
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 17, weight: .semibold))
@@ -112,6 +126,9 @@ struct ShelfView: View {
                 Button { showImport = true } label: { Label("导入书源", systemImage: "square.and.arrow.down") }
                     .prominentGlassButton()
                     .tint(Theme.accent)
+                Button { showTxtImport = true } label: { Label("导入 TXT", systemImage: "doc.text") }
+                    .plainGlassButton()
+                    .tint(.primary)
             }
             Spacer().frame(height: 120)
         }
@@ -148,6 +165,39 @@ struct ShelfView: View {
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.hairline, lineWidth: 0.5))
             }
             .buttonStyle(.plain)
+        }
+    }
+
+    // MARK: - 本地书籍
+
+    private var localSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("本地书籍").font(.headline)
+            ForEach(localBooks) { book in
+                Button { openLocal = book } label: {
+                    HStack(spacing: 12) {
+                        PlaceholderCover(title: book.name)
+                            .frame(width: 40, height: 54)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(book.name).font(.subheadline.bold()).foregroundStyle(.primary).lineLimit(1)
+                            Text("\(book.author) · \(TxtParser.decode(book.chaptersData).count) 章")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
+                    }
+                    .padding(12)
+                    .background(RoundedRectangle(cornerRadius: 14).fill(Color.white))
+                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.hairline, lineWidth: 0.5))
+                }
+                .buttonStyle(.plain)
+                .contextMenu {
+                    Button(role: .destructive) {
+                        context.delete(book)
+                        try? context.save()
+                    } label: { Label("删除", systemImage: "trash") }
+                }
+            }
         }
     }
 

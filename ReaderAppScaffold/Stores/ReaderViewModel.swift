@@ -30,6 +30,7 @@ public final class ReaderViewModel {
         do {
             chapters = try await runtime.getToc(bookUrl: bookUrl)
         } catch {
+            engineLog("获取目录失败: \(error.localizedDescription)", tag: "reader", level: .error)
             errorMessage = "获取目录失败: \(error.localizedDescription)"
         }
     }
@@ -69,6 +70,7 @@ public final class ReaderViewModel {
             currentContent = text
             prefetchNext()
         } catch {
+            engineLog("获取正文失败: \(error.localizedDescription)", tag: "reader", level: .error)
             errorMessage = "获取正文失败: \(error.localizedDescription)"
         }
     }

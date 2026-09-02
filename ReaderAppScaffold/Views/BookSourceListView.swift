@@ -1,7 +1,8 @@
 import SwiftUI
 import SwiftData
+import UIKit
 
-/// 书源管理：列表 + 搜索 + 批量删除 + 全部启用/停用（修复导入不显示 & 新增批量删除）
+/// 书源管理：列表 + 搜索 + 批量删除 + 全部启用/停用 + 长按打开书源主页/查看JSON
 struct BookSourceListView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: [SortDescriptor(\BookSourceRecord.customOrder), SortDescriptor(\BookSourceRecord.bookSourceName)])
@@ -12,6 +13,8 @@ struct BookSourceListView: View {
     @State private var selected = Set<String>()
     @State private var searchText = ""
     @State private var confirmDelete = false
+    @State private var showingRawJSON: BookSourceRecord?
+    @State private var showLog = false
 
     private var filtered: [BookSourceRecord] {
         guard !searchText.isEmpty else { return sources }
@@ -47,6 +50,12 @@ struct BookSourceListView: View {
             }
             .sheet(isPresented: $showImport) {
                 ImportSourceView()
+            }
+            .sheet(item: $showingRawJSON) { record in
+                RawJSONView(record: record)
+            }
+            .sheet(isPresented: $showLog) {
+                NavigationStack { LogView() }
             }
             .confirmationDialog("确定删除选中的 \(selected.count) 个书源？", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("删除 \(selected.count) 个", role: .destructive) { deleteSelected() }
@@ -92,6 +101,23 @@ struct BookSourceListView: View {
         .onTapGesture {
             if editing { toggleSelect(record) }
         }
+        .contextMenu {
+            if let url = URL(string: record.bookSourceUrl), !record.bookSourceUrl.isEmpty {
+                Link(destination: url) {
+                    Label("打开书源主页", systemImage: "safari")
+                }
+            }
+            Button {
+                showingRawJSON = record
+            } label: {
+                Label("查看原始 JSON", systemImage: "doc.text")
+            }
+            Button {
+                UIPasteboard.general.string = record.bookSourceUrl
+            } label: {
+                Label("复制地址", systemImage: "doc.on.doc")
+            }
+        }
     }
 
     private var emptyState: some View {
@@ -125,6 +151,11 @@ struct BookSourceListView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button { showLog = true } label: {
+                Image(systemName: "doc.text.magnifyingglass")
+            }
+        }
         ToolbarItem(placement: .primaryAction) {
             if editing {
                 Button("完成") {
@@ -206,5 +237,37 @@ struct BookSourceListView: View {
     private func setAllEnabled(_ enabled: Bool) {
         for r in sources { r.enabled = enabled }
         try? context.save()
+    }
+}
+
+/// 查看书源原始 JSON
+struct RawJSONView: View {
+    let record: BookSourceRecord
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                Text(record.rawJSON)
+                    .font(.system(.footnote, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+            }
+            .navigationTitle(record.bookSourceName)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { dismiss() }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        UIPasteboard.general.string = record.rawJSON
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                    }
+                }
+            }
+        }
     }
 }
