@@ -251,46 +251,75 @@ public struct BookSource: Codable, Equatable {
     // 这里两种形式都能吃（对应 Kotlin 里几个 rule 类各自注册的 jsonDeserializer）
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        bookSourceUrl = try c.decodeIfPresent(String.self, forKey: .bookSourceUrl) ?? ""
-        bookSourceName = try c.decodeIfPresent(String.self, forKey: .bookSourceName) ?? ""
-        bookSourceGroup = try c.decodeIfPresent(String.self, forKey: .bookSourceGroup)
-        bookSourceType = try c.decodeIfPresent(BookSourceType.self, forKey: .bookSourceType) ?? .text
-        bookUrlPattern = try c.decodeIfPresent(String.self, forKey: .bookUrlPattern)
-        customOrder = try c.decodeIfPresent(Int.self, forKey: .customOrder) ?? 0
-        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
-        enabledExplore = try c.decodeIfPresent(Bool.self, forKey: .enabledExplore) ?? true
-        jsLib = try c.decodeIfPresent(String.self, forKey: .jsLib)
-        enabledCookieJar = try c.decodeIfPresent(Bool.self, forKey: .enabledCookieJar) ?? true
-        concurrentRate = try c.decodeIfPresent(String.self, forKey: .concurrentRate)
-        header = try c.decodeIfPresent(String.self, forKey: .header)
-        loginUrl = try c.decodeIfPresent(String.self, forKey: .loginUrl)
-        loginUi = try c.decodeIfPresent(String.self, forKey: .loginUi)
-        loginCheckJs = try c.decodeIfPresent(String.self, forKey: .loginCheckJs)
-        coverDecodeJs = try c.decodeIfPresent(String.self, forKey: .coverDecodeJs)
-        bookSourceComment = try c.decodeIfPresent(String.self, forKey: .bookSourceComment)
-        variableComment = try c.decodeIfPresent(String.self, forKey: .variableComment)
-        lastUpdateTime = try c.decodeIfPresent(Int64.self, forKey: .lastUpdateTime) ?? 0
-        respondTime = try c.decodeIfPresent(Int64.self, forKey: .respondTime) ?? 180_000
-        weight = try c.decodeIfPresent(Int.self, forKey: .weight) ?? 0
-        exploreUrl = try c.decodeIfPresent(String.self, forKey: .exploreUrl)
-        exploreScreen = try c.decodeIfPresent(String.self, forKey: .exploreScreen)
-        searchUrl = try c.decodeIfPresent(String.self, forKey: .searchUrl)
-        eventListener = try c.decodeIfPresent(Bool.self, forKey: .eventListener) ?? false
-        customButton = try c.decodeIfPresent(Bool.self, forKey: .customButton) ?? false
 
-        ruleExplore = try Self.decodeFlexible(ExploreRule.self, c, .ruleExplore)
-        ruleSearch = try Self.decodeFlexible(SearchRule.self, c, .ruleSearch)
-        ruleBookInfo = try Self.decodeFlexible(BookInfoRule.self, c, .ruleBookInfo)
-        ruleToc = try Self.decodeFlexible(TocRule.self, c, .ruleToc)
-        ruleContent = try Self.decodeFlexible(ContentRule.self, c, .ruleContent)
-        ruleReview = try Self.decodeFlexible(ReviewRule.self, c, .ruleReview)
+        bookSourceUrl = Self.decode(c, .bookSourceUrl, "")
+        bookSourceName = Self.decode(c, .bookSourceName, "")
+        bookSourceGroup = Self.decodeOpt(c, .bookSourceGroup)
+        bookSourceType = Self.decode(c, .bookSourceType, .text)
+        bookUrlPattern = Self.decodeOpt(c, .bookUrlPattern)
+        customOrder = Self.decode(c, .customOrder, 0)
+        enabled = Self.decode(c, .enabled, true)
+        enabledExplore = Self.decode(c, .enabledExplore, true)
+        jsLib = Self.decodeOpt(c, .jsLib)
+        enabledCookieJar = Self.decodeOpt(c, .enabledCookieJar)
+        concurrentRate = Self.decodeOpt(c, .concurrentRate)
+        header = Self.decodeHeader(c, .header)
+        loginUrl = Self.decodeOpt(c, .loginUrl)
+        loginUi = Self.decodeOpt(c, .loginUi)
+        loginCheckJs = Self.decodeOpt(c, .loginCheckJs)
+        coverDecodeJs = Self.decodeOpt(c, .coverDecodeJs)
+        bookSourceComment = Self.decodeOpt(c, .bookSourceComment)
+        variableComment = Self.decodeOpt(c, .variableComment)
+        lastUpdateTime = Self.decode(c, .lastUpdateTime, 0)
+        respondTime = Self.decode(c, .respondTime, 180_000)
+        weight = Self.decode(c, .weight, 0)
+        exploreUrl = Self.decodeOpt(c, .exploreUrl)
+        exploreScreen = Self.decodeOpt(c, .exploreScreen)
+        searchUrl = Self.decodeOpt(c, .searchUrl)
+        eventListener = Self.decode(c, .eventListener, false)
+        customButton = Self.decode(c, .customButton, false)
+
+        ruleExplore = Self.decodeFlexible(ExploreRule.self, c, .ruleExplore)
+        ruleSearch = Self.decodeFlexible(SearchRule.self, c, .ruleSearch)
+        ruleBookInfo = Self.decodeFlexible(BookInfoRule.self, c, .ruleBookInfo)
+        ruleToc = Self.decodeFlexible(TocRule.self, c, .ruleToc)
+        ruleContent = Self.decodeFlexible(ContentRule.self, c, .ruleContent)
+        ruleReview = Self.decodeFlexible(ReviewRule.self, c, .ruleReview)
+    }
+
+    /// 宽容解码：单字段类型不符就回退默认值，避免一条书源因某个字段类型不对导致整包导入失败
+    private static func decode<T: Decodable>(
+        _ container: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys, _ fallback: T
+    ) -> T {
+        ((try? container.decodeIfPresent(T.self, forKey: key)) ?? nil) ?? fallback
+    }
+
+    private static func decodeOpt<T: Decodable>(
+        _ container: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys
+    ) -> T? {
+        (try? container.decodeIfPresent(T.self, forKey: key)) ?? nil
+    }
+
+    /// header 既可能是 JSON 字符串，也可能被某些导出工具序列化成对象，两种都吃
+    private static func decodeHeader(
+        _ container: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys
+    ) -> String? {
+        if let s = (try? container.decodeIfPresent(String.self, forKey: key)) ?? nil {
+            return s
+        }
+        if let obj = (try? container.decodeIfPresent([String: String].self, forKey: key)) ?? nil,
+           let data = try? JSONSerialization.data(withJSONObject: obj),
+           let s = String(data: data, encoding: .utf8) {
+            return s
+        }
+        return nil
     }
 
     private static func decodeFlexible<T: Decodable>(
         _ type: T.Type,
         _ container: KeyedDecodingContainer<CodingKeys>,
         _ key: CodingKeys
-    ) throws -> T? {
+    ) -> T? {
         if let obj = try? container.decodeIfPresent(T.self, forKey: key) {
             return obj
         }

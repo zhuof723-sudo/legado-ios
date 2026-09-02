@@ -6,24 +6,31 @@ import LegadoRuleEngine
 public final class BookSourceStore {
     private let context: ModelContext
     public private(set) var errorMessage: String?
+    public private(set) var skippedCount: Int = 0
 
     public init(context: ModelContext) {
         self.context = context
     }
 
-    /// 导入书源JSON（单个对象或数组都行），已存在同 bookSourceUrl 的会被覆盖更新
+    /// 导入书源JSON（单个对象或数组都行），已存在同 bookSourceUrl 的会被覆盖更新。
+    /// 返回实际导入（新增或覆盖）的数量；缺少 bookSourceUrl 的条目标记为 skippedCount。
     @discardableResult
     public func importSources(from jsonString: String) -> Int {
         errorMessage = nil
+        skippedCount = 0
         do {
             let sources = try BookSourceImporter.parse(jsonString)
             guard !sources.isEmpty else {
                 errorMessage = "没有解析出书源"
                 return 0
             }
+            var imported = 0
             for source in sources {
                 let url = source.bookSourceUrl
-                guard !url.isEmpty else { continue }
+                guard !url.isEmpty else {
+                    skippedCount += 1
+                    continue
+                }
 
                 let descriptor = FetchDescriptor<BookSourceRecord>(
                     predicate: #Predicate { $0.bookSourceUrl == url }
@@ -40,9 +47,13 @@ public final class BookSourceStore {
                     )
                     context.insert(record)
                 }
+                imported += 1
             }
             try context.save()
-            return sources.count
+            if imported == 0 {
+                errorMessage = "没有有效的书源（缺少 bookSourceUrl 字段）"
+            }
+            return imported
         } catch {
             errorMessage = "导入失败: \(error.localizedDescription)"
             return 0

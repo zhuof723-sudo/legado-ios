@@ -59,7 +59,7 @@ struct ShelfView: View {
                 ReaderView(viewModel: vm, bookUrl: openBook?.bookUrl ?? "", bookName: openBook?.name ?? "")
             }
             .sheet(isPresented: $showImport) { ImportSourceView() }
-            .sheet(isPresented: $showSourceList) { NavigationStack { BookSourceListView() } }
+            .sheet(isPresented: $showSourceList) { BookSourceListView() }
         }
     }
 

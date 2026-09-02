@@ -12,7 +12,7 @@ public final class ShelfBook {
     public var coverUrl: String
     public var lastChapterTitle: String
     public var lastReadChapterIndex: Int
-    public var totalChapters: Int
+    public var totalChapters: Int = 0
     public var lastReadChapterTitle: String?
     public var addedAt: Date
     public var lastReadAt: Date?

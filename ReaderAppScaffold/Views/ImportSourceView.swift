@@ -64,9 +64,13 @@ public struct ImportSourceView: View {
         if let err = store.errorMessage {
             resultMessage = err
         } else {
-            resultMessage = "成功导入 \(count) 个书源"
+            if store.skippedCount > 0 {
+                resultMessage = "成功导入 \(count) 个书源，跳过 \(store.skippedCount) 个（缺少 bookSourceUrl）"
+            } else {
+                resultMessage = "成功导入 \(count) 个书源"
+            }
             if count > 0 {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { dismiss() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { dismiss() }
             }
         }
     }
