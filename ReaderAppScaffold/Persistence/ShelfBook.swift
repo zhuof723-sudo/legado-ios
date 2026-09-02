@@ -12,6 +12,7 @@ public final class ShelfBook {
     public var coverUrl: String
     public var lastChapterTitle: String
     public var lastReadChapterIndex: Int
+    public var totalChapters: Int
     public var lastReadChapterTitle: String?
     public var addedAt: Date
     public var lastReadAt: Date?
@@ -28,6 +29,7 @@ public final class ShelfBook {
         self.coverUrl = coverUrl
         self.lastChapterTitle = lastChapterTitle
         self.lastReadChapterIndex = 0
+        self.totalChapters = 0
         self.lastReadChapterTitle = nil
         self.addedAt = Date()
         self.lastReadAt = nil

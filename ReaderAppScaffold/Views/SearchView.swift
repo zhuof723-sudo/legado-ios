@@ -2,20 +2,17 @@ import SwiftUI
 import SwiftData
 import LegadoRuleEngine
 
-public struct SearchView: View {
+/// 全局搜索页：跨书源并发搜索（从悬浮玻璃搜索按钮进入）
+struct SearchView: View {
+    @Environment(\.dismiss) private var dismiss
     @Query(sort: [SortDescriptor(\BookSourceRecord.bookSourceName)])
     private var allSources: [BookSourceRecord]
+
     @State private var viewModel: SearchViewModel?
     @State private var selectedResult: TaggedSearchResult?
-
-    public init() {}
+    @State private var headerCache = HeaderCacheBox()
 
     private var enabledSources: [BookSourceRecord] { allSources.filter { $0.enabled } }
-
-    /// 每个书源的请求头解析一次就缓存住，避免列表滚动时反复重新 decode JSON。
-    /// 用普通class而不是@State直接存字典，是为了避免在body求值过程中给@State赋值
-    /// (那样会触发"修改状态触发视图刷新"的问题，甚至死循环)——只mutate引用类型内部数据是安全的。
-    @State private var headerCache = HeaderCacheBox()
 
     private func headers(for result: TaggedSearchResult) -> [String: String] {
         if let cached = headerCache.storage[result.sourceUrl] { return cached }
@@ -25,66 +22,31 @@ public struct SearchView: View {
         return h
     }
 
-    public var body: some View {
+    var body: some View {
         NavigationStack {
             Group {
                 if let vm = viewModel {
-                    List {
-                        if !vm.errorMessages.isEmpty {
-                            Section("部分书源出错") {
-                                ForEach(vm.errorMessages, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary) }
-                            }
-                        }
-                        ForEach(vm.results) { result in
-                            Button { selectedResult = result } label: {
-                                HStack(alignment: .top, spacing: 12) {
-                                    CoverImageView(url: result.coverUrl, headers: headers(for: result))
-                                        .frame(width: 52, height: 72)
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(result.name).font(.headline)
-                                        Text("\(result.author) · \(result.sourceName)")
-                                            .font(.caption).foregroundStyle(.secondary)
-                                        if !result.lastChapter.isEmpty {
-                                            Text(result.lastChapter).font(.caption2).foregroundStyle(.tertiary)
-                                        }
-                                    }
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
-
-                        if !vm.results.isEmpty, !vm.reachedEnd {
-                            HStack {
-                                Spacer()
-                                if vm.isLoadingMore {
-                                    ProgressView()
-                                } else {
-                                    Button("加载更多") { Task { await vm.loadMore() } }
-                                        .font(.footnote)
-                                }
-                                Spacer()
-                            }
-                            .onAppear {
-                                // 滑到底自动加载下一页，不用非得点按钮
-                                Task { await vm.loadMore() }
-                            }
-                        }
-                    }
-                    .overlay {
-                        if vm.isSearching { ProgressView("搜索中…") }
-                        else if vm.results.isEmpty, !vm.keyword.isEmpty {
-                            ContentUnavailableView.search
-                        }
-                    }
+                    resultList(vm)
                 } else {
-                    ContentUnavailableView("没有启用的书源", systemImage: "magnifyingglass")
+                    noSourcesView
                 }
             }
+            .background(Theme.bg.ignoresSafeArea())
             .navigationTitle("搜索")
-            .searchable(text: Binding(
-                get: { viewModel?.keyword ?? "" },
-                set: { viewModel?.keyword = $0 }
-            ))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { dismiss() }
+                }
+            }
+            .searchable(
+                text: Binding(
+                    get: { viewModel?.keyword ?? "" },
+                    set: { viewModel?.keyword = $0 }
+                ),
+                placement: .navigationBarDrawer(displayMode: .always),
+                prompt: "搜索书籍 / 作者"
+            )
             .onSubmit(of: .search) {
                 Task { await viewModel?.search() }
             }
@@ -94,11 +56,86 @@ public struct SearchView: View {
                 }
             }
             .sheet(item: $selectedResult) { result in
-                if let record = allSources.first(where: { $0.bookSourceUrl == result.sourceUrl }),
+                if let record = enabledSources.first(where: { $0.bookSourceUrl == result.sourceUrl }),
                    let source = record.decodeSource() {
-                    BookDetailView(source: source, bookUrl: result.bookUrl, name: result.name, author: result.author, intro: result.intro, coverUrl: result.coverUrl)
+                    BookDetailView(source: source, bookUrl: result.bookUrl, name: result.name,
+                                   author: result.author, intro: result.intro, coverUrl: result.coverUrl)
                 }
             }
         }
+    }
+
+    private var noSourcesView: some View {
+        ContentUnavailableView("没有启用的书源", systemImage: "magnifyingglass",
+                               description: Text("先到 设置 → 书源管理 导入并启用书源"))
+    }
+
+    @ViewBuilder
+    private func resultList(_ vm: SearchViewModel) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                if vm.isSearching {
+                    HStack { Spacer(); ProgressView("搜索中…"); Spacer() }.padding(.top, 30)
+                }
+                if !vm.errorMessages.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("部分书源出错").font(.caption.bold()).foregroundStyle(.secondary)
+                        ForEach(vm.errorMessages, id: \.self) {
+                            Text($0).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                        }
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.7)))
+                }
+                ForEach(vm.results) { result in
+                    resultRow(result)
+                }
+                if !vm.results.isEmpty, !vm.reachedEnd {
+                    HStack {
+                        Spacer()
+                        if vm.isLoadingMore {
+                            ProgressView()
+                        } else {
+                            Button("加载更多") { Task { await vm.loadMore() } }
+                                .font(.footnote).foregroundStyle(Theme.accent)
+                        }
+                        Spacer()
+                    }
+                    .padding(.vertical, 8)
+                    .onAppear { Task { await vm.loadMore() } }
+                }
+                if !vm.isSearching, vm.results.isEmpty, !vm.keyword.isEmpty {
+                    ContentUnavailableView.search
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 30)
+        }
+    }
+
+    private func resultRow(_ result: TaggedSearchResult) -> some View {
+        Button { selectedResult = result } label: {
+            HStack(alignment: .top, spacing: 12) {
+                SmartCover(url: result.coverUrl, title: result.name, headers: headers(for: result))
+                    .frame(width: 52, height: 72)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(result.name).font(.subheadline.bold()).foregroundStyle(.primary).lineLimit(1)
+                    Text("\(result.author) · \(result.sourceName)")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    if !result.intro.isEmpty {
+                        Text(result.intro).font(.caption2).foregroundStyle(.tertiary).lineLimit(2)
+                    }
+                    if !result.lastChapter.isEmpty {
+                        Text(result.lastChapter).font(.caption2).foregroundStyle(Theme.accent.opacity(0.8)).lineLimit(1)
+                    }
+                }
+                Spacer()
+            }
+            .padding(12)
+            .background(RoundedRectangle(cornerRadius: 14).fill(Color.white))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.hairline, lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
     }
 }
