@@ -69,7 +69,7 @@ struct BookSourceListView: View {
             .sheet(isPresented: $showImport) { ImportSourceView() }
             .sheet(isPresented: $showUrlImport) { UrlImportView() }
             .sheet(isPresented: $showLog) { NavigationStack { LogView() } }
-            .sheet(item: $testingSource) { SourceTestView(record: $0) }
+            .sheet(item: $testingSource) { SourceDebugView(record: $0) }
             .sheet(item: $editingSource) { SourceEditView(record: $0) }
             .sheet(item: $loginSource) { SourceLoginView(record: $0) }
             .fileExporter(isPresented: $showExporter, document: exportDoc, contentType: .json, defaultFilename: exportName) { _ in }
