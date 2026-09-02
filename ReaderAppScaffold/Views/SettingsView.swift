@@ -289,13 +289,15 @@ struct AboutPage: View {
 struct FeedbackPage: View {
     var body: some View {
         List {
-            Section("反馈渠道") {
+            Section {
                 if let url = URL(string: "https://github.com/zhuof723-sudo/legado-ios/issues") {
                     Link(destination: url) {
                         Label("GitHub Issues", systemImage: "safari")
                     }
                     .tint(Theme.accent)
                 }
+            } header: {
+                Text("反馈渠道")
             } footer: {
                 Text("编译问题、书源兼容性、UI 建议都欢迎提交。")
             }

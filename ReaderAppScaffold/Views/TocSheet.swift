@@ -38,10 +38,18 @@ struct TocSheet: View {
         }
     }
 
-    private var searchedChapters: [(Int, ChapterInfo)] {
+    private struct ChapterRow: Identifiable {
+        let index: Int
+        let chapter: ChapterInfo
+        var id: String { chapter.url }
+    }
+
+    private var searchedChapters: [ChapterRow] {
         let all = Array(viewModel.chapters.enumerated())
-        guard !tocSearch.isEmpty else { return all }
-        return all.filter { $0.element.name.localizedCaseInsensitiveContains(tocSearch) }
+        let filtered = tocSearch.isEmpty
+            ? all
+            : all.filter { $0.element.name.localizedCaseInsensitiveContains(tocSearch) }
+        return filtered.map { ChapterRow(index: $0.offset, chapter: $0.element) }
     }
 
     private var tocList: some View {
@@ -56,7 +64,9 @@ struct TocSheet: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
 
-            List(searchedChapters, id: \.element.url) { idx, chapter in
+            List(searchedChapters) { row in
+                let idx = row.index
+                let chapter = row.chapter
                 Button {
                     Task {
                         await viewModel.openChapter(at: idx)
@@ -66,12 +76,12 @@ struct TocSheet: View {
                     HStack {
                         Text(chapter.name)
                             .font(.subheadline)
-                            .foregroundStyle(idx == viewModel.currentIndex ? Theme.accent : .primary)
+                            .foregroundStyle(idx == viewModel.currentIndex ? Theme.accent : Color.primary)
                             .lineLimit(1)
                         Spacer()
                         Text("\(idx + 1)/\(viewModel.chapters.count)")
                             .font(.caption2)
-                            .foregroundStyle(idx == viewModel.currentIndex ? Theme.accent : .tertiary)
+                            .foregroundStyle(idx == viewModel.currentIndex ? Theme.accent : Color(.tertiaryLabel))
                         if idx == viewModel.currentIndex {
                             Image(systemName: "chevron.right").font(.caption2).foregroundStyle(Theme.accent)
                         }

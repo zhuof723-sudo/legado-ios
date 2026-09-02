@@ -38,7 +38,7 @@ extension View {
                 self.glassEffect(.regular, in: shape)
             }
         } else {
-            self.background(.regular.material, in: shape)
+            self.background(.regularMaterial, in: shape)
                 .overlay(shape.stroke(Theme.hairline, lineWidth: 0.5))
         }
     }
