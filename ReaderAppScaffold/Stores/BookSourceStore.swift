@@ -38,12 +38,12 @@ public final class BookSourceStore {
                 if let existing = try context.fetch(descriptor).first {
                     existing.bookSourceName = source.bookSourceName
                     existing.bookSourceGroup = source.bookSourceGroup
-                    existing.rawJSON = Self.encodeSingle(source) ?? existing.rawJSON
+                    existing.rawJSON = Self.extractOriginalJSON(for: source, from: jsonString) ?? existing.rawJSON
                     existing.enabled = source.enabled
                 } else {
                     let record = BookSourceRecord(
                         source: source,
-                        rawJSON: Self.encodeSingle(source) ?? jsonString
+                        rawJSON: Self.extractOriginalJSON(for: source, from: jsonString) ?? jsonString
                     )
                     context.insert(record)
                 }
@@ -81,8 +81,22 @@ public final class BookSourceStore {
         fetchAll().filter { $0.enabled }
     }
 
-    private static func encodeSingle(_ source: BookSource) -> String? {
-        guard let data = try? JSONEncoder().encode(source) else { return nil }
-        return String(data: data, encoding: .utf8)
+    /// 从导入的原始 JSON 里，取出「对应某个书源」的原始对象文本（保留原始字段与格式），
+    /// 避免用 Swift 重编码后丢掉模型外的字段。单个对象原样返回，数组则找到对应元素再序列化。
+    private static func extractOriginalJSON(for source: BookSource, from jsonString: String) -> String? {
+        guard let data = jsonString.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) else { return nil }
+
+        if let array = obj as? [[String: Any]] {
+            if let elem = array.first(where: { ($0["bookSourceUrl"] as? String) == source.bookSourceUrl }),
+               let d = try? JSONSerialization.data(withJSONObject: elem, options: [.prettyPrinted]),
+               let s = String(data: d, encoding: .utf8) {
+                return s
+            }
+        } else if let dict = obj as? [String: Any],
+                  (dict["bookSourceUrl"] as? String) == source.bookSourceUrl {
+            return jsonString.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return nil
     }
 }
