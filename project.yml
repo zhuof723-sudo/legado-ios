@@ -1,0 +1,45 @@
+name: Legado
+options:
+  bundleIdPrefix: com.BYEh
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+targets:
+  Legado:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: ReaderAppScaffold
+        excludes:
+          - README.md
+    dependencies:
+      - package: LegadoRuleEngine
+    info:
+      path: Legado/Info.plist
+      properties:
+        CFBundleDisplayName: Legado
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        ITSAppUsesNonExemptEncryption: false
+        LSRequiresIPhoneOS: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.BYEh.eNbcVl2
+        CODE_SIGN_STYLE: Manual
+        DEVELOPMENT_TEAM: VQZ3BY5QXK
+        CODE_SIGN_IDENTITY: "Apple Distribution: Miwok Onik (VQZ3BY5QXK)"
+        PROVISIONING_PROFILE_SPECIFIER: EAkqM
+        TARGETED_DEVICE_FAMILY: "1"
+packages:
+  LegadoRuleEngine:
+    path: LegadoRuleEngine
