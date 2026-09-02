@@ -73,6 +73,8 @@ public struct ShelfView: View {
     }
 }
 
-extension ReaderViewModel: Identifiable {
+extension ReaderViewModel: Identifiable, Hashable {
     public var id: ObjectIdentifier { ObjectIdentifier(self) }
+    public static func == (lhs: ReaderViewModel, rhs: ReaderViewModel) -> Bool { lhs === rhs }
+    public func hash(into hasher: inout Hasher) { hasher.combine(ObjectIdentifier(self)) }
 }
