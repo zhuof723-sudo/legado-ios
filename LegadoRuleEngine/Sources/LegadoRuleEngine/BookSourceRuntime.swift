@@ -116,25 +116,25 @@ public final class BookSourceRuntime {
     public func search(_ keyword: String, page: Int = 1) async throws -> [SearchResult] {
         guard let searchUrlRule = source.searchUrl, let rule = source.ruleSearch,
               let listRule = rule.bookList else {
-            engineLog("书源缺少 searchUrl 或 ruleSearch.bookList，无法搜索", tag: source.bookSourceName, level: .warn)
+            EngineLogger.log("书源缺少 searchUrl 或 ruleSearch.bookList，无法搜索", tag: source.bookSourceName, level: .warn)
             return []
         }
 
         let au = makeAnalyzeUrl(searchUrlRule, key: keyword, page: page)
-        engineLog("搜索请求: \(au.ruleUrl)", tag: source.bookSourceName)
+        EngineLogger.log("搜索请求: \(au.ruleUrl)", tag: source.bookSourceName)
         await SourceRateLimiter.shared.acquire(key: source.bookSourceUrl, concurrentRate: source.concurrentRate)
         let resp = try await au.getStrResponse()
         guard let body = resp.body else {
-            engineLog("搜索响应为空", tag: source.bookSourceName, level: .error)
+            EngineLogger.log("搜索响应为空", tag: source.bookSourceName, level: .error)
             return []
         }
-        engineLog("搜索响应 \(body.count) 字节 · 重定向 \(resp.url)", tag: source.bookSourceName)
+        EngineLogger.log("搜索响应 \(body.count) 字节 · 重定向 \(resp.url)", tag: source.bookSourceName)
 
         let analyzeRule = makeAnalyzeRule()
         analyzeRule.setContent(body, baseUrl: resp.url.isEmpty ? au.url : resp.url)
 
         let items = analyzeRule.getElements(listRule)
-        engineLog("列表规则命中 \(items.count) 项", tag: source.bookSourceName)
+        EngineLogger.log("列表规则命中 \(items.count) 项", tag: source.bookSourceName)
 
         return items.compactMap { item in
             var bookUrl = analyzeRule.getString(rule.bookUrl, mContent: item, isUrl: true)
@@ -158,12 +158,12 @@ public final class BookSourceRuntime {
 
     public func getToc(bookUrl: String, maxPages: Int = 50) async throws -> [ChapterInfo] {
         guard let rule = source.ruleToc else {
-            engineLog("书源缺少 ruleToc", tag: source.bookSourceName, level: .warn)
+            EngineLogger.log("书源缺少 ruleToc", tag: source.bookSourceName, level: .warn)
             return []
         }
         var listRule = rule.chapterList ?? ""
         guard !listRule.isEmpty else {
-            engineLog("书源缺少 ruleToc.chapterList", tag: source.bookSourceName, level: .warn)
+            EngineLogger.log("书源缺少 ruleToc.chapterList", tag: source.bookSourceName, level: .warn)
             return []
         }
         var reverse = false
@@ -180,11 +180,11 @@ public final class BookSourceRuntime {
             pageCount += 1
 
             let au = makeAnalyzeUrl(url)
-            engineLog("目录请求: \(au.ruleUrl)", tag: source.bookSourceName)
+            EngineLogger.log("目录请求: \(au.ruleUrl)", tag: source.bookSourceName)
             await SourceRateLimiter.shared.acquire(key: source.bookSourceUrl, concurrentRate: source.concurrentRate)
             let resp = try await au.getStrResponse()
             guard let body = resp.body else {
-                engineLog("目录响应为空: \(url)", tag: source.bookSourceName, level: .error)
+                EngineLogger.log("目录响应为空: \(url)", tag: source.bookSourceName, level: .error)
                 break
             }
             let baseUrl = resp.url.isEmpty ? au.url : resp.url
@@ -193,7 +193,7 @@ public final class BookSourceRuntime {
             analyzeRule.setContent(body, baseUrl: baseUrl)
 
             let items = analyzeRule.getElements(listRule)
-            engineLog("目录第 \(pageCount) 页命中 \(items.count) 章", tag: source.bookSourceName)
+            EngineLogger.log("目录第 \(pageCount) 页命中 \(items.count) 章", tag: source.bookSourceName)
 
             for item in items {
                 let name = analyzeRule.getString(rule.chapterName, mContent: item)
@@ -214,7 +214,7 @@ public final class BookSourceRuntime {
         // 去重（按 url，保留先出现的）
         var seen = Set<String>()
         chapters = chapters.filter { seen.insert($0.url.isEmpty ? $0.name : $0.url).inserted }
-        engineLog("目录共 \(chapters.count) 章", tag: source.bookSourceName)
+        EngineLogger.log("目录共 \(chapters.count) 章", tag: source.bookSourceName)
         return chapters
     }
 
@@ -222,7 +222,7 @@ public final class BookSourceRuntime {
 
     public func getContent(chapterUrl: String, maxPages: Int = 20) async throws -> String {
         guard let rule = source.ruleContent, let contentRule = rule.content else {
-            engineLog("书源缺少 ruleContent.content", tag: source.bookSourceName, level: .warn)
+            EngineLogger.log("书源缺少 ruleContent.content", tag: source.bookSourceName, level: .warn)
             return ""
         }
 
@@ -236,11 +236,11 @@ public final class BookSourceRuntime {
             pageCount += 1
 
             let au = makeAnalyzeUrl(url)
-            engineLog("正文请求: \(au.ruleUrl)", tag: source.bookSourceName)
+            EngineLogger.log("正文请求: \(au.ruleUrl)", tag: source.bookSourceName)
             await SourceRateLimiter.shared.acquire(key: source.bookSourceUrl, concurrentRate: source.concurrentRate)
             let resp = try await au.getStrResponse()
             guard let body = resp.body else {
-                engineLog("正文响应为空: \(url)", tag: source.bookSourceName, level: .error)
+                EngineLogger.log("正文响应为空: \(url)", tag: source.bookSourceName, level: .error)
                 break
             }
             let baseUrl = resp.url.isEmpty ? au.url : resp.url
@@ -259,7 +259,7 @@ public final class BookSourceRuntime {
             }
         }
         let result = pieces.joined(separator: "\n")
-        engineLog("正文共 \(result.count) 字", tag: source.bookSourceName)
+        EngineLogger.log("正文共 \(result.count) 字", tag: source.bookSourceName)
         return result
     }
 

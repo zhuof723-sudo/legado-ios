@@ -1,8 +1,17 @@
 import SwiftUI
 import SwiftData
+import LegadoRuleEngine
 
 @main
 struct ReaderApp: App {
+    init() {
+        // 把引擎日志接到 App 的 LogStore
+        EngineLogger.sink = { lvl, tag, msg in
+            let level: LogLevel = lvl == .error ? .error : (lvl == .warn ? .warn : .info)
+            Task { @MainActor in LogStore.shared.log(msg, tag: tag, level: level) }
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()
