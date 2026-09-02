@@ -100,7 +100,7 @@ struct ShelfView: View {
 
     private var emptyState: some View {
         VStack(spacing: 14) {
-            Spacer(minHeight: 80)
+            Spacer().frame(height: 80)
             Image(systemName: "books.vertical")
                 .font(.system(size: 52, weight: .light))
                 .foregroundStyle(Theme.accent.opacity(0.85))
@@ -113,7 +113,7 @@ struct ShelfView: View {
                     .prominentGlassButton()
                     .tint(Theme.accent)
             }
-            Spacer(minHeight: 120)
+            Spacer().frame(height: 120)
         }
         .frame(maxWidth: .infinity)
     }

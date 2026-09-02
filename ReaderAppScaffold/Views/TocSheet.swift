@@ -1,4 +1,5 @@
 import SwiftUI
+import LegadoRuleEngine
 
 /// 目录/书签 弹层（对照设计稿：分段标签 + 章节列表 + 当前章高亮）
 struct TocSheet: View {

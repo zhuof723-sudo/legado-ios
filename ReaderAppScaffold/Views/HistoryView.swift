@@ -94,12 +94,12 @@ struct HistoryView: View {
 
     private var emptyState: some View {
         VStack(spacing: 14) {
-            Spacer(minHeight: 90)
+            Spacer().frame(height: 90)
             Image(systemName: "clock.arrow.circlepath")
                 .font(.system(size: 46, weight: .light))
                 .foregroundStyle(.secondary)
             Text("暂无阅读记录").font(.headline).foregroundStyle(.secondary)
-            Spacer(minHeight: 120)
+            Spacer().frame(height: 120)
         }
         .frame(maxWidth: .infinity)
     }
