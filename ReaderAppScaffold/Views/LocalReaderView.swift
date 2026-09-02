@@ -1,7 +1,9 @@
 import SwiftUI
 import UIKit
 
-/// 本地 TXT 阅读器：复用 TextPaginator 真分页，支持左右滑动 + 点击分区翻页
+/// 本地 TXT 阅读器：复用 TextPaginator 真分页。
+/// 翻页用一个 `DragGesture(minimumDistance:0)` 同时处理「点击分区」和「左右滑动」，
+/// 避免多层手势互相干扰导致翻不动页。
 struct LocalReaderView: View {
     @Environment(\.dismiss) private var dismiss
     let bookName: String
@@ -13,7 +15,6 @@ struct LocalReaderView: View {
     @State private var pageIndex = 0
     @State private var showControls = false
     @State private var showToc = false
-    @State private var pageSizeState: CGSize = .zero
 
     private let hPadding: CGFloat = 20
     private let tPadding: CGFloat = 56
@@ -34,13 +35,25 @@ struct LocalReaderView: View {
 
             ZStack {
                 Theme.readerBackgrounds[1].ignoresSafeArea()
-                content(pageSize: pageSize, key: key)
-                tapZones
+
+                if paginatedForKey == key, pageIndex < pages.count {
+                    Text(pages[pageIndex])
+                        .font(.system(size: fontSize))
+                        .lineSpacing(8)
+                        .foregroundStyle(Theme.readerTextColors[1])
+                        .frame(width: pageSize.width, height: pageSize.height, alignment: .topLeading)
+                        .frame(maxWidth: .infinity, alignment: .top)
+                        .contentShape(Rectangle())
+                        .gesture(DragGesture(minimumDistance: 0).onEnded { value in
+                            handleGesture(value, screenWidth: geo.size.width)
+                        })
+                } else {
+                    ProgressView()
+                }
+
                 chrome
             }
-            .onAppear { pageSizeState = pageSize }
             .task(id: key) {
-                pageSizeState = pageSize
                 await repaginate(key: key, pageSize: pageSize)
             }
         }
@@ -78,32 +91,22 @@ struct LocalReaderView: View {
         }
     }
 
-    @ViewBuilder
-    private func content(pageSize: CGSize, key: String) -> some View {
-        if paginatedForKey == key, !pages.isEmpty {
-            TabView(selection: $pageIndex) {
-                ForEach(pages.indices, id: \.self) { i in
-                    Text(pages[i])
-                        .font(.system(size: fontSize))
-                        .lineSpacing(8)
-                        .foregroundStyle(Theme.readerTextColors[1])
-                        .frame(width: pageSize.width, height: pageSize.height, alignment: .topLeading)
-                        .tag(i)
-                }
-            }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-        } else {
-            ProgressView()
-        }
-    }
+    // MARK: - 手势：滑动距离够大按方向翻页，否则按点击位置分区
 
-    private var tapZones: some View {
-        HStack(spacing: 0) {
-            Color.clear.onTapGesture { prevPage() }
-            Color.clear.onTapGesture { withAnimation { showControls.toggle() } }
-            Color.clear.onTapGesture { nextPage() }
+    private func handleGesture(_ value: DragGesture.Value, screenWidth: CGFloat) {
+        let dx = value.translation.width
+        if abs(dx) > 60 {
+            if dx < 0 { nextPage() } else { prevPage() }
+            return
         }
-        .contentShape(Rectangle())
+        let x = value.location.x
+        if x < screenWidth * 0.3 {
+            prevPage()
+        } else if x > screenWidth * 0.7 {
+            nextPage()
+        } else {
+            withAnimation { showControls.toggle() }
+        }
     }
 
     private var chrome: some View {
@@ -153,10 +156,18 @@ struct LocalReaderView: View {
 
     private func nextPage() {
         guard !pages.isEmpty else { return }
-        if pageIndex + 1 < pages.count { pageIndex += 1 } else { viewModel.nextChapter() }
+        if pageIndex + 1 < pages.count {
+            pageIndex += 1
+        } else {
+            viewModel.nextChapter()
+        }
     }
     private func prevPage() {
-        if pageIndex > 0 { pageIndex -= 1 } else { viewModel.prevChapter() }
+        if pageIndex > 0 {
+            pageIndex -= 1
+        } else {
+            viewModel.prevChapter()
+        }
     }
 
     private func repaginate(key: String, pageSize: CGSize) async {
