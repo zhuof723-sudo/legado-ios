@@ -16,6 +16,13 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      - name: Select latest Xcode
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
+          echo "Selecting $XCODE"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+
       - name: Generate Xcode project
         run: xcodegen generate
 
