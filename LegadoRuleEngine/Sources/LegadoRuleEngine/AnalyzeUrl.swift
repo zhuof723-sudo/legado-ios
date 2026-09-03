@@ -58,6 +58,8 @@ public final class AnalyzeUrl {
     public weak var ruleData: RuleDataInterface?
     /// JS 里 book.bookUrl 用到的上下文（用于 tocUrl 等 URL 模板里的 {{book.bookUrl...}}）
     public var bookUrl: String?
+    /// JS 里 source.getKey() 返回的书源地址
+    public var sourceKey: String?
     public var chapterVariableGet: ((String) -> String)?
     public var chapterVariablePut: ((String, String) -> Void)?
 
@@ -70,6 +72,8 @@ public final class AnalyzeUrl {
     public var webViewEvaluator: ((_ url: String, _ headerMap: [String: String], _ js: String?) async throws -> HTTPStrResponse)?
     /// JS 里 java.ajax(url) 用到的网络层，需要注入
     public var ajaxEvaluator: ((_ url: String) -> String?)?
+    /// JS 里 java.post(url, body, headers) 用到的网络层，需要注入
+    public var postEvaluator: ((_ url: String, _ body: String, _ headers: [String: String]) -> JSStrResponse?)?
     /// JS 里 java.xxx() 里除 put/get/log 外的能力，可在这里追加
     public var extraJSSetup: ((JSContext) -> Void)?
     /// 书源的公共JS库（BookSource.jsLib），每次 evalJS 都会先跑一遍
@@ -381,7 +385,7 @@ public final class AnalyzeUrl {
 
         let bridge = AnalyzeUrlJSBridge(self)
         context.setObject(bridge, forKeyedSubscript: "java" as NSString)
-        context.setObject(SourceJSBridge(sourceContext), forKeyedSubscript: "source" as NSString)
+        context.setObject(SourceJSBridge(sourceContext, sourceKey: sourceKey ?? ""), forKeyedSubscript: "source" as NSString)
         context.setObject(CookieJSBridge(), forKeyedSubscript: "cookie" as NSString)
         context.setObject(baseUrl, forKeyedSubscript: "baseUrl" as NSString)
         context.setObject(page ?? NSNull(), forKeyedSubscript: "page" as NSString)
@@ -691,6 +695,7 @@ struct UrlOption {
     func get(_ key: String) -> String
     func log(_ msg: String) -> String
     func ajax(_ url: String) -> String?
+    func post(_ url: String, _ body: String, _ headers: [String: Any]) -> JSStrResponse?
     func base64Encode(_ s: String) -> String
     func base64Decode(_ s: String) -> String
     func base64DecodeToByteArray(_ s: String) -> [Int]
@@ -724,6 +729,11 @@ struct UrlOption {
     }
     func ajax(_ url: String) -> String? {
         owner?.ajaxEvaluator?(url)
+    }
+    func post(_ url: String, _ body: String, _ headers: [String: Any]) -> JSStrResponse? {
+        var headerMap: [String: String] = [:]
+        for (k, v) in headers { headerMap["\(k)"] = "\(v)" }
+        return owner?.postEvaluator?(url, body, headerMap)
     }
     func base64Encode(_ s: String) -> String { JSCommonMethods.base64Encode(s) }
     func base64Decode(_ s: String) -> String { JSCommonMethods.base64Decode(s) }

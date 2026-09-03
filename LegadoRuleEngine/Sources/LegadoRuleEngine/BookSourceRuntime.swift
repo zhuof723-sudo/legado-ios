@@ -70,8 +70,10 @@ public final class BookSourceRuntime {
         au.jsLib = source.jsLib
         au.sourceContext = sourceContext
         au.bookUrl = bookUrl
+        au.sourceKey = source.bookSourceUrl
         au.enabledCookieJar = source.enabledCookieJar ?? true
         au.ajaxEvaluator = { [weak self] url in self?.blockingAjax(url) }
+        au.postEvaluator = { [weak self] url, body, headers in self?.blockingPost(url, body, headers) }
         au.toastHandler = toastHandler
         au.browserOpener = browserOpener
         return au
@@ -81,7 +83,9 @@ public final class BookSourceRuntime {
         let rule = AnalyzeRule()
         rule.jsLib = source.jsLib
         rule.sourceContext = sourceContext
+        rule.sourceKey = source.bookSourceUrl
         rule.ajaxEvaluator = { [weak self] url in self?.blockingAjax(url) }
+        rule.postEvaluator = { [weak self] url, body, headers in self?.blockingPost(url, body, headers) }
         rule.toastHandler = toastHandler
         rule.browserOpener = browserOpener
         rule.refreshExploreHandler = refreshExploreHandler
@@ -147,6 +151,47 @@ public final class BookSourceRuntime {
         task.resume()
         _ = semaphore.wait(timeout: .now() + 30)
         return resultText
+    }
+
+    /// 同步阻塞版 POST，供 JS 里 java.post(url, body, headers) 调用
+    private func blockingPost(_ urlString: String, _ body: String, _ headers: [String: String]) -> JSStrResponse? {
+        guard let url = URL(string: urlString) else { return nil }
+        let semaphore = DispatchSemaphore(value: 0)
+        var resultText: String?
+        var resultURL = urlString
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = body.data(using: .utf8)
+        if request.value(forHTTPHeaderField: "Content-Type") == nil {
+            request.setValue("application/x-www-form-urlencoded;charset=UTF-8", forHTTPHeaderField: "Content-Type")
+        }
+        for (k, v) in resolveHeaderMap() { request.setValue(v, forHTTPHeaderField: k) }
+        for (k, v) in headers { request.setValue(v, forHTTPHeaderField: k) }
+        if let host = url.host {
+            let cookie = AnalyzeUrl.cookieStore.getCookie(host)
+            if !cookie.isEmpty { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
+        }
+        let task = URLSession.shared.dataTask(with: request) { data, response, _ in
+            if let data = data {
+                if let utf8 = String(data: data, encoding: .utf8) {
+                    resultText = utf8
+                } else {
+                    let gb = CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue))
+                    resultText = String(data: data, encoding: String.Encoding(rawValue: gb))
+                }
+            }
+            if let http = response as? HTTPURLResponse {
+                resultURL = http.url?.absoluteString ?? resultURL
+                if let setCookie = http.value(forHTTPHeaderField: "Set-Cookie"),
+                   let host = url.host, !setCookie.isEmpty {
+                    AnalyzeUrl.cookieStore.setCookie(host, setCookie)
+                }
+            }
+            semaphore.signal()
+        }
+        task.resume()
+        _ = semaphore.wait(timeout: .now() + 30)
+        return JSStrResponse(body: resultText ?? "", url: resultURL)
     }
 
     // MARK: - 搜索
@@ -245,8 +290,10 @@ public final class BookSourceRuntime {
             EngineLogger.log("目录第 \(pageCount) 页命中 \(items.count) 章", tag: source.bookSourceName)
 
             for item in items {
-                let name = analyzeRule.getString(rule.chapterName, mContent: item)
-                var chapterUrl = analyzeRule.getString(rule.chapterUrl, mContent: item, isUrl: true)
+                // 每个章节项是 JS 返回的 JSON 对象：设为当前内容，让 chapterName/chapterUrl 按 JSON 字段取值
+                analyzeRule.setContent(item)
+                let name = analyzeRule.getString(rule.chapterName)
+                var chapterUrl = analyzeRule.getString(rule.chapterUrl, isUrl: true)
                 if chapterUrl.isEmpty { chapterUrl = baseUrl }   // 空章节链接兜底
                 if !name.isEmpty { chapters.append(ChapterInfo(name: name, url: chapterUrl)) }
             }

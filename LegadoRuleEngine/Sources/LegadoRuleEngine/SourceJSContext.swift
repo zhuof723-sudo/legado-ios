@@ -22,16 +22,22 @@ public protocol SourceJSContext: AnyObject {
     func setVariable(_ value: String)
     func getLoginHeader() -> String
     func getLoginInfoMap() -> [String: String]
+    func getKey() -> String
 }
 
 @objc final class SourceJSBridge: NSObject, SourceJSBridgeExport {
     weak var context: SourceJSContext?
-    init(_ context: SourceJSContext?) { self.context = context }
+    var sourceKey: String = ""
+    init(_ context: SourceJSContext?, sourceKey: String = "") {
+        self.context = context
+        self.sourceKey = sourceKey
+    }
 
     func getVariable() -> String { context?.getVariable() ?? "" }
     func setVariable(_ value: String) { context?.setVariable(value) }
     func getLoginHeader() -> String { context?.getLoginHeader() ?? "" }
     func getLoginInfoMap() -> [String: String] { context?.getLoginInfoMap() ?? [:] }
+    func getKey() -> String { sourceKey }
 }
 
 @objc protocol CookieJSBridgeExport: JSExport {
@@ -43,4 +49,22 @@ public protocol SourceJSContext: AnyObject {
 @objc final class CookieJSBridge: NSObject, CookieJSBridgeExport {
     func getCookie(_ domain: String) -> String { AnalyzeUrl.cookieStore.getCookie(domain) }
     func setCookie(_ domain: String, _ cookie: String) { AnalyzeUrl.cookieStore.setCookie(domain, cookie) }
+}
+
+// MARK: - java.post / java.ajax 返回的响应对象
+
+@objc public protocol JSStrResponseExport: JSExport {
+    func body() -> String
+    func url() -> String
+}
+
+@objc public final class JSStrResponse: NSObject, JSStrResponseExport {
+    private let bodyText: String
+    private let urlText: String
+    public init(body: String, url: String) {
+        self.bodyText = body
+        self.urlText = url
+    }
+    public func body() -> String { bodyText }
+    public func url() -> String { urlText }
 }

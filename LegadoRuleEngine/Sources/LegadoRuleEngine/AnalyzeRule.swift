@@ -33,6 +33,7 @@ public extension RuleDataInterface {
     func log(_ msg: String) -> String
     func ajax(_ url: String) -> String?
     func ajaxAll(_ urls: [String]) -> [String]
+    func post(_ url: String, _ body: String, _ headers: [String: Any]) -> JSStrResponse?
     func base64Encode(_ s: String) -> String
     func base64Decode(_ s: String) -> String
     func base64DecodeToByteArray(_ s: String) -> [Int]
@@ -78,6 +79,11 @@ public extension RuleDataInterface {
     }
     public func ajaxAll(_ urls: [String]) -> [String] {
         urls.map { rule?.ajaxEvaluator?($0) ?? "" }
+    }
+    public func post(_ url: String, _ body: String, _ headers: [String: Any]) -> JSStrResponse? {
+        var headerMap: [String: String] = [:]
+        for (k, v) in headers { headerMap["\(k)"] = "\(v)" }
+        return rule?.postEvaluator?(url, body, headerMap)
     }
     public func base64Encode(_ s: String) -> String { JSCommonMethods.base64Encode(s) }
     public func base64Decode(_ s: String) -> String { JSCommonMethods.base64Decode(s) }
@@ -156,6 +162,8 @@ public final class AnalyzeRule {
     public var webJsEvaluator: ((_ js: String, _ result: Any) -> String)?
     /// JS 里 java.ajax(url) 用到的网络层，需要注入
     public var ajaxEvaluator: ((_ url: String) -> String?)?
+    /// JS 里 java.post(url, body, headers) 用到的网络层，需要注入
+    public var postEvaluator: ((_ url: String, _ body: String, _ headers: [String: String]) -> JSStrResponse?)?
     /// java.toast/longToast 的UI提示，不注入的话只会打印到控制台
     public var toastHandler: ((_ msg: String) -> Void)?
     /// java.open/showBrowser/startBrowser* 系列，注入你的应用内浏览器/WebView展示逻辑
@@ -175,6 +183,8 @@ public final class AnalyzeRule {
     /// JS 里 book.bookUrl / chapter.url 用到的上下文
     public var bookUrl: String?
     public var chapterUrl: String?
+    /// JS 里 source.getKey() 返回的书源地址
+    public var sourceKey: String?
 
     // MARK: - 内部状态
 
@@ -280,7 +290,7 @@ public final class AnalyzeRule {
         }
         let bridge = LegadoJSBridge(self)
         context.setObject(bridge, forKeyedSubscript: "java" as NSString)
-        context.setObject(SourceJSBridge(sourceContext), forKeyedSubscript: "source" as NSString)
+        context.setObject(SourceJSBridge(sourceContext, sourceKey: sourceKey ?? ""), forKeyedSubscript: "source" as NSString)
         context.setObject(CookieJSBridge(), forKeyedSubscript: "cookie" as NSString)
         context.setObject(baseUrl ?? "", forKeyedSubscript: "baseUrl" as NSString)
         context.setObject(bookName ?? "", forKeyedSubscript: "bookName" as NSString)

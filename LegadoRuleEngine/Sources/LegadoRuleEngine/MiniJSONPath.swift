@@ -43,6 +43,10 @@ public enum MiniJSONPath {
     private static func tokenize(_ path: String) throws -> [Token] {
         var p = path.trimmingCharacters(in: .whitespaces)
         if p.hasPrefix("$") { p.removeFirst() }
+        // 支持无 $ 前缀的裸键（如 "title"、"a.b.c"），等价于 ".title" / ".a.b.c"
+        if !p.isEmpty, p.first != ".", p.first != "[" {
+            p = "." + p
+        }
         let chars = Array(p)
         var tokens: [Token] = []
         var i = 0
