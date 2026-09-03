@@ -511,7 +511,9 @@ public final class BookSourceRuntime {
         analyzeRule.setBaseUrl(source.bookSourceUrl)
 
         // 提取函数体并执行
-        let result = analyzeRule.evalJS(loginUrl + "\n;\(funcName)(\(funcName == \"login\" ? "true" : ""))")
+        let arg = funcName == "login" ? "true" : ""
+        let script = loginUrl + "\n;\(funcName)(\(arg))"
+        let result = analyzeRule.evalJS(script)
         return result.map { "\($0)" }
     }
 }
