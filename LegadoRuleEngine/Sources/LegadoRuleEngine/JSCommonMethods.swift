@@ -86,6 +86,56 @@ public enum JSCommonMethods {
         for (k, v) in entities { t = t.replacingOccurrences(of: k, with: v) }
         return t.trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    /// MD5 摘要（小写 hex），对应 java.md5Encode
+    public static func md5Encode(_ s: String) -> String {
+        let data = Data(s.utf8)
+        var digest = [UInt8](repeating: 0, count: Int(CC_MD5_DIGEST_LENGTH))
+        data.withUnsafeBytes { buf in
+            _ = CC_MD5(buf.baseAddress, CC_LONG(data.count), &digest)
+        }
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// 随机 UUID，对应 java.randomUUID
+    public static func randomUUID() -> String {
+        UUID().uuidString
+    }
+
+    /// 中文数字章节名 → 阿拉伯数字（第一百二十三章 → 第123章），对应 java.toNumChapter
+    public static func toNumChapter(_ s: String) -> String {
+        let cn: [Character: Int] = ["零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4,
+                                    "五": 5, "六": 6, "七": 7, "八": 8, "九": 9]
+        let units: [Character: Int] = ["十": 10, "百": 100, "千": 1000, "万": 10000]
+        var out = ""
+        var i = 0
+        let chars = Array(s)
+        while i < chars.count {
+            let c = chars[i]
+            if cn[c] != nil {
+                var total = 0, section = 0
+                var j = i
+                while j < chars.count {
+                    let cc = chars[j]
+                    if let d = cn[cc] {
+                        section = section * 10 + d
+                    } else if let u = units[cc] {
+                        if section == 0 { section = 1 }
+                        if u == 10000 { total = (total + section) * 10000; section = 0 }
+                        else { total += section * u; section = 0 }
+                    } else { break }
+                    j += 1
+                }
+                total += section
+                out += "\(total)"
+                i = j
+            } else {
+                out.append(c)
+                i += 1
+            }
+        }
+        return out
+    }
 }
 
 // MARK: - java.createSymmetricCrypto(transformation, key, iv)

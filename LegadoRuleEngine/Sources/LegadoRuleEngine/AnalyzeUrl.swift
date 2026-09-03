@@ -711,10 +711,16 @@ struct UrlOption {
     func deviceID() -> String
     func getWebViewUA() -> String
     func createSymmetricCrypto(_ transformation: String, _ key: String, _ iv: String) -> SymmetricCryptoJSBridge?
-    func open(_ action: String, _ url: String?, _ title: String?) -> String
-    func showBrowser(_ url: String, _ title: String?) -> String
-    func startBrowser(_ url: String, _ title: String?) -> String
     func qread() -> String
+    func getString(_ rule: String) -> String
+    func getStringList(_ rule: String) -> [String]
+    func getElement(_ rule: String) -> String
+    func getElements(_ rule: String) -> [Any]
+    func setContent(_ content: String) -> String
+    func md5Encode(_ s: String) -> String
+    func randomUUID() -> String
+    func toNumChapter(_ s: String) -> String
+    func aesBase64DecodeToString(_ key: String, _ content: String) -> String
 }
 
 @objc final class AnalyzeUrlJSBridge: NSObject, AnalyzeUrlJSBridgeExport {
@@ -767,6 +773,15 @@ struct UrlOption {
         owner?.browserOpener?(url, title); return ""
     }
     func qread() -> String { "0" }
+    func getString(_ rule: String) -> String { "" }
+    func getStringList(_ rule: String) -> [String] { [] }
+    func getElement(_ rule: String) -> String { "" }
+    func getElements(_ rule: String) -> [Any] { [] }
+    func setContent(_ content: String) -> String { "" }
+    func md5Encode(_ s: String) -> String { JSCommonMethods.md5Encode(s) }
+    func randomUUID() -> String { JSCommonMethods.randomUUID() }
+    func toNumChapter(_ s: String) -> String { JSCommonMethods.toNumChapter(s) }
+    func aesBase64DecodeToString(_ key: String, _ content: String) -> String { "" }
     func log(_ msg: String) -> String {
         print("[URL规则日志] \(msg)")
         return msg

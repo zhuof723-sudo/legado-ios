@@ -58,6 +58,17 @@ public extension RuleDataInterface {
     func refreshExplore() -> String
     func searchBook(_ keyword: String, _ sourceFilter: String?) -> String
     func qread() -> String
+    // 回调规则引擎解析（java.getString/getElements 等）
+    func getString(_ rule: String) -> String
+    func getStringList(_ rule: String) -> [String]
+    func getElement(_ rule: String) -> String
+    func getElements(_ rule: String) -> [Any]
+    func setContent(_ content: String) -> String
+    // 常用工具
+    func md5Encode(_ s: String) -> String
+    func randomUUID() -> String
+    func toNumChapter(_ s: String) -> String
+    func aesBase64DecodeToString(_ key: String, _ content: String) -> String
 }
 
 @objc public final class LegadoJSBridge: NSObject, LegadoJSBridgeExport {
@@ -134,6 +145,35 @@ public extension RuleDataInterface {
         rule?.searchBookHandler?(keyword, sourceFilter); return ""
     }
     public func qread() -> String { "0" }
+
+    public func getString(_ ruleStr: String) -> String {
+        rule?.getString(ruleStr) ?? ""
+    }
+    public func getStringList(_ ruleStr: String) -> [String] {
+        rule?.getStringList(ruleStr) ?? []
+    }
+    public func getElement(_ ruleStr: String) -> String {
+        "\(rule?.getElement(ruleStr) ?? "")"
+    }
+    public func getElements(_ ruleStr: String) -> [Any] {
+        rule?.getElements(ruleStr) ?? []
+    }
+    public func setContent(_ content: String) -> String {
+        rule?.setContent(content)
+        return ""
+    }
+    public func md5Encode(_ s: String) -> String { JSCommonMethods.md5Encode(s) }
+    public func randomUUID() -> String { JSCommonMethods.randomUUID() }
+    public func toNumChapter(_ s: String) -> String { JSCommonMethods.toNumChapter(s) }
+    public func aesBase64DecodeToString(_ key: String, _ content: String) -> String {
+        guard let data = Data(base64Encoded: content),
+              let bridge = SymmetricCryptoJSBridge(transformation: "AES/CBC/PKCS5Padding", key: key, iv: key) else {
+            return ""
+        }
+        let decrypted = bridge.decrypt(data.map { Int($0) })
+        let bytes = decrypted.map { UInt8(truncatingIfNeeded: $0) }
+        return String(data: Data(bytes), encoding: .utf8) ?? ""
+    }
 }
 
 /// 对应 legado: model/analyzeRule/AnalyzeRule.kt
