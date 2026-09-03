@@ -220,7 +220,7 @@ public final class BookSourceRuntime {
 
     /// 同步并发批量请求，js.ajaxAll(urls) 用。返回每条响应的 body 字符串列表（顺序与输入一致）。
     func blockingAjaxAll(_ urls: [String]) -> [JSStrResponse] {
-        urls.map { blockingAjaxWithOptions($0, [:]) ?? JSStrResponse(body: "", url: $0) }
+        urls.compactMap { blockingAjaxWithOptions($0, [:]) }
     }
 
     /// 同步阻塞版 POST，供 JS 里 java.post(url, body, headers) 调用
