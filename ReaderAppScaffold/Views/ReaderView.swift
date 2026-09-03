@@ -57,11 +57,16 @@ struct ReaderView: View {
             ZStack {
                 bgColor.ignoresSafeArea()
                 content(pageSize: pageSize, key: paginationKey)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        withAnimation(.easeInOut(duration: 0.2)) { showControls.toggle() }
+                    }
                 if eyeCare {
                     Color.yellow.opacity(0.07).ignoresSafeArea().allowsHitTesting(false)
                 }
-                tapZones(screenWidth: geo.size.width)
-                    .zIndex(10)
+                if turnMode != 2 {
+                    readerTapOverlay
+                }
                 chrome
                     .zIndex(20)
             }
@@ -130,9 +135,29 @@ struct ReaderView: View {
             .frame(maxWidth: .infinity, alignment: .top)
     }
 
-    // MARK: - 点击分区
+    // 独立控制层点击区域：滑动翻页模式也必须能点击中间显示工具栏
+    private var readerTapOverlay: some View {
+        GeometryReader { proxy in
+            HStack(spacing: 0) {
+                Rectangle().fill(.clear)
+                    .contentShape(Rectangle())
+                    .onTapGesture { if turnMode != 2 { goPrevPage() } }
+                    .allowsHitTesting(turnMode != 2)
+                Rectangle().fill(.clear)
+                    .contentShape(Rectangle())
+                    .onTapGesture { withAnimation(.easeInOut(duration: 0.2)) { showControls.toggle() } }
+                Rectangle().fill(.clear)
+                    .contentShape(Rectangle())
+                    .onTapGesture { if turnMode != 2 { goNextPage() } }
+                    .allowsHitTesting(turnMode != 2)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+        .zIndex(10)
+        .allowsHitTesting(true)
+    }
 
-    private func tapZones(screenWidth: CGFloat) -> some View {
+
         HStack(spacing: 0) {
             Color.clear
                 .contentShape(Rectangle())
