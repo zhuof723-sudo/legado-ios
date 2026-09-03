@@ -515,27 +515,6 @@ public final class BookSourceRuntime {
         return result.map { "\($0)" }
     }
 }
-
-private final class LogInfoBridge: RuleDataInterface {
-    var variableMap: [String: String]
-    init(infoMap: [String: String]) { self.variableMap = infoMap }
-}
-
-private final class SourceJSContextBridge: SourceJSContext {
-    var recordInfo: [String: String]
-    init(recordInfo: [String: String]) { self.recordInfo = recordInfo }
-    func getVariable() -> String { "" }
-    func setVariable(_ value: String) {}
-    func getLoginHeader() -> String? { nil }
-    func putLoginHeader(_ value: String) {}
-    func getLoginInfoMap() -> [String: String] { recordInfo }
-    func putLoginInfo(_ json: String) {
-        if let data = json.data(using: .utf8),
-           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
-            recordInfo = obj
-        }
-    }
-
     private func stripHTML(_ s: String) -> String {
         guard s.contains("<") || s.contains("&") else { return s }
         var text = s
