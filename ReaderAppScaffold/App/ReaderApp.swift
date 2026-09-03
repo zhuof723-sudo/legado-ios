@@ -22,8 +22,10 @@ struct ReaderApp: App {
 
 /// 根视图：四个标签 + 悬浮玻璃搜索按钮（对照设计稿的底部导航）
 struct RootView: View {
-    @State private var showSearch = false
-    @AppStorage("app.appearance") private var appearance = 0   // 0跟随系统 1浅色 2深色
+    @State private var readerIsActive = false
+
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
 
     private var scheme: ColorScheme? {
         switch appearance {
@@ -47,8 +49,11 @@ struct RootView: View {
             }
             .tint(Theme.accent)
             .minimizeTabBarOnScroll()
+            .onPreferenceChange(ReaderActivePreferenceKey.self) { readerIsActive = $0 }
 
-            searchFab
+            if !readerIsActive {
+                searchFab
+            }
         }
         .preferredColorScheme(scheme)
         .fullScreenCover(isPresented: $showSearch) {
