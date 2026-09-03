@@ -77,7 +77,7 @@ public final class BookSourceRuntime {
         au.enabledCookieJar = source.enabledCookieJar ?? true
         au.ajaxEvaluator = { [weak self] url in self?.blockingAjax(url) }
         au.ajaxEvaluatorWithOptions = { [weak self] url, opts in self?.blockingAjaxWithOptions(url, opts) }
-        au.ajaxAllEvaluator = { [weak self] urls in self?.blockingAjaxAll(urls) }
+        au.ajaxAllEvaluator = { [weak self] urls in self?.blockingAjaxAll(urls) ?? [] }
         au.postEvaluator = { [weak self] url, body, headers in self?.blockingPost(url, body, headers) }
         au.toastHandler = toastHandler
         au.browserOpener = browserOpener
@@ -92,7 +92,7 @@ public final class BookSourceRuntime {
         rule.sourceKey = source.bookSourceUrl
         rule.ajaxEvaluator = { [weak self] url in self?.blockingAjax(url) }
         rule.ajaxEvaluatorWithOptions = { [weak self] url, opts in self?.blockingAjaxWithOptions(url, opts) }
-        rule.ajaxAllEvaluator = { [weak self] urls in self?.blockingAjaxAll(urls) }
+        rule.ajaxAllEvaluator = { [weak self] urls in self?.blockingAjaxAll(urls) ?? [] }
         rule.postEvaluator = { [weak self] url, body, headers in self?.blockingPost(url, body, headers) }
         rule.toastHandler = toastHandler
         rule.browserOpener = browserOpener
