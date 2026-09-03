@@ -60,7 +60,9 @@ struct ReaderView: View {
                 if eyeCare {
                     Color.yellow.opacity(0.07).ignoresSafeArea().allowsHitTesting(false)
                 }
-                tapZones(screenWidth: geo.size.width)
+                if turnMode != 2 {
+                    tapZones(screenWidth: geo.size.width)
+                }
                 chrome
             }
             .onAppear { pageSizeState = pageSize }
@@ -99,6 +101,10 @@ struct ReaderView: View {
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
+                .ignoresSafeArea(edges: .bottom)
+                .overlay(alignment: .bottom) {
+                    if showControls { bottomBar }
+                }
             } else {
                 pageText(pages[pageIndex], pageSize: pageSize)
                     .id("\(pageIndex)-\(key)")

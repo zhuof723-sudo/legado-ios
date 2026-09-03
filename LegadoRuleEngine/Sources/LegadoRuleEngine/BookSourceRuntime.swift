@@ -380,7 +380,8 @@ public final class BookSourceRuntime {
             analyzeRule.setContent(body, baseUrl: baseUrl)
 
             let text = analyzeRule.getString(contentRule)
-            if !text.isEmpty { pieces.append(text) }
+            let cleanedText = stripHTML(text)
+            if !cleanedText.isEmpty { pieces.append(cleanedText) }
 
             if let nextRule = rule.nextContentUrl, !nextRule.isEmpty {
                 let next = analyzeRule.getString(nextRule, isUrl: true)
@@ -397,15 +398,19 @@ public final class BookSourceRuntime {
     // MARK: - 简单 HTML 去标签
 
     private func stripHTML(_ s: String) -> String {
-        guard s.contains("<") else { return s }
-        return s
-            .replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: [.regularExpression])
-            .replacingOccurrences(of: "<[^>]+>", with: "", options: [.regularExpression])
-            .replacingOccurrences(of: "&nbsp;", with: " ")
-            .replacingOccurrences(of: "&amp;", with: "&")
-            .replacingOccurrences(of: "&lt;", with: "<")
-            .replacingOccurrences(of: "&gt;", with: ">")
-            .replacingOccurrences(of: "&quot;", with: "\"")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard s.contains("<") || s.contains("&") else { return s }
+        var text = s
+        // 先把所有常见换行标签统一为真正换行，避免正文出现原始 <br />
+        text = text.replacingOccurrences(of: "(?i)<br\\s*/?\\s*>", with: "\n", options: [.regularExpression])
+        text = text.replacingOccurrences(of: "(?i)</p\\s*>", with: "\n", options: [.regularExpression])
+        text = text.replacingOccurrences(of: "(?i)</div\\s*>", with: "\n", options: [.regularExpression])
+        text = text.replacingOccurrences(of: "(?i)<li\\b[^>]*>", with: "\n", options: [.regularExpression])
+        text = text.replacingOccurrences(of: "(?i)<[^>]+>", with: "", options: [.regularExpression])
+        let entities = ["&nbsp;": " ", "&#160;": " ", "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": "\"", "&#39;": "'", "&apos;": "'"]
+        for (key, value) in entities { text = text.replacingOccurrences(of: key, with: value) }
+        // 清除不可见字符并压缩过多空行
+        text = text.replacingOccurrences(of: "\\r\\n?", with: "\n", options: [.regularExpression])
+        text = text.replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: [.regularExpression])
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
