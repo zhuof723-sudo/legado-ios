@@ -82,7 +82,6 @@ struct ReaderView: View {
         .statusBarHidden(!showControls)
         .readerActive()
         .toolbar(.hidden, for: .tabBar)
-        .toolbar(.hidden, for: .tabBar)
         .sheet(isPresented: $showSettings) {
             ReaderSettingsPanel().presentationDetents([.medium, .large])
         }
