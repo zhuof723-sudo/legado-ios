@@ -56,6 +56,36 @@ public enum JSCommonMethods {
         formatter.timeZone = TimeZone.current
         return formatter.string(from: date)
     }
+
+    // MARK: - 常用 java.* 工具
+
+    public static func encodeURI(_ s: String) -> String {
+        s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s
+    }
+
+    public static func encodeURIComponent(_ s: String) -> String {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-_.!~*'()")
+        return s.addingPercentEncoding(withAllowedCharacters: allowed) ?? s
+    }
+
+    public static func decodeURI(_ s: String) -> String {
+        s.removingPercentEncoding ?? s
+    }
+
+    /// HTML → 纯文本（去标签 + 常见实体解码），对应 java.htmlFormat
+    public static func htmlFormat(_ s: String) -> String {
+        var t = s
+        t = t.replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: [.regularExpression])
+        t = t.replacingOccurrences(of: "</p>", with: "\n", options: [.regularExpression])
+        t = t.replacingOccurrences(of: "<[^>]+>", with: "", options: [.regularExpression])
+        let entities: [String: String] = [
+            "&nbsp;": " ", "&amp;": "&", "&lt;": "<", "&gt;": ">",
+            "&quot;": "\"", "&#39;": "'", "&apos;": "'"
+        ]
+        for (k, v) in entities { t = t.replacingOccurrences(of: k, with: v) }
+        return t.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }
 
 // MARK: - java.createSymmetricCrypto(transformation, key, iv)

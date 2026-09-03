@@ -491,6 +491,14 @@ public final class AnalyzeUrl {
                 for (k, v) in http?.allHeaderFields ?? [:] {
                     headers["\(k)"] = "\(v)"
                 }
+                // 保存响应 Set-Cookie，供后续请求（含 java.ajax 的安全验证 challenge）复用
+                if enabledCookieJar, let http = http,
+                   let setCookie = http.value(forHTTPHeaderField: "Set-Cookie"), !setCookie.isEmpty {
+                    let domain = response.url?.host ?? ""
+                    if !domain.isEmpty {
+                        Self.cookieStore.setCookie(domain, setCookie)
+                    }
+                }
                 return HTTPStrResponse(
                     url: response.url?.absoluteString ?? url,
                     body: text,
@@ -687,6 +695,10 @@ struct UrlOption {
     func base64Decode(_ s: String) -> String
     func base64DecodeToByteArray(_ s: String) -> [Int]
     func hexDecodeToString(_ hex: String) -> String
+    func encodeURI(_ s: String) -> String
+    func encodeURIComponent(_ s: String) -> String
+    func decodeURI(_ s: String) -> String
+    func htmlFormat(_ s: String) -> String
     func timeFormat(_ millis: Double) -> String
     func toast(_ msg: String) -> String
     func longToast(_ msg: String) -> String
@@ -717,6 +729,10 @@ struct UrlOption {
     func base64Decode(_ s: String) -> String { JSCommonMethods.base64Decode(s) }
     func base64DecodeToByteArray(_ s: String) -> [Int] { JSCommonMethods.base64DecodeToByteArray(s) }
     func hexDecodeToString(_ hex: String) -> String { JSCommonMethods.hexDecodeToString(hex) }
+    func encodeURI(_ s: String) -> String { JSCommonMethods.encodeURI(s) }
+    func encodeURIComponent(_ s: String) -> String { JSCommonMethods.encodeURIComponent(s) }
+    func decodeURI(_ s: String) -> String { JSCommonMethods.decodeURI(s) }
+    func htmlFormat(_ s: String) -> String { JSCommonMethods.htmlFormat(s) }
     func timeFormat(_ millis: Double) -> String { JSCommonMethods.timeFormat(millis) }
     func toast(_ msg: String) -> String {
         print("[toast] \(msg)"); owner?.toastHandler?(msg); return msg

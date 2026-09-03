@@ -37,6 +37,10 @@ public extension RuleDataInterface {
     func base64Decode(_ s: String) -> String
     func base64DecodeToByteArray(_ s: String) -> [Int]
     func hexDecodeToString(_ hex: String) -> String
+    func encodeURI(_ s: String) -> String
+    func encodeURIComponent(_ s: String) -> String
+    func decodeURI(_ s: String) -> String
+    func htmlFormat(_ s: String) -> String
     func timeFormat(_ millis: Double) -> String
     func toast(_ msg: String) -> String
     func longToast(_ msg: String) -> String
@@ -79,6 +83,10 @@ public extension RuleDataInterface {
     public func base64Decode(_ s: String) -> String { JSCommonMethods.base64Decode(s) }
     public func base64DecodeToByteArray(_ s: String) -> [Int] { JSCommonMethods.base64DecodeToByteArray(s) }
     public func hexDecodeToString(_ hex: String) -> String { JSCommonMethods.hexDecodeToString(hex) }
+    public func encodeURI(_ s: String) -> String { JSCommonMethods.encodeURI(s) }
+    public func encodeURIComponent(_ s: String) -> String { JSCommonMethods.encodeURIComponent(s) }
+    public func decodeURI(_ s: String) -> String { JSCommonMethods.decodeURI(s) }
+    public func htmlFormat(_ s: String) -> String { JSCommonMethods.htmlFormat(s) }
     public func timeFormat(_ millis: Double) -> String { JSCommonMethods.timeFormat(millis) }
     public func toast(_ msg: String) -> String {
         print("[toast] \(msg)")

@@ -70,6 +70,7 @@ public final class BookSourceRuntime {
         au.jsLib = source.jsLib
         au.sourceContext = sourceContext
         au.bookUrl = bookUrl
+        au.enabledCookieJar = source.enabledCookieJar ?? true
         au.ajaxEvaluator = { [weak self] url in self?.blockingAjax(url) }
         au.toastHandler = toastHandler
         au.browserOpener = browserOpener
@@ -123,8 +124,24 @@ public final class BookSourceRuntime {
         var resultText: String?
         var request = URLRequest(url: url)
         for (k, v) in resolveHeaderMap() { request.setValue(v, forHTTPHeaderField: k) }
-        let task = URLSession.shared.dataTask(with: request) { data, _, _ in
-            if let data = data { resultText = String(data: data, encoding: .utf8) }
+        if let host = url.host {
+            let cookie = AnalyzeUrl.cookieStore.getCookie(host)
+            if !cookie.isEmpty { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
+        }
+        let task = URLSession.shared.dataTask(with: request) { data, response, _ in
+            if let data = data {
+                if let utf8 = String(data: data, encoding: .utf8) {
+                    resultText = utf8
+                } else {
+                    let gb = CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue))
+                    resultText = String(data: data, encoding: String.Encoding(rawValue: gb))
+                }
+            }
+            if let http = response as? HTTPURLResponse,
+               let setCookie = http.value(forHTTPHeaderField: "Set-Cookie"),
+               let host = url.host, !setCookie.isEmpty {
+                AnalyzeUrl.cookieStore.setCookie(host, setCookie)
+            }
             semaphore.signal()
         }
         task.resume()
