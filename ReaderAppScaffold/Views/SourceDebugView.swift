@@ -123,6 +123,20 @@ struct SourceDebugView: View {
             return
         }
         let runtime = BookSourceRuntime(source)
+
+        // 捕获引擎内部日志到本页（原来这些只进「运行日志」）
+        let prevSink = EngineLogger.sink
+        EngineLogger.sink = { lvl, tag, msg in
+            let isErr = lvl == .error
+            Task { @MainActor in
+                LogStore.shared.log(msg, tag: tag, level: isErr ? .error : .info)
+                steps.append(Step(text: "🔸 \(msg)", kind: isErr ? .error : .info))
+            }
+        }
+        defer { EngineLogger.sink = prevSink }
+
+        dumpRules(source)
+
         let k = key.trimmingCharacters(in: .whitespacesAndNewlines)
         do {
             if k.hasPrefix("--") {
@@ -138,6 +152,18 @@ struct SourceDebugView: View {
             add("出错: \(error.localizedDescription)", .error)
         }
         running = false
+    }
+
+    /// 打印书源关键规则，便于定位规则类型/缺失字段
+    private func dumpRules(_ source: BookSource) {
+        add("━━ 书源规则摘要 ━━", .header)
+        add("searchUrl: \(source.searchUrl ?? "（空）")", .item)
+        add("ruleSearch.bookList: \(source.ruleSearch?.bookList ?? "（空）")", .item)
+        add("ruleBookInfo.tocUrl: \(source.ruleBookInfo?.tocUrl ?? "（空）")", .item)
+        add("ruleToc.chapterList: \(source.ruleToc?.chapterList ?? "（空）")", .item)
+        add("ruleToc.chapterName: \(source.ruleToc?.chapterName ?? "（空）")", .item)
+        add("ruleToc.chapterUrl: \(source.ruleToc?.chapterUrl ?? "（空）")", .item)
+        add("ruleContent.content: \((source.ruleContent?.content ?? "（空）").prefix(80))", .item)
     }
 
     private func debugSearch(_ runtime: BookSourceRuntime, _ source: BookSource, keyword: String) async {
