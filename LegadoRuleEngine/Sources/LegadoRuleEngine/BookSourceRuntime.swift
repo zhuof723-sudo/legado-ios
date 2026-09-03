@@ -50,8 +50,11 @@ public final class BookSourceRuntime {
     public weak var sourceContext: SourceJSContext?
     public var toastHandler: ((_ msg: String) -> Void)?
     public var browserOpener: ((_ url: String, _ title: String?) -> Void)?
+    public var browserOpenerAdvanced: ((_ url: String, _ title: String?, _ injectJs: String?, _ optsJson: String?) -> Void)?
     public var refreshExploreHandler: (() -> Void)?
     public var searchBookHandler: ((_ keyword: String, _ sourceFilter: String?) -> Void)?
+    /// 书源级 KV（cache.put / cache.get / java.put / java.get 的数据后端）
+    public var sourceKeyValueStore: SourceKeyValueStore?
 
     public init(_ source: BookSource) {
         self.source = source
@@ -73,9 +76,12 @@ public final class BookSourceRuntime {
         au.sourceKey = source.bookSourceUrl
         au.enabledCookieJar = source.enabledCookieJar ?? true
         au.ajaxEvaluator = { [weak self] url in self?.blockingAjax(url) }
+        au.ajaxEvaluatorWithOptions = { [weak self] url, opts in self?.blockingAjaxWithOptions(url, opts) }
+        au.ajaxAllEvaluator = { [weak self] urls in self?.blockingAjaxAll(urls) }
         au.postEvaluator = { [weak self] url, body, headers in self?.blockingPost(url, body, headers) }
         au.toastHandler = toastHandler
         au.browserOpener = browserOpener
+        au.keyValueStore = sourceKeyValueStore
         return au
     }
 
@@ -85,11 +91,14 @@ public final class BookSourceRuntime {
         rule.sourceContext = sourceContext
         rule.sourceKey = source.bookSourceUrl
         rule.ajaxEvaluator = { [weak self] url in self?.blockingAjax(url) }
+        rule.ajaxEvaluatorWithOptions = { [weak self] url, opts in self?.blockingAjaxWithOptions(url, opts) }
+        rule.ajaxAllEvaluator = { [weak self] urls in self?.blockingAjaxAll(urls) }
         rule.postEvaluator = { [weak self] url, body, headers in self?.blockingPost(url, body, headers) }
         rule.toastHandler = toastHandler
         rule.browserOpener = browserOpener
         rule.refreshExploreHandler = refreshExploreHandler
         rule.searchBookHandler = searchBookHandler
+        rule.keyValueStore = sourceKeyValueStore
         return rule
     }
 
@@ -151,6 +160,67 @@ public final class BookSourceRuntime {
         task.resume()
         _ = semaphore.wait(timeout: .now() + 30)
         return resultText
+    }
+
+    /// 同步阻塞版带 options 的 HTTP 请求。options 支持：
+    /// - method: "GET" | "POST" | "PUT" | ...
+    /// - body: String（body 体）
+    /// - headers: [String: String]
+    /// - timeout: Double 秒
+    func blockingAjaxWithOptions(_ urlString: String, _ options: [String: Any]) -> JSStrResponse? {
+        guard let url = URL(string: urlString) else { return nil }
+        let semaphore = DispatchSemaphore(value: 0)
+        var resultText = ""
+        var resultURL = urlString
+        var request = URLRequest(url: url)
+        let method = (options["method"] as? String)?.uppercased() ?? "GET"
+        request.httpMethod = method
+        if let body = options["body"] as? String {
+            request.httpBody = body.data(using: .utf8)
+            if request.value(forHTTPHeaderField: "Content-Type") == nil {
+                request.setValue("application/x-www-form-urlencoded;charset=UTF-8",
+                                 forHTTPHeaderField: "Content-Type")
+            }
+        }
+        for (k, v) in resolveHeaderMap() { request.setValue(v, forHTTPHeaderField: k) }
+        if let extraHeaders = options["headers"] as? [String: Any] {
+            for (k, v) in extraHeaders { request.setValue("\(v)", forHTTPHeaderField: k) }
+        }
+        if let host = url.host {
+            let cookie = AnalyzeUrl.cookieStore.getCookie(host)
+            if !cookie.isEmpty { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
+        }
+        let timeout: TimeInterval = (options["timeout"] as? Double)
+            ?? (options["timeout"] as? Int).map { Double($0) }
+            ?? 30
+        request.timeoutInterval = timeout
+
+        let task = URLSession.shared.dataTask(with: request) { data, response, _ in
+            if let data = data {
+                if let utf8 = String(data: data, encoding: .utf8) {
+                    resultText = utf8
+                } else {
+                    let gb = CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue))
+                    resultText = String(data: data, encoding: String.Encoding(rawValue: gb)) ?? ""
+                }
+            }
+            if let http = response as? HTTPURLResponse {
+                resultURL = http.url?.absoluteString ?? resultURL
+                if let setCookie = http.value(forHTTPHeaderField: "Set-Cookie"),
+                   let host = url.host, !setCookie.isEmpty {
+                    AnalyzeUrl.cookieStore.setCookie(host, setCookie)
+                }
+            }
+            semaphore.signal()
+        }
+        task.resume()
+        _ = semaphore.wait(timeout: .now() + timeout + 5)
+        return JSStrResponse(body: resultText, url: resultURL)
+    }
+
+    /// 同步并发批量请求，js.ajaxAll(urls) 用。返回每条响应的 body 字符串列表（顺序与输入一致）。
+    func blockingAjaxAll(_ urls: [String]) -> [JSStrResponse] {
+        urls.map { blockingAjaxWithOptions($0, [:]) ?? JSStrResponse(body: "", url: $0) }
     }
 
     /// 同步阻塞版 POST，供 JS 里 java.post(url, body, headers) 调用

@@ -32,7 +32,12 @@ public extension RuleDataInterface {
     func get(_ key: String) -> String
     func log(_ msg: String) -> String
     func ajax(_ url: String) -> String?
-    func ajaxAll(_ urls: [String]) -> [String]
+    /// java.ajax(url) 的简化版
+    func ajax2(_ url: String) -> JSStrResponse?
+    /// java.ajax(url, options) —— options 为 JSON.stringify({method, body, headers, timeout})
+    func ajax(_ url: String, _ options: String) -> JSStrResponse?
+    /// java.ajaxAll(urls) —— 返回 [{body(), url()}, ...]
+    func ajaxAll(_ urls: [String]) -> [Any]
     func post(_ url: String, _ body: String, _ headers: [String: Any]) -> JSStrResponse?
     func base64Encode(_ s: String) -> String
     func base64Decode(_ s: String) -> String
@@ -69,6 +74,11 @@ public extension RuleDataInterface {
     func randomUUID() -> String
     func toNumChapter(_ s: String) -> String
     func aesBase64DecodeToString(_ key: String, _ content: String) -> String
+    // 存储
+    func cacheGet(_ key: String) -> String
+    func cachePut(_ key: String, _ value: String) -> String
+    func javaGet(_ key: String) -> String
+    func javaPut(_ key: String, _ value: String) -> String
 }
 
 @objc public final class LegadoJSBridge: NSObject, LegadoJSBridgeExport {
@@ -88,8 +98,31 @@ public extension RuleDataInterface {
     public func ajax(_ url: String) -> String? {
         rule?.ajaxEvaluator?(url)
     }
-    public func ajaxAll(_ urls: [String]) -> [String] {
-        urls.map { rule?.ajaxEvaluator?($0) ?? "" }
+    public func ajax2(_ url: String) -> JSStrResponse? {
+        guard let opts = try? JSONSerialization.jsonObject(with: Data("{}".utf8)) as? [String: Any] else { return nil }
+        return rule?.ajaxEvaluatorWithOptions?(url, opts)
+    }
+    public func ajax(_ url: String, _ options: String) -> JSStrResponse? {
+        // 书山聚合写法: java.ajax(url + "," + JSON.stringify({method, body, ...}))
+        // 即 url 格式是 "http://.../api,JSON.stringify(opts)"，逗号前是 URL，后是 options
+        var actualUrl = url
+        var actualOpts = options
+        if let commaIdx = url.firstIndex(of: ",") {
+            actualUrl = String(url[..<commaIdx])
+            actualOpts = String(url[url.index(after: commaIdx)...])
+        }
+        guard let opts = parseAjaxOptions(actualOpts) else { return nil }
+        return rule?.ajaxEvaluatorWithOptions?(actualUrl, opts)
+    }
+    public func ajaxAll(_ urls: [String]) -> [Any] {
+        rule?.ajaxAllEvaluator?(urls).map { $0 as Any } ?? []
+    }
+
+    private func parseAjaxOptions(_ jsonStr: String) -> [String: Any]? {
+        guard let data = jsonStr.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8) else { return nil }
+        if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { return obj }
+        // 尝试双重 base64 或普通字符串
+        return nil
     }
     public func post(_ url: String, _ body: String, _ headers: [String: Any]) -> JSStrResponse? {
         var headerMap: [String: String] = [:]
@@ -174,6 +207,14 @@ public extension RuleDataInterface {
         let bytes = decrypted.map { UInt8(truncatingIfNeeded: $0) }
         return String(data: Data(bytes), encoding: .utf8) ?? ""
     }
+    public func cacheGet(_ key: String) -> String { rule?.keyValueStore?.get(key) ?? "" }
+    public func cachePut(_ key: String, _ value: String) -> String {
+        rule?.keyValueStore?.put(key, value); return ""
+    }
+    public func javaGet(_ key: String) -> String { rule?.keyValueStore?.get(key) ?? "" }
+    public func javaPut(_ key: String, _ value: String) -> String {
+        rule?.keyValueStore?.put(key, value); return ""
+    }
 }
 
 /// 对应 legado: model/analyzeRule/AnalyzeRule.kt
@@ -202,8 +243,14 @@ public final class AnalyzeRule {
     public var webJsEvaluator: ((_ js: String, _ result: Any) -> String)?
     /// JS 里 java.ajax(url) 用到的网络层，需要注入
     public var ajaxEvaluator: ((_ url: String) -> String?)?
+    /// JS 里 java.ajax(url, options) 用到的网络层，需要注入
+    public var ajaxEvaluatorWithOptions: ((_ url: String, _ options: [String: Any]) -> JSStrResponse?)?
+    /// JS 里 java.ajaxAll(urls) 用到的并发网络层，需要注入
+    public var ajaxAllEvaluator: ((_ urls: [String]) -> [JSStrResponse])?
     /// JS 里 java.post(url, body, headers) 用到的网络层，需要注入
     public var postEvaluator: ((_ url: String, _ body: String, _ headers: [String: String]) -> JSStrResponse?)?
+    /// JS 里 cache.get/put + java.get/put 的存储后端
+    public var keyValueStore: SourceKeyValueStore?
     /// java.toast/longToast 的UI提示，不注入的话只会打印到控制台
     public var toastHandler: ((_ msg: String) -> Void)?
     /// java.open/showBrowser/startBrowser* 系列，注入你的应用内浏览器/WebView展示逻辑

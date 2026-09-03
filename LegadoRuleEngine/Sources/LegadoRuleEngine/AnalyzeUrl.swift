@@ -72,8 +72,14 @@ public final class AnalyzeUrl {
     public var webViewEvaluator: ((_ url: String, _ headerMap: [String: String], _ js: String?) async throws -> HTTPStrResponse)?
     /// JS 里 java.ajax(url) 用到的网络层，需要注入
     public var ajaxEvaluator: ((_ url: String) -> String?)?
+    /// JS 里 java.ajax(url, options) 用到的网络层，需要注入
+    public var ajaxEvaluatorWithOptions: ((_ url: String, _ options: [String: Any]) -> JSStrResponse?)?
+    /// JS 里 java.ajaxAll(urls) 用到的并发网络层，需要注入
+    public var ajaxAllEvaluator: ((_ urls: [String]) -> [JSStrResponse])?
     /// JS 里 java.post(url, body, headers) 用到的网络层，需要注入
     public var postEvaluator: ((_ url: String, _ body: String, _ headers: [String: String]) -> JSStrResponse?)?
+    /// JS 里 cache.get/put + java.get/put 的存储后端
+    public var keyValueStore: SourceKeyValueStore?
     /// JS 里 java.xxx() 里除 put/get/log 外的能力，可在这里追加
     public var extraJSSetup: ((JSContext) -> Void)?
     /// 书源的公共JS库（BookSource.jsLib），每次 evalJS 都会先跑一遍
@@ -695,6 +701,9 @@ struct UrlOption {
     func get(_ key: String) -> String
     func log(_ msg: String) -> String
     func ajax(_ url: String) -> String?
+    func ajax2(_ url: String) -> JSStrResponse?
+    func ajax(_ url: String, _ options: String) -> JSStrResponse?
+    func ajaxAll(_ urls: [String]) -> [Any]
     func post(_ url: String, _ body: String, _ headers: [String: Any]) -> JSStrResponse?
     func base64Encode(_ s: String) -> String
     func base64Decode(_ s: String) -> String
@@ -721,6 +730,10 @@ struct UrlOption {
     func randomUUID() -> String
     func toNumChapter(_ s: String) -> String
     func aesBase64DecodeToString(_ key: String, _ content: String) -> String
+    func cacheGet(_ key: String) -> String
+    func cachePut(_ key: String, _ value: String) -> String
+    func javaGet(_ key: String) -> String
+    func javaPut(_ key: String, _ value: String) -> String
 }
 
 @objc final class AnalyzeUrlJSBridge: NSObject, AnalyzeUrlJSBridgeExport {
@@ -735,6 +748,25 @@ struct UrlOption {
     }
     func ajax(_ url: String) -> String? {
         owner?.ajaxEvaluator?(url)
+    }
+    func ajax2(_ url: String) -> JSStrResponse? {
+        owner?.ajaxEvaluatorWithOptions?(url, [:])
+    }
+    func ajax(_ url: String, _ options: String) -> JSStrResponse? {
+        var actualUrl = url
+        var actualOpts = options
+        if let commaIdx = url.firstIndex(of: ",") {
+            actualUrl = String(url[..<commaIdx])
+            actualOpts = String(url[url.index(after: commaIdx)...])
+        }
+        if let data = actualOpts.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
+           let opts = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            return owner?.ajaxEvaluatorWithOptions?(actualUrl, opts)
+        }
+        return nil
+    }
+    func ajaxAll(_ urls: [String]) -> [Any] {
+        owner?.ajaxAllEvaluator?(urls).map { $0 as Any } ?? []
     }
     func post(_ url: String, _ body: String, _ headers: [String: Any]) -> JSStrResponse? {
         var headerMap: [String: String] = [:]
@@ -782,6 +814,10 @@ struct UrlOption {
     func randomUUID() -> String { JSCommonMethods.randomUUID() }
     func toNumChapter(_ s: String) -> String { JSCommonMethods.toNumChapter(s) }
     func aesBase64DecodeToString(_ key: String, _ content: String) -> String { "" }
+    func cacheGet(_ key: String) -> String { owner?.keyValueStore?.get(key) ?? "" }
+    func cachePut(_ key: String, _ value: String) -> String { owner?.keyValueStore?.put(key, value); return "" }
+    func javaGet(_ key: String) -> String { owner?.keyValueStore?.get(key) ?? "" }
+    func javaPut(_ key: String, _ value: String) -> String { owner?.keyValueStore?.put(key, value); return "" }
     func log(_ msg: String) -> String {
         print("[URL规则日志] \(msg)")
         return msg
