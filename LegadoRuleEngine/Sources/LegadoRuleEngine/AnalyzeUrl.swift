@@ -80,6 +80,8 @@ public final class AnalyzeUrl {
     public var postEvaluator: ((_ url: String, _ body: String, _ headers: [String: String]) -> JSStrResponse?)?
     /// JS 里 cache.get/put + java.get/put 的存储后端
     public var keyValueStore: SourceKeyValueStore?
+    public var loginInfoWriter: ((_ info: [String: String]) -> Void)?
+    public var loginActionHandler: ((_ action: String, _ infoMap: [String: String]) -> Void)?
     /// JS 里 java.xxx() 里除 put/get/log 外的能力，可在这里追加
     public var extraJSSetup: ((JSContext) -> Void)?
     /// 书源的公共JS库（BookSource.jsLib），每次 evalJS 都会先跑一遍

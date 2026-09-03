@@ -80,7 +80,6 @@ public final class BookSourceRuntime {
         au.ajaxAllEvaluator = { [weak self] urls in self?.blockingAjaxAll(urls) ?? [] }
         au.postEvaluator = { [weak self] url, body, headers in self?.blockingPost(url, body, headers) }
         au.loginInfoWriter = { [weak self] info in self?.persistLoginInfo(info) }
-        au.loginActionHandler = { [weak self] action, info in self?.handleLoginAction(action, info) }
         au.toastHandler = toastHandler
         au.browserOpener = browserOpener
         au.keyValueStore = sourceKeyValueStore
@@ -97,7 +96,6 @@ public final class BookSourceRuntime {
         rule.ajaxAllEvaluator = { [weak self] urls in self?.blockingAjaxAll(urls) ?? [] }
         rule.postEvaluator = { [weak self] url, body, headers in self?.blockingPost(url, body, headers) }
         rule.loginInfoWriter = { [weak self] info in self?.persistLoginInfo(info) }
-        rule.loginActionHandler = { [weak self] action, info in self?.handleLoginAction(action, info) }
         rule.toastHandler = toastHandler
         rule.browserOpener = browserOpener
         rule.refreshExploreHandler = refreshExploreHandler
