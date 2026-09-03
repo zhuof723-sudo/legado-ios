@@ -60,10 +60,10 @@ struct ReaderView: View {
                 if eyeCare {
                     Color.yellow.opacity(0.07).ignoresSafeArea().allowsHitTesting(false)
                 }
-                if turnMode != 2 {
-                    tapZones(screenWidth: geo.size.width)
-                }
+                tapZones(screenWidth: geo.size.width)
+                    .zIndex(10)
                 chrome
+                    .zIndex(20)
             }
             .onAppear { pageSizeState = pageSize }
             .task(id: paginationKey) {
@@ -135,15 +135,19 @@ struct ReaderView: View {
     private func tapZones(screenWidth: CGFloat) -> some View {
         HStack(spacing: 0) {
             Color.clear
+                .contentShape(Rectangle())
                 .onTapGesture { if turnMode != 2 { goPrevPage() } }
                 .allowsHitTesting(turnMode != 2)
             Color.clear
+                .contentShape(Rectangle())
                 .onTapGesture { withAnimation { showControls.toggle() } }
             Color.clear
+                .contentShape(Rectangle())
                 .onTapGesture { if turnMode != 2 { goNextPage() } }
                 .allowsHitTesting(turnMode != 2)
         }
         .contentShape(Rectangle())
+        .allowsHitTesting(true)
     }
 
     // MARK: - 控制层（液态玻璃）
