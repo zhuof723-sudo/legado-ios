@@ -5,7 +5,6 @@ import LegadoRuleEngine
 @main
 struct ReaderApp: App {
     init() {
-        // 把引擎日志接到 App 的 LogStore
         EngineLogger.sink = { lvl, tag, msg in
             let level: LogLevel = lvl == .error ? .error : (lvl == .warn ? .warn : .info)
             Task { @MainActor in LogStore.shared.log(msg, tag: tag, level: level) }
@@ -22,10 +21,9 @@ struct ReaderApp: App {
 
 /// 根视图：四个标签 + 悬浮玻璃搜索按钮（对照设计稿的底部导航）
 struct RootView: View {
+    @State private var showSearch = false
     @State private var readerIsActive = false
-
-    var body: some View {
-        ZStack(alignment: .bottomTrailing) {
+    @AppStorage("app.appearance") private var appearance = 0
 
     private var scheme: ColorScheme? {
         switch appearance {
@@ -61,7 +59,6 @@ struct RootView: View {
         }
     }
 
-    /// 悬浮搜索（液态玻璃圆钮）
     private var searchFab: some View {
         Button {
             showSearch = true

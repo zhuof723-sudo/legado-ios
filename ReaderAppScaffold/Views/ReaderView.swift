@@ -158,23 +158,6 @@ struct ReaderView: View {
     }
 
 
-        HStack(spacing: 0) {
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture { if turnMode != 2 { goPrevPage() } }
-                .allowsHitTesting(turnMode != 2)
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture { withAnimation { showControls.toggle() } }
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture { if turnMode != 2 { goNextPage() } }
-                .allowsHitTesting(turnMode != 2)
-        }
-        .contentShape(Rectangle())
-        .allowsHitTesting(true)
-    }
-
     // MARK: - 控制层（液态玻璃）
 
     private var chrome: some View {
