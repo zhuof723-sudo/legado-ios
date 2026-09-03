@@ -36,13 +36,30 @@ struct SourceDebugView: View {
                     Button { steps.removeAll() } label: { Image(systemName: "trash") }
                 }
             }
+            .task {
+                // 打开即自动跑一次全链路测试
+                if steps.isEmpty { await run() }
+            }
         }
     }
 
     private var inputBar: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
+            Button {
+                Task { await run() }
+            } label: {
+                Label("一键全链路测试（搜索→目录→正文）", systemImage: "play.fill")
+                    .font(.subheadline.bold())
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+            }
+            .prominentGlassButton()
+            .tint(Theme.accent)
+            .foregroundStyle(.white)
+            .disabled(running)
+
             HStack(spacing: 10) {
-                TextField("关键词 / 详情URL / ++目录URL / --正文URL", text: $key)
+                TextField("自定义：关键词 / URL / ++目录URL / --正文URL", text: $key)
                     .textFieldStyle(.roundedBorder)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
@@ -52,31 +69,16 @@ struct SourceDebugView: View {
                     Text("开始").bold()
                 }
                 .prominentGlassButton()
-                .tint(Theme.accent)
-                .foregroundStyle(.white)
+                .tint(.secondary)
                 .disabled(running)
             }
-            HStack(spacing: 10) {
-                quickButton("搜索", "斗破苍穹")
-                quickButton("详情", "https://")
-                quickButton("目录", "++")
-                quickButton("正文", "--")
-                Spacer()
-            }
+
+            Text("一键测试会自动：搜索「斗破苍穹」→ 用第一条进目录 → 读第一章正文。")
+                .font(.caption2).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
-    }
-
-    private func quickButton(_ label: String, _ prefix: String) -> some View {
-        Button {
-            key = prefix
-        } label: {
-            Text(label).font(.caption)
-                .padding(.horizontal, 10).padding(.vertical, 5)
-                .background(Capsule().fill(Color(.secondarySystemBackground)))
-        }
-        .buttonStyle(.plain)
     }
 
     private var stepList: some View {
