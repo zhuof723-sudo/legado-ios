@@ -73,6 +73,7 @@ struct BookDetailView: View {
             .navigationDestination(isPresented: $openReader) {
                 if let vm = readerVM {
                     ReaderView(viewModel: vm, bookUrl: bookUrl, bookName: name)
+                        .toolbar(.hidden, for: .tabBar)
                 }
             }
         }

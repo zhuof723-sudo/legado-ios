@@ -26,12 +26,22 @@ public final class ReaderViewModel {
     public func loadToc(bookUrl: String) async {
         isLoadingToc = true
         errorMessage = nil
+        chapters = []
         defer { isLoadingToc = false }
+        guard !bookUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            errorMessage = "无法打开：书籍地址为空"
+            return
+        }
         do {
-            chapters = try await runtime.getToc(bookUrl: bookUrl)
+            let loaded = try await runtime.getToc(bookUrl: bookUrl)
+            guard !loaded.isEmpty else {
+                errorMessage = "目录为空：当前书源未返回章节，请更换书源或测试配置"
+                return
+            }
+            chapters = loaded
         } catch {
             engineLog("获取目录失败: \(error.localizedDescription)", tag: "reader", level: .error)
-            errorMessage = "获取目录失败: \(error.localizedDescription)"
+            errorMessage = "获取目录失败：\(error.localizedDescription)"
         }
     }
 
@@ -55,7 +65,11 @@ public final class ReaderViewModel {
     }
 
     private func loadCurrentContent() async {
-        guard currentIndex >= 0, currentIndex < chapters.count else { return }
+        guard currentIndex >= 0, currentIndex < chapters.count else {
+            isLoadingContent = false
+            errorMessage = "无法打开正文：章节参数无效"
+            return
+        }
         if let cached = contentCache[currentIndex] {
             currentContent = cached
             prefetchNext()
@@ -66,6 +80,10 @@ public final class ReaderViewModel {
         defer { isLoadingContent = false }
         do {
             let text = try await runtime.getContent(chapterUrl: chapters[currentIndex].url)
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                errorMessage = "正文为空：当前章节没有返回内容"
+                return
+            }
             contentCache[currentIndex] = text
             currentContent = text
             prefetchNext()

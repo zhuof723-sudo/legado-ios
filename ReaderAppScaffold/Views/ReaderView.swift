@@ -80,6 +80,8 @@ struct ReaderView: View {
             }
         }
         .statusBarHidden(!showControls)
+        // 无论从书架、搜索、历史还是详情页进入，都隐藏根 TabBar
+        .toolbar(.hidden, for: .tabBar)
         .sheet(isPresented: $showSettings) {
             ReaderSettingsPanel().presentationDetents([.medium, .large])
         }
