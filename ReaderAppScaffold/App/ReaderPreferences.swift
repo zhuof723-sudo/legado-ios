@@ -1,6 +1,6 @@
 import SwiftUI
 
-private struct ReaderActivePreferenceKey: PreferenceKey {
+struct ReaderActivePreferenceKey: PreferenceKey {
     static var defaultValue = false
     static func reduce(value: inout Bool, nextValue: () -> Bool) {
         value = value || nextValue()
