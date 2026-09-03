@@ -13,15 +13,22 @@ public protocol SourceJSContext: AnyObject {
     func setVariable(_ value: String)
     /// 对应 source.getLoginHeader() —— 登录后要在后续请求头里带的鉴权信息
     func getLoginHeader() -> String?
+    /// 对应 source.putLoginHeader(value) —— 登录成功后把鉴权串写回持久层
+    func putLoginHeader(_ value: String)
     /// 对应 source.getLoginInfoMap() —— 登录表单填的各字段（账号/密码/自定义字段等）
     func getLoginInfoMap() -> [String: String]
+    /// 对应 source.putLoginInfo(jsonString) —— 把整张表单序列化回写到持久层
+    func putLoginInfo(_ json: String)
 }
 
 @objc protocol SourceJSBridgeExport: JSExport {
     func getVariable() -> String
     func setVariable(_ value: String)
     func getLoginHeader() -> String
+    func putLoginHeader(_ value: String) -> String
     func getLoginInfoMap() -> [String: String]
+    func putLoginInfo(_ value: String) -> String
+    func getLoginInfo() -> String
     func getKey() -> String
 }
 
@@ -36,7 +43,22 @@ public protocol SourceJSContext: AnyObject {
     func getVariable() -> String { context?.getVariable() ?? "" }
     func setVariable(_ value: String) { context?.setVariable(value) }
     func getLoginHeader() -> String { context?.getLoginHeader() ?? "" }
+    func putLoginHeader(_ value: String) -> String {
+        context?.putLoginHeader(value); return ""
+    }
     func getLoginInfoMap() -> [String: String] { context?.getLoginInfoMap() ?? [:] }
+    /// 旧版 legado 是 putLoginInfo(obj)；JS 端传的是对象不是 JSON 字符串
+    /// 这里两个签名都接受，便于不同书源
+    func putLoginInfo(_ value: String) -> String {
+        context?.putLoginInfo(value); return ""
+    }
+    func getLoginInfo() -> String {
+        if let info = context?.getLoginInfoMap() {
+            if let data = try? JSONSerialization.data(withJSONObject: info),
+               let s = String(data: data, encoding: .utf8) { return s }
+        }
+        return ""
+    }
     func getKey() -> String { sourceKey }
 }
 

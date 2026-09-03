@@ -63,6 +63,7 @@ public extension RuleDataInterface {
     func refreshExplore() -> String
     func searchBook(_ keyword: String, _ sourceFilter: String?) -> String
     func qread() -> String
+    func sourceLoginAction(_ action: String, _ infoMapJson: String) -> String
     // 回调规则引擎解析（java.getString/getElements 等）
     func getString(_ rule: String) -> String
     func getStringList(_ rule: String) -> [String]
@@ -178,6 +179,15 @@ public extension RuleDataInterface {
         rule?.searchBookHandler?(keyword, sourceFilter); return ""
     }
     public func qread() -> String { "0" }
+    public func sourceLoginAction(_ action: String, _ infoMapJson: String) -> String {
+        var info: [String: String] = [:]
+        if let data = infoMapJson.data(using: .utf8),
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            for (k, v) in obj { info[k] = "\(v)" }
+        }
+        rule?.loginActionHandler?(action, info)
+        return ""
+    }
 
     public func getString(_ ruleStr: String) -> String {
         rule?.getString(ruleStr) ?? ""
@@ -251,6 +261,8 @@ public final class AnalyzeRule {
     public var postEvaluator: ((_ url: String, _ body: String, _ headers: [String: String]) -> JSStrResponse?)?
     /// JS 里 cache.get/put + java.get/put 的存储后端
     public var keyValueStore: SourceKeyValueStore?
+    public var loginInfoWriter: ((_ info: [String: String]) -> Void)?
+    public var loginActionHandler: ((_ action: String, _ infoMap: [String: String]) -> Void)?
     /// java.toast/longToast 的UI提示，不注入的话只会打印到控制台
     public var toastHandler: ((_ msg: String) -> Void)?
     /// java.open/showBrowser/startBrowser* 系列，注入你的应用内浏览器/WebView展示逻辑

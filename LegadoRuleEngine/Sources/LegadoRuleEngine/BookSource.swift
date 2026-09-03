@@ -216,6 +216,10 @@ public struct BookSource: Codable, Equatable {
     public var loginUrl: String?
     public var loginUi: String?
     public var loginCheckJs: String?
+    /// 用户在登录面板里填好的表单值，比如 {"邮箱":"x@y.com","密码":"..."}
+    public var loginInfoMap: [String: String] = [:]
+    /// 登录后存下来的鉴权字符串（apiKey/bearer/token等），之后每条请求会拼到 header 里
+    public var loginHeader: String?
     /// 封面解密js
     public var coverDecodeJs: String?
     public var bookSourceComment: String?
@@ -378,6 +382,14 @@ public struct BookSource: Codable, Equatable {
 // MARK: - 批量导入
 
 public enum BookSourceImporter {
+    /// 把单个 BookSource 重新编码成 JSON 字符串。用于把临时状态写回 rawJSON
+    public static func encode(_ source: BookSource) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(source)
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
     /// 导入书源JSON：支持单个对象或对象数组（legado 导出文件两种格式都有可能遇到）
     public static func parse(_ data: Data) throws -> [BookSource] {
         let decoder = JSONDecoder()

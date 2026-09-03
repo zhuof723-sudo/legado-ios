@@ -79,6 +79,8 @@ public final class BookSourceRuntime {
         au.ajaxEvaluatorWithOptions = { [weak self] url, opts in self?.blockingAjaxWithOptions(url, opts) }
         au.ajaxAllEvaluator = { [weak self] urls in self?.blockingAjaxAll(urls) ?? [] }
         au.postEvaluator = { [weak self] url, body, headers in self?.blockingPost(url, body, headers) }
+        au.loginInfoWriter = { [weak self] info in self?.persistLoginInfo(info) }
+        au.loginActionHandler = { [weak self] action, info in self?.handleLoginAction(action, info) }
         au.toastHandler = toastHandler
         au.browserOpener = browserOpener
         au.keyValueStore = sourceKeyValueStore
@@ -94,6 +96,8 @@ public final class BookSourceRuntime {
         rule.ajaxEvaluatorWithOptions = { [weak self] url, opts in self?.blockingAjaxWithOptions(url, opts) }
         rule.ajaxAllEvaluator = { [weak self] urls in self?.blockingAjaxAll(urls) ?? [] }
         rule.postEvaluator = { [weak self] url, body, headers in self?.blockingPost(url, body, headers) }
+        rule.loginInfoWriter = { [weak self] info in self?.persistLoginInfo(info) }
+        rule.loginActionHandler = { [weak self] action, info in self?.handleLoginAction(action, info) }
         rule.toastHandler = toastHandler
         rule.browserOpener = browserOpener
         rule.refreshExploreHandler = refreshExploreHandler
@@ -104,30 +108,40 @@ public final class BookSourceRuntime {
 
     /// 解析请求头
     public func resolveHeaderMap() -> [String: String] {
-        guard let header = source.header else { return [:] }
-        let trimmed = header.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return [:] }
-
-        let isJS = trimmed.lowercased().hasPrefix("@js:") || trimmed.lowercased().hasPrefix("<js>")
-        guard isJS else { return source.parsedHeaderMap() }
-
-        var jsBody = trimmed
-        if jsBody.lowercased().hasPrefix("@js:") {
-            jsBody = String(jsBody.dropFirst(4))
-        } else {
-            jsBody = jsBody
-                .replacingOccurrences(of: "<js>", with: "", options: [.caseInsensitive])
-                .replacingOccurrences(of: "</js>", with: "", options: [.caseInsensitive])
-        }
-
-        let rule = makeAnalyzeRule()
-        rule.setBaseUrl(source.bookSourceUrl)
-        guard let evaluated = rule.evalJS(jsBody) else { return [:] }
-        let str = "\(evaluated)"
-        guard let data = str.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
         var result: [String: String] = [:]
-        for (k, v) in obj { result[k] = "\(v)" }
+        guard let header = source.header else {
+            if let h = source.loginHeader, !h.isEmpty { result["Authorization"] = h }
+            return result
+        }
+        let trimmed = header.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            let isJS = trimmed.lowercased().hasPrefix("@js:") || trimmed.lowercased().hasPrefix("<js>")
+            if isJS {
+                var jsBody = trimmed
+                if jsBody.lowercased().hasPrefix("@js:") {
+                    jsBody = String(jsBody.dropFirst(4))
+                } else {
+                    jsBody = jsBody
+                        .replacingOccurrences(of: "<js>", with: "", options: [.caseInsensitive])
+                        .replacingOccurrences(of: "</js>", with: "", options: [.caseInsensitive])
+                }
+                let rule = makeAnalyzeRule()
+                rule.setBaseUrl(source.bookSourceUrl)
+                if let evaluated = rule.evalJS(jsBody) {
+                    let str = "\(evaluated)"
+                    if let data = str.data(using: .utf8),
+                       let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                        for (k, v) in obj { result[k] = "\(v)" }
+                    }
+                }
+            } else if let obj = source.parsedHeaderMap() as [String: String]? {
+                for (k, v) in obj { result[k] = v }
+            }
+        }
+        // 如果有 loginHeader（来源：source.putLoginHeader），默认作为 Authorization 头带上
+        if let h = source.loginHeader, !h.isEmpty, result["Authorization"] == nil {
+            result["Authorization"] = h
+        }
         return result
     }
 
@@ -263,6 +277,25 @@ public final class BookSourceRuntime {
         _ = semaphore.wait(timeout: .now() + 30)
         return JSStrResponse(body: resultText ?? "", url: resultURL)
     }
+
+    // MARK: - 登录信息持久化
+
+    /// 把 JS 里 source.putLoginInfo() 写回应用层持久化（应用层实现 SourceJSContext）
+    public func persistLoginInfo(_ info: [String: String]) {
+        source.loginInfoMap = info
+        loginInfoPersister?(info)
+    }
+
+    /// JS 里登录面板按钮 action 触发的回调（如 login()、user_logout()、key()）
+    public func handleLoginAction(_ action: String, _ info: [String: String]) {
+        source.loginInfoMap = info
+        loginActionHandler?(action, info)
+    }
+
+    /// 应用层注入：把登录表单持久化到 SwiftData 等
+    public var loginInfoPersister: ((_ info: [String: String]) -> Void)?
+    /// 应用层注入：登录动作执行（在登录面板里跑对应 JS 函数）
+    public var loginActionHandler: ((_ action: String, _ info: [String: String]) -> Void)?
 
     // MARK: - 搜索
 
@@ -465,7 +498,43 @@ public final class BookSourceRuntime {
         return result
     }
 
-    // MARK: - 简单 HTML 去标签
+    // MARK: - 登录面板动作执行
+
+    /// 在书源 loginUrl 里查找 `function funcName(...) {...}`，用当前上下文执行，返回函数返回值的字符串。
+    /// 同时支持箭头函数 `const funcName = (...) => {...}`
+    public func executeLoginAction(_ funcName: String, infoMap: [String: String]) async throws -> String? {
+        guard let loginUrl = source.loginUrl, !loginUrl.isEmpty else { return nil }
+        let analyzeRule = makeAnalyzeRule()
+        // 把表单值写到 ruleData 上，让 JS 通过 source.getLoginInfoMap() 读到
+        analyzeRule.ruleData = LogInfoBridge(infoMap: infoMap)
+        analyzeRule.sourceContext = SourceJSContextBridge(recordInfo: infoMap)
+        analyzeRule.setBaseUrl(source.bookSourceUrl)
+
+        // 提取函数体并执行
+        let result = analyzeRule.evalJS(loginUrl + "\n;\(funcName)(\(funcName == \"login\" ? "true" : ""))")
+        return result.map { "\($0)" }
+    }
+}
+
+private final class LogInfoBridge: RuleDataInterface {
+    var variableMap: [String: String]
+    init(infoMap: [String: String]) { self.variableMap = infoMap }
+}
+
+private final class SourceJSContextBridge: SourceJSContext {
+    var recordInfo: [String: String]
+    init(recordInfo: [String: String]) { self.recordInfo = recordInfo }
+    func getVariable() -> String { "" }
+    func setVariable(_ value: String) {}
+    func getLoginHeader() -> String? { nil }
+    func putLoginHeader(_ value: String) {}
+    func getLoginInfoMap() -> [String: String] { recordInfo }
+    func putLoginInfo(_ json: String) {
+        if let data = json.data(using: .utf8),
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
+            recordInfo = obj
+        }
+    }
 
     private func stripHTML(_ s: String) -> String {
         guard s.contains("<") || s.contains("&") else { return s }
@@ -482,5 +551,26 @@ public final class BookSourceRuntime {
         text = text.replacingOccurrences(of: "\\r\\n?", with: "\n", options: [.regularExpression])
         text = text.replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: [.regularExpression])
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+private final class LogInfoBridge: RuleDataInterface {
+    var variableMap: [String: String]
+    init(infoMap: [String: String]) { self.variableMap = infoMap }
+}
+
+private final class SourceJSContextBridge: SourceJSContext {
+    var recordInfo: [String: String]
+    init(recordInfo: [String: String]) { self.recordInfo = recordInfo }
+    func getVariable() -> String { "" }
+    func setVariable(_ value: String) {}
+    func getLoginHeader() -> String? { nil }
+    func putLoginHeader(_ value: String) {}
+    func getLoginInfoMap() -> [String: String] { recordInfo }
+    func putLoginInfo(_ json: String) {
+        if let data = json.data(using: .utf8),
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
+            recordInfo = obj
+        }
     }
 }
