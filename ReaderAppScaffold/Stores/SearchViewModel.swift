@@ -2,7 +2,8 @@ import Foundation
 import LegadoRuleEngine
 
 public struct TaggedSearchResult: Identifiable {
-    public var id: String { bookUrl + "|" + sourceUrl }
+    /// 同一书源可能返回重复 bookUrl；把书名/作者纳入标识，配合 ViewModel 去重，避免 SwiftUI 重复 ID 崩溃。
+    public var id: String { sourceUrl + "|" + bookUrl + "|" + name + "|" + author }
     public let sourceUrl: String
     public let sourceName: String
     public let name: String
@@ -22,6 +23,10 @@ public final class SearchViewModel {
     public var isSearching = false
     public var isLoadingMore = false
     public var errorMessages: [String] = []
+    public private(set) var omittedResultCount = 0
+    /// 防止聚合源一次返回数千条导致 SwiftUI 同时创建大量封面视图和内存峰值。
+    private let maxResultsPerSource = 120
+    private let maxTotalResults = 600
     /// 翻到最后一页时置 true，"加载更多"按钮据此禁用（简化处理：任何一个源没结果了就整体停，
     /// 不逐源精细跟踪谁还有下一页，书源多的时候这样已经够用）
     public private(set) var reachedEnd = false
@@ -41,6 +46,7 @@ public final class SearchViewModel {
         reachedEnd = false
         results = []
         errorMessages = []
+        omittedResultCount = 0
         isSearching = true
         defer { isSearching = false }
         await performSearch(keyword: kw, page: currentPage)
@@ -77,8 +83,7 @@ public final class SearchViewModel {
             for await (sourceUrl, sourceName, result) in group {
                 switch result {
                 case .success(let list):
-                    pageResultCount += list.count
-                    let tagged = list.map {
+                    let candidates = list.prefix(maxResultsPerSource).map {
                         TaggedSearchResult(
                             sourceUrl: sourceUrl, sourceName: sourceName,
                             name: $0.name, author: $0.author, intro: $0.intro,
@@ -86,7 +91,17 @@ public final class SearchViewModel {
                             coverUrl: $0.coverUrl, wordCount: $0.wordCount
                         )
                     }
-                    results.append(contentsOf: tagged)
+                    var knownIDs = Set(results.map(\.id))
+                    var unique: [TaggedSearchResult] = []
+                    for item in candidates where knownIDs.insert(item.id).inserted {
+                        unique.append(item)
+                    }
+                    let capacity = max(0, maxTotalResults - results.count)
+                    let accepted = Array(unique.prefix(capacity))
+                    results.append(contentsOf: accepted)
+                    pageResultCount += accepted.count
+                    omittedResultCount += max(0, list.count - accepted.count)
+                    if results.count >= maxTotalResults { reachedEnd = true }
                 case .failure(let error):
                     engineLog("搜索失败: \(error.localizedDescription)", tag: sourceName, level: .error)
                     errorMessages.append("\(sourceName): \(error.localizedDescription)")

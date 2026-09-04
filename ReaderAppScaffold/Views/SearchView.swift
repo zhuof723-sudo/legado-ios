@@ -73,7 +73,7 @@ struct SearchView: View {
     @ViewBuilder
     private func resultList(_ vm: SearchViewModel) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
+            LazyVStack(alignment: .leading, spacing: 12) {
                 if vm.isSearching {
                     HStack { Spacer(); ProgressView("搜索中…"); Spacer() }.padding(.top, 30)
                 }
@@ -87,6 +87,15 @@ struct SearchView: View {
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.7)))
+                }
+                if vm.omittedResultCount > 0 {
+                    Label(
+                        "结果过多，已安全展示 \(vm.results.count) 条，省略 \(vm.omittedResultCount) 条",
+                        systemImage: "rectangle.stack.badge.minus"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
                 }
                 ForEach(vm.results) { result in
                     resultRow(result)
