@@ -9,6 +9,8 @@ import JavaScriptCore
 /// 由调用方（比如 App 里的 `BookSourceRecord`）实现后注入进来；不注入的话相关JS调用会拿到空值，
 /// 不会崩，只是那部分"记住配置"的功能不生效。
 public protocol SourceJSContext: AnyObject {
+    var bookSourceName: String { get }
+    var loginUi: String { get }
     func getVariable() -> String
     func setVariable(_ value: String)
     /// 对应 source.getLoginHeader() —— 登录后要在后续请求头里带的鉴权信息
@@ -21,7 +23,16 @@ public protocol SourceJSContext: AnyObject {
     func putLoginInfo(_ json: String)
 }
 
+public extension SourceJSContext {
+    var bookSourceName: String { "" }
+    var loginUi: String { "" }
+    func putLoginHeader(_ value: String) {}
+    func putLoginInfo(_ json: String) {}
+}
+
 @objc protocol SourceJSBridgeExport: JSExport {
+    var bookSourceName: String { get }
+    func loginUi() -> String
     func getVariable() -> String
     func setVariable(_ value: String)
     func getLoginHeader() -> String
@@ -40,6 +51,8 @@ public protocol SourceJSContext: AnyObject {
         self.sourceKey = sourceKey
     }
 
+    var bookSourceName: String { context?.bookSourceName ?? "" }
+    func loginUi() -> String { context?.loginUi ?? "" }
     func getVariable() -> String { context?.getVariable() ?? "" }
     func setVariable(_ value: String) { context?.setVariable(value) }
     func getLoginHeader() -> String { context?.getLoginHeader() ?? "" }
@@ -71,6 +84,31 @@ public protocol SourceJSContext: AnyObject {
 @objc final class CookieJSBridge: NSObject, CookieJSBridgeExport {
     func getCookie(_ domain: String) -> String { AnalyzeUrl.cookieStore.getCookie(domain) }
     func setCookie(_ domain: String, _ cookie: String) { AnalyzeUrl.cookieStore.setCookie(domain, cookie) }
+}
+
+@objc protocol CacheJSBridgeExport: JSExport {
+    func get(_ key: String) -> String
+    func put(_ key: String, _ value: String) -> String
+    func remove(_ key: String) -> String
+}
+
+/// 对应 JS 里的独立 `cache` 对象。
+@objc final class CacheJSBridge: NSObject, CacheJSBridgeExport {
+    private let store: SourceKeyValueStore?
+
+    init(_ store: SourceKeyValueStore?) {
+        self.store = store
+    }
+
+    func get(_ key: String) -> String { store?.get(key) ?? "" }
+    func put(_ key: String, _ value: String) -> String {
+        store?.put(key, value)
+        return value
+    }
+    func remove(_ key: String) -> String {
+        store?.remove(key)
+        return ""
+    }
 }
 
 // MARK: - java.post / java.ajax 返回的响应对象

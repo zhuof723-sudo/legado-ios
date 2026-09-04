@@ -395,6 +395,7 @@ public final class AnalyzeUrl {
         context.setObject(bridge, forKeyedSubscript: "java" as NSString)
         context.setObject(SourceJSBridge(sourceContext, sourceKey: sourceKey ?? ""), forKeyedSubscript: "source" as NSString)
         context.setObject(CookieJSBridge(), forKeyedSubscript: "cookie" as NSString)
+        context.setObject(CacheJSBridge(keyValueStore), forKeyedSubscript: "cache" as NSString)
         context.setObject(baseUrl, forKeyedSubscript: "baseUrl" as NSString)
         context.setObject(page ?? NSNull(), forKeyedSubscript: "page" as NSString)
         context.setObject(key ?? "", forKeyedSubscript: "key" as NSString)
@@ -749,7 +750,16 @@ struct UrlOption {
         owner?.get(key) ?? ""
     }
     func ajax(_ url: String) -> String? {
-        owner?.ajaxEvaluator?(url)
+        if let marker = url.range(of: ",{", options: .backwards) {
+            let actualUrl = String(url[..<marker.lowerBound])
+            let json = String(url[url.index(after: marker.lowerBound)...])
+            if let data = json.data(using: .utf8),
+               let options = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let response = owner?.ajaxEvaluatorWithOptions?(actualUrl, options) {
+                return response.body()
+            }
+        }
+        return owner?.ajaxEvaluator?(url)
     }
     func ajax2(_ url: String) -> JSStrResponse? {
         owner?.ajaxEvaluatorWithOptions?(url, [:])

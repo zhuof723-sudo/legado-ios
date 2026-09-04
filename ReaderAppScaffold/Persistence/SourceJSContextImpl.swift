@@ -12,23 +12,20 @@ public final class SourceJSContextImpl: SourceJSContext {
         self.record = record
     }
 
+    private var keyValueStore: SourceKeyValueStore? {
+        guard let record = record else { return nil }
+        return UserDefaultsKeyValueStore(namespace: record.bookSourceUrl)
+    }
+
+    public var bookSourceName: String { record?.bookSourceName ?? "" }
+    public var loginUi: String { record?.decodeSource()?.loginUi ?? "" }
+
     public func getVariable() -> String {
-        guard let record = record else { return "" }
-        if let cacheVal = UserDefaults.standard.string(forKey: "srcVar." + record.bookSourceUrl),
-           !cacheVal.isEmpty { return cacheVal }
-        // 常规聚合源的第一个配置以JSON数组形式存入loginInfoJSON，如 [{host:…}]
-        if let json = record.loginInfoJSON, !json.isEmpty {
-            // 若是可序列化变量数组，返回它
-            if json.trimmingCharacters(in: .whitespaces).hasPrefix("[") { return json }
-        }
-        return ""
+        keyValueStore?.get("__source_variable") ?? ""
     }
 
     public func setVariable(_ value: String) {
-        guard let record = record else { return }
-        // 非首个请求也可能写入bookId映射等，这里仅提供默认变量槽
-        let key = "srcVar." + record.bookSourceUrl
-        UserDefaults.standard.set(value, forKey: key)
+        keyValueStore?.put("__source_variable", value)
     }
 
     public func getLoginHeader() -> String? {

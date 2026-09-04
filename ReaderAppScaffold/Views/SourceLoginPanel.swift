@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 import LegadoRuleEngine
 
 /// 书源登录面板：根据 source.loginUi 数组动态生成表单，
@@ -136,26 +137,27 @@ struct SourceLoginPanel: View {
     }
 
     private func runAction(_ item: LoginUIItem) {
-        let action = item.action ?? ""
-        // 提取函数名 "login()" → "login"
-        let funcName = action.replacingOccurrences(of: "()", with: "")
-        guard !funcName.isEmpty else {
+        let action = (item.action ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !action.isEmpty else {
             message = "该按钮没有可执行的动作"
             messageColor = .orange
             return
         }
         isRunning = true
         message = nil
+        record.writeLoginInfo(formValues)
+        try? context.save()
         Task {
             do {
                 let runtime = try makeRuntime()
-                let result = try await runtime.executeLoginAction(funcName, infoMap: formValues)
+                let result = try await runtime.executeLoginAction(action, infoMap: formValues)
                 record.writeLoginInfo(formValues)
-                if let header = record.decodeSource()?.loginHeader {
+                try? context.save()
+                if let header = record.loginHeader, !header.isEmpty {
                     headerStatus = String(header.prefix(20)) + (header.count > 20 ? "..." : "")
                 }
                 await MainActor.run {
-                    message = result ?? "已执行 \(funcName)"
+                    message = result.flatMap { $0.isEmpty ? nil : $0 } ?? "已执行 \(action)"
                     messageColor = .green
                     isRunning = false
                 }

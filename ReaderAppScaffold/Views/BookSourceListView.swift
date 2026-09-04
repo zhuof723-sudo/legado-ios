@@ -71,7 +71,7 @@ struct BookSourceListView: View {
             .sheet(isPresented: $showLog) { NavigationStack { LogView() } }
             .sheet(item: $testingSource) { SourceDebugView(record: $0) }
             .sheet(item: $editingSource) { SourceEditView(record: $0) }
-            .sheet(item: $loginSource) { SourceLoginView(record: $0) }
+            .sheet(item: $loginSource) { SourceLoginPanel(record: $0) }
             .fileExporter(isPresented: $showExporter, document: exportDoc, contentType: .json, defaultFilename: exportName) { _ in }
             .confirmationDialog("确定删除选中的 \(selected.count) 个书源？", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("删除 \(selected.count) 个", role: .destructive) { deleteSelected() }

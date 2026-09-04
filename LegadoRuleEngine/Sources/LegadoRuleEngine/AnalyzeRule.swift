@@ -97,7 +97,15 @@ public extension RuleDataInterface {
         return msg
     }
     public func ajax(_ url: String) -> String? {
-        rule?.ajaxEvaluator?(url)
+        if let marker = url.range(of: ",{", options: .backwards) {
+            let actualUrl = String(url[..<marker.lowerBound])
+            let json = String(url[url.index(after: marker.lowerBound)...])
+            if let options = parseAjaxOptions(json),
+               let response = rule?.ajaxEvaluatorWithOptions?(actualUrl, options) {
+                return response.body()
+            }
+        }
+        return rule?.ajaxEvaluator?(url)
     }
     public func ajax2(_ url: String) -> JSStrResponse? {
         guard let opts = try? JSONSerialization.jsonObject(with: Data("{}".utf8)) as? [String: Any] else { return nil }
@@ -391,6 +399,7 @@ public final class AnalyzeRule {
         context.setObject(bridge, forKeyedSubscript: "java" as NSString)
         context.setObject(SourceJSBridge(sourceContext, sourceKey: sourceKey ?? ""), forKeyedSubscript: "source" as NSString)
         context.setObject(CookieJSBridge(), forKeyedSubscript: "cookie" as NSString)
+        context.setObject(CacheJSBridge(keyValueStore), forKeyedSubscript: "cache" as NSString)
         context.setObject(baseUrl ?? "", forKeyedSubscript: "baseUrl" as NSString)
         context.setObject(bookName ?? "", forKeyedSubscript: "bookName" as NSString)
         context.setObject(chapterTitle ?? "", forKeyedSubscript: "title" as NSString)

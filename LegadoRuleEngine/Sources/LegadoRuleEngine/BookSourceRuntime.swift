@@ -58,6 +58,9 @@ public final class BookSourceRuntime {
 
     public init(_ source: BookSource) {
         self.source = source
+        self.sourceKeyValueStore = UserDefaultsKeyValueStore(namespace: source.bookSourceUrl)
+        self.sourceContext = nil
+        self.sourceContext = RuntimeSourceJSContext(owner: self)
     }
 
     // MARK: - 构造
@@ -80,6 +83,8 @@ public final class BookSourceRuntime {
         au.ajaxAllEvaluator = { [weak self] urls in self?.blockingAjaxAll(urls) ?? [] }
         au.postEvaluator = { [weak self] url, body, headers in self?.blockingPost(url, body, headers) }
         au.loginInfoWriter = { [weak self] info in self?.persistLoginInfo(info) }
+        au.chapterVariableGet = { [weak self] key in self?.sourceKeyValueStore?.get(key) ?? "" }
+        au.chapterVariablePut = { [weak self] key, value in self?.sourceKeyValueStore?.put(key, value) }
         au.toastHandler = toastHandler
         au.browserOpener = browserOpener
         au.keyValueStore = sourceKeyValueStore
@@ -96,6 +101,8 @@ public final class BookSourceRuntime {
         rule.ajaxAllEvaluator = { [weak self] urls in self?.blockingAjaxAll(urls) ?? [] }
         rule.postEvaluator = { [weak self] url, body, headers in self?.blockingPost(url, body, headers) }
         rule.loginInfoWriter = { [weak self] info in self?.persistLoginInfo(info) }
+        rule.sourceGet = { [weak self] key in self?.sourceKeyValueStore?.get(key) }
+        rule.sourcePut = { [weak self] key, value in self?.sourceKeyValueStore?.put(key, value) }
         rule.toastHandler = toastHandler
         rule.browserOpener = browserOpener
         rule.refreshExploreHandler = refreshExploreHandler
@@ -202,9 +209,12 @@ public final class BookSourceRuntime {
             let cookie = AnalyzeUrl.cookieStore.getCookie(host)
             if !cookie.isEmpty { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
         }
-        let timeout: TimeInterval = (options["timeout"] as? Double)
+        let rawTimeout: TimeInterval = (options["timeout"] as? Double)
             ?? (options["timeout"] as? Int).map { Double($0) }
             ?? 30
+        // legado 规则通常以毫秒表示（如 10000），URLSession 使用秒。
+        let normalizedTimeout = rawTimeout > 300 ? rawTimeout / 1000 : rawTimeout
+        let timeout = min(max(normalizedTimeout, 1), 120)
         request.timeoutInterval = timeout
 
         let task = URLSession.shared.dataTask(with: request) { data, response, _ in
@@ -500,18 +510,30 @@ public final class BookSourceRuntime {
 
     /// 在书源 loginUrl 里查找 `function funcName(...) {...}`，用当前上下文执行，返回函数返回值的字符串。
     /// 同时支持箭头函数 `const funcName = (...) => {...}`
-    public func executeLoginAction(_ funcName: String, infoMap: [String: String]) async throws -> String? {
-        guard let loginUrl = source.loginUrl, !loginUrl.isEmpty else { return nil }
+    public func executeLoginAction(_ action: String, infoMap: [String: String]) async throws -> String? {
+        guard let loginScript = source.loginUrl, !loginScript.isEmpty else { return nil }
+        persistLoginInfo(infoMap)
+        if let data = try? JSONSerialization.data(withJSONObject: infoMap),
+           let json = String(data: data, encoding: .utf8) {
+            sourceContext?.putLoginInfo(json)
+        }
+
         let analyzeRule = makeAnalyzeRule()
-        // 把表单值写到 ruleData 上，让 JS 通过 source.getLoginInfoMap() 读到
         analyzeRule.ruleData = LogInfoBridge(infoMap: infoMap)
-        analyzeRule.sourceContext = SourceJSContextBridge(recordInfo: infoMap)
         analyzeRule.setBaseUrl(source.bookSourceUrl)
 
-        // 提取函数体并执行
-        let arg = funcName == "login" ? "true" : ""
-        let script = loginUrl + "\n;\(funcName)(\(arg))"
-        let result = analyzeRule.evalJS(script)
+        let trimmed = action.trimmingCharacters(in: .whitespacesAndNewlines)
+        let expression: String
+        if trimmed == "login()" || trimmed == "login" {
+            expression = "login(true)"
+        } else if trimmed.contains("(") {
+            expression = trimmed
+        } else {
+            expression = "\(trimmed)()"
+        }
+        let script = loginScript + "\n;" + expression
+        // 书源登录函数通过全局 result 读取面板字段。
+        let result = analyzeRule.evalJS(script, result: infoMap)
         return result.map { "\($0)" }
     }
 
@@ -538,18 +560,42 @@ private final class LogInfoBridge: RuleDataInterface {
     init(infoMap: [String: String]) { self.variableMap = infoMap }
 }
 
-private final class SourceJSContextBridge: SourceJSContext {
-    var recordInfo: [String: String]
-    init(recordInfo: [String: String]) { self.recordInfo = recordInfo }
-    func getVariable() -> String { "" }
-    func setVariable(_ value: String) {}
-    func getLoginHeader() -> String? { nil }
-    func putLoginHeader(_ value: String) {}
-    func getLoginInfoMap() -> [String: String] { recordInfo }
+private final class RuntimeSourceJSContext: SourceJSContext {
+    private weak var owner: BookSourceRuntime?
+    private let variableKey = "__source_variable"
+
+    init(owner: BookSourceRuntime) {
+        self.owner = owner
+    }
+
+    var bookSourceName: String { owner?.source.bookSourceName ?? "" }
+    var loginUi: String { owner?.source.loginUi ?? "" }
+
+    func getVariable() -> String {
+        owner?.sourceKeyValueStore?.get(variableKey) ?? ""
+    }
+
+    func setVariable(_ value: String) {
+        owner?.sourceKeyValueStore?.put(variableKey, value)
+    }
+
+    func getLoginHeader() -> String? {
+        owner?.source.loginHeader
+    }
+
+    func putLoginHeader(_ value: String) {
+        owner?.source.loginHeader = value
+    }
+
+    func getLoginInfoMap() -> [String: String] {
+        owner?.source.loginInfoMap ?? [:]
+    }
+
     func putLoginInfo(_ json: String) {
-        if let data = json.data(using: .utf8),
-           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
-            recordInfo = obj
-        }
+        guard let data = json.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+        var info: [String: String] = [:]
+        for (key, value) in obj { info[key] = "\(value)" }
+        owner?.persistLoginInfo(info)
     }
 }
