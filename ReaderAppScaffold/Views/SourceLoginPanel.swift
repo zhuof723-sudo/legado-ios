@@ -155,7 +155,7 @@ struct SourceLoginPanel: View {
         record.writeLoginInfo(info)
         try? context.save()
 
-        Task { @MainActor in
+        let _: Task<Void, Never> = Task { @MainActor in
             do {
                 let work: Task<LoginExecutionOutput, Error> = Task.detached(priority: .userInitiated) { () async throws -> LoginExecutionOutput in
                     guard var source = try BookSourceImporter.parse(rawJSON).first else {
