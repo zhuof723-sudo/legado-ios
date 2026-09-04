@@ -471,7 +471,9 @@ public final class AnalyzeUrl {
         var request = URLRequest(url: comps?.url ?? URL(string: urlNoQuery) ?? URL(string: "about:blank")!)
         request.httpMethod = method.rawValue
 
-        for (k, v) in headerMap where k.lowercased() != "cookie" {
+        for (k, v) in headerMap
+        where k.lowercased() != "cookie"
+            && !(k.caseInsensitiveCompare("X-Device-Id") == .orderedSame && v.isEmpty) {
             request.setValue(v, forHTTPHeaderField: k)
         }
 

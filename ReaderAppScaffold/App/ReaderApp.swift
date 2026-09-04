@@ -1,10 +1,13 @@
 import SwiftUI
 import SwiftData
+import UIKit
 import LegadoRuleEngine
 
 @main
 struct ReaderApp: App {
     init() {
+        // 只使用系统提供的 identifierForVendor；获取不到时保持空，不伪造设备码。
+        JSCommonMethods.deviceIdentifier = UIDevice.current.identifierForVendor?.uuidString ?? ""
         CrashReporter.shared.start()
         EngineLogger.sink = { lvl, tag, msg in
             let level: LogLevel = lvl == .error ? .error : (lvl == .warn ? .warn : .info)

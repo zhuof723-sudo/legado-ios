@@ -10,10 +10,10 @@ public enum JSCommonMethods {
     public static var defaultUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
         + "AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148"
 
-    /// 供 java.androidId()/deviceID() 用；iOS 没有这两个概念的直接对应物，
-    /// 默认给个每次启动都一样的稳定占位符即可（大多数书源只是拿它当"设备指纹"参与请求签名，
-    /// 不要求是真实设备标识）。需要更真实的设备区分度可以在App里换成 identifierForVendor。
-    public static var deviceIdentifier = "ios-device"
+    /// 供 java.androidId()/deviceID() 用。
+    /// iOS 没有 Android ID；默认必须为空，只有宿主 App 注入系统提供的
+    /// identifierForVendor 时才返回真实的应用级设备标识，绝不使用伪造回退值。
+    public static var deviceIdentifier = ""
 
     public static func base64Encode(_ s: String) -> String {
         Data(s.utf8).base64EncodedString()

@@ -210,7 +210,12 @@ public final class BookSourceRuntime {
         }
         for (k, v) in resolveHeaderMap() { request.setValue(v, forHTTPHeaderField: k) }
         if let extraHeaders = options["headers"] as? [String: Any] {
-            for (k, v) in extraHeaders { request.setValue("\(v)", forHTTPHeaderField: k) }
+            for (k, v) in extraHeaders {
+                let value = "\(v)"
+                // 空的设备标识表示系统没有提供 identifierForVendor，此时不发该请求头。
+                if k.caseInsensitiveCompare("X-Device-Id") == .orderedSame && value.isEmpty { continue }
+                request.setValue(value, forHTTPHeaderField: k)
+            }
         }
         if let host = url.host {
             let cookie = AnalyzeUrl.cookieStore.getCookie(host)
