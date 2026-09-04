@@ -124,7 +124,14 @@ struct SearchView: View {
     }
 
     private func resultRow(_ result: TaggedSearchResult) -> some View {
-        Button { selectedResult = result } label: {
+        Button {
+            CrashReporter.shared.breadcrumb(
+                level: "info",
+                tag: "search-ui",
+                message: "点击书籍：\(result.name) · \(result.sourceName) · \(String(result.bookUrl.prefix(500)))"
+            )
+            selectedResult = result
+        } label: {
             HStack(alignment: .top, spacing: 12) {
                 SmartCover(url: result.coverUrl, title: result.name, headers: headers(for: result))
                     .frame(width: 52, height: 72)

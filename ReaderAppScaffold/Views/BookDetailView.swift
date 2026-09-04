@@ -62,6 +62,11 @@ struct BookDetailView: View {
             .toolbar(.hidden, for: .navigationBar)
             .task {
                 guard readerVM == nil else { return }
+                CrashReporter.shared.breadcrumb(
+                    level: "info",
+                    tag: "book-detail",
+                    message: "开始加载详情目录：\(name) · \(String(bookUrl.prefix(500)))"
+                )
                 let vm = ReaderViewModel(source: source)
                 readerVM = vm
                 await vm.loadToc(bookUrl: bookUrl)

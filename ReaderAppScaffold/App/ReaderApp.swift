@@ -5,8 +5,10 @@ import LegadoRuleEngine
 @main
 struct ReaderApp: App {
     init() {
+        CrashReporter.shared.start()
         EngineLogger.sink = { lvl, tag, msg in
             let level: LogLevel = lvl == .error ? .error : (lvl == .warn ? .warn : .info)
+            CrashReporter.shared.breadcrumb(level: level.rawValue, tag: tag, message: msg)
             Task { @MainActor in LogStore.shared.log(msg, tag: tag, level: level) }
         }
     }
@@ -21,6 +23,7 @@ struct ReaderApp: App {
 
 /// 根视图：四个标签 + 悬浮玻璃搜索按钮（对照设计稿的底部导航）
 struct RootView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @State private var showSearch = false
     @State private var readerIsActive = false
     @AppStorage("app.appearance") private var appearance = 0
@@ -56,6 +59,20 @@ struct RootView: View {
         .preferredColorScheme(scheme)
         .fullScreenCover(isPresented: $showSearch) {
             SearchView()
+        }
+        .onAppear {
+            CrashReporter.shared.markSessionActive(true)
+            CrashLogStore.shared.reload()
+        }
+        .onChange(of: scenePhase) {
+            switch scenePhase {
+            case .active:
+                CrashReporter.shared.markSessionActive(true)
+            case .background:
+                CrashReporter.shared.markSessionActive(false)
+            default:
+                break
+            }
         }
     }
 

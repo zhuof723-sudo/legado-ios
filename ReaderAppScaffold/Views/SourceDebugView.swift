@@ -103,6 +103,7 @@ struct SourceDebugView: View {
         case source(String, String)
         case chapters
         case logs
+        case crashLogs
         case timeline
         case jsConsole
 
@@ -111,6 +112,7 @@ struct SourceDebugView: View {
             case .source(let title, _): return "source-\(title)"
             case .chapters: return "chapters"
             case .logs: return "logs"
+            case .crashLogs: return "crash-logs"
             case .timeline: return "timeline"
             case .jsConsole: return "js"
             }
@@ -203,6 +205,9 @@ struct SourceDebugView: View {
             .disabled(jsEntries.isEmpty)
             Button("系统日志 (\(LogStore.shared.entries.count))", systemImage: "waveform.path.ecg.rectangle") {
                 activeSheet = .logs
+            }
+            Button("崩溃日志 (\(CrashLogStore.shared.entries.count))", systemImage: "exclamationmark.triangle") {
+                activeSheet = .crashLogs
             }
             Button("诊断时间线 (\(timeline.count))", systemImage: "chart.bar.xaxis") {
                 activeSheet = .timeline
@@ -331,6 +336,11 @@ struct SourceDebugView: View {
                           subtitle: "共 \(books.count) 本，点击条目继续详情链路")
             ForEach(Array(books.prefix(5).enumerated()), id: \.element.id) { index, book in
                 Button {
+                    CrashReporter.shared.breadcrumb(
+                        level: "info",
+                        tag: "source-debug",
+                        message: "点击测试结果：\(book.name) · \(String(book.bookURL.prefix(500)))"
+                    )
                     Task { await runBookChain(book) }
                 } label: {
                     HStack(spacing: 10) {
@@ -472,6 +482,8 @@ struct SourceDebugView: View {
             DebugChapterSheet(chapters: chapters)
         case .logs:
             NavigationStack { LogView() }
+        case .crashLogs:
+            NavigationStack { CrashLogView() }
         case .timeline:
             DebugTimelineSheet(entries: timeline.map {
                 SourceDebugTimelineItem(text: "[\(formatTimestamp($0.elapsed))] \($0.text)")
