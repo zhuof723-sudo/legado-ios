@@ -64,6 +64,33 @@ final class LegadoRuleEngineTests: XCTestCase {
         XCTAssertEqual(results.map(\.name), ["A", "B"])
     }
 
+    func testExploreKindsSupportsMultilineAndJSON() {
+        var source = BookSource()
+        source.bookSourceUrl = "https://example.com"
+        source.exploreUrl = "玄幻::/xuanhuan?page={{page}}\n都市::/city?page={{page}}"
+        XCTAssertEqual(BookSourceRuntime(source).exploreKinds().map(\.title), ["玄幻", "都市"])
+
+        source.exploreUrl = #"[{"title":"新书","url":"/new"},{"title":"完本","url":"/done"}]"#
+        XCTAssertEqual(BookSourceRuntime(source).exploreKinds().map(\.title), ["新书", "完本"])
+    }
+
+    func testExploreParsesRealBookFields() async throws {
+        let payload = #"{"data":[{"title":"发现书A","author":"作者A","cover":"https://example.com/a.jpg","url":"/book/a"},{"title":"发现书B","author":"作者B","cover":"https://example.com/b.jpg","url":"/book/b"}]}"#
+        var source = BookSource()
+        source.bookSourceUrl = "https://example.com"
+        source.bookSourceName = "explore-test"
+        source.ruleExplore = ExploreRule(
+            bookList: "$.data", name: "$.title", author: "$.author",
+            bookUrl: "$.url", coverUrl: "$.cover"
+        )
+        let dataURL = "data:application/json;base64," + Data(payload.utf8).base64EncodedString()
+        let kind = ExploreKindInfo(title: "热门", url: dataURL)
+        let results = try await BookSourceRuntime(source).explore(kind, resultLimit: 10)
+        XCTAssertEqual(results.map(\.name), ["发现书A", "发现书B"])
+        XCTAssertEqual(results.first?.bookUrl, "https://example.com/book/a")
+        XCTAssertEqual(results.first?.coverUrl, "https://example.com/a.jpg")
+    }
+
     func testRegexReplaceSuffix() {
         let rule = AnalyzeRule()
         rule.setContent("<p>凡人修仙传</p>")

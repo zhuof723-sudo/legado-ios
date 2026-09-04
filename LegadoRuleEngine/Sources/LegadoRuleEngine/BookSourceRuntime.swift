@@ -3,6 +3,19 @@ import Foundation
 /// 把 `BookSource` + `AnalyzeUrl` + `AnalyzeRule` 串起来的胶水层：
 /// 搜索 → 目录 → 正文 三步，并对齐 legado 原版的若干行为（目录倒序/去重/空链接兜底）。
 /// 每一步都写引擎日志，方便定位"搜得到但打不开"的问题。
+public struct ExploreKindInfo: Identifiable, Equatable, Sendable {
+    public let title: String
+    public let url: String
+    public let type: String
+    public var id: String { title + "|" + url }
+
+    public init(title: String, url: String, type: String = "url") {
+        self.title = title
+        self.url = url
+        self.type = type
+    }
+}
+
 public struct SearchResult {
     public let name: String
     public let author: String
@@ -65,7 +78,7 @@ public final class BookSourceRuntime {
 
     // MARK: - 构造
 
-    private func makeAnalyzeUrl(_ urlRule: String, key: String? = nil, page: Int? = nil, bookUrl: String? = nil) -> AnalyzeUrl {
+    func makeAnalyzeUrl(_ urlRule: String, key: String? = nil, page: Int? = nil, bookUrl: String? = nil) -> AnalyzeUrl {
         let au = AnalyzeUrl(
             url: urlRule,
             key: key,
@@ -93,7 +106,7 @@ public final class BookSourceRuntime {
         return au
     }
 
-    private func makeAnalyzeRule() -> AnalyzeRule {
+    func makeAnalyzeRule() -> AnalyzeRule {
         let rule = AnalyzeRule()
         rule.jsLib = source.jsLib
         rule.sourceContext = sourceContext
@@ -599,7 +612,7 @@ public final class BookSourceRuntime {
         return result.map { "\($0)" }
     }
 
-    private func stripHTML(_ s: String) -> String {
+    func stripHTML(_ s: String) -> String {
         guard s.contains("<") || s.contains("&") else { return s }
         var text = s
         // 先把所有常见换行标签统一为真正换行，避免正文出现原始 <br />
