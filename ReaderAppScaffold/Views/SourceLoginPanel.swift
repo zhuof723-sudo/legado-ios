@@ -15,7 +15,7 @@ struct SourceLoginPanel: View {
     @State private var message: String?
     @State private var messageColor: Color = .secondary
     @State private var isRunning = false
-    @State private var headerStatus: String?
+    @State private var hasLoginHeader = false
 
     /// loginUi 是 JSON 数组字符串：[{"name":"...","type":"text|password|button","action":"..."}]
     private struct LoginUIItem: Identifiable, Decodable {
@@ -98,9 +98,10 @@ struct SourceLoginPanel: View {
                         .disabled(isRunning)
                     }
 
-                    if let headerStatus {
-                        Text("已保存鉴权串: \(headerStatus)")
-                            .font(.caption).foregroundStyle(.secondary)
+                    if hasLoginHeader {
+                        Label("登录凭据已保存", systemImage: "checkmark.shield.fill")
+                            .font(.caption)
+                            .foregroundStyle(.green)
                     }
 
                     if let message {
@@ -128,6 +129,7 @@ struct SourceLoginPanel: View {
     private func loadValues() {
         let info = record.decodeSource()?.loginInfoMap ?? [:]
         for (k, v) in info { formValues[k] = v }
+        hasLoginHeader = !(record.loginHeader?.isEmpty ?? true)
     }
 
     private func saveValues() {
@@ -144,57 +146,87 @@ struct SourceLoginPanel: View {
             messageColor = .orange
             return
         }
+
+        let rawJSON = record.rawJSON
+        let sourceHeader = record.loginHeader
+        let info = formValues
         isRunning = true
         message = nil
-        record.writeLoginInfo(formValues)
+        record.writeLoginInfo(info)
         try? context.save()
+
         Task {
             do {
-                let runtime = try makeRuntime()
-                let result = try await runtime.executeLoginAction(action, infoMap: formValues)
-                record.writeLoginInfo(formValues)
+                let output = try await Task.detached(priority: .userInitiated) {
+                    guard var source = try BookSourceImporter.parse(rawJSON).first else {
+                        throw NSError(domain: "login", code: 1,
+                                      userInfo: [NSLocalizedDescriptionKey: "书源解析失败"])
+                    }
+                    source.loginInfoMap = info
+                    source.loginHeader = sourceHeader
+                    let runtime = BookSourceRuntime(source)
+                    let capture = LoginExecutionCapture()
+                    runtime.toastHandler = { capture.setToast($0) }
+                    runtime.browserOpener = { capture.setBrowserURL($0) }
+                    let result = try await runtime.executeLoginAction(action, infoMap: info)
+                    return LoginExecutionOutput(
+                        result: result,
+                        toast: capture.toast,
+                        browserURL: capture.browserURL,
+                        loginInfo: runtime.source.loginInfoMap,
+                        loginHeader: runtime.source.loginHeader
+                    )
+                }.value
+
+                record.writeLoginInfo(output.loginInfo)
+                record.writeLoginHeader(output.loginHeader)
                 try? context.save()
-                if let header = record.loginHeader, !header.isEmpty {
-                    headerStatus = String(header.prefix(20)) + (header.count > 20 ? "..." : "")
+                hasLoginHeader = !(output.loginHeader?.isEmpty ?? true)
+                if let urlString = output.browserURL, let url = URL(string: urlString) {
+                    UIApplication.shared.open(url)
                 }
-                await MainActor.run {
-                    message = result.flatMap { $0.isEmpty ? nil : $0 } ?? "已执行 \(action)"
-                    messageColor = .green
-                    isRunning = false
-                }
+                message = output.toast ?? output.result.flatMap { $0.isEmpty ? nil : $0 } ?? "已执行 \(action)"
+                messageColor = (message?.contains("❌") == true) ? .red : .green
+                isRunning = false
             } catch {
-                await MainActor.run {
-                    message = "执行失败：\(error.localizedDescription)"
-                    messageColor = .red
-                    isRunning = false
-                }
+                message = "执行失败：\(error.localizedDescription)"
+                messageColor = .red
+                isRunning = false
             }
         }
     }
+}
 
-    private func makeRuntime() throws -> BookSourceRuntime {
-        guard let src = record.decodeSource() else {
-            throw NSError(domain: "login", code: 1, userInfo: [NSLocalizedDescriptionKey: "书源解析失败"])
-        }
-        let runtime = BookSourceRuntime(src)
-        let ctxImpl = SourceJSContextImpl(record: record)
-        runtime.sourceContext = ctxImpl
-        runtime.loginInfoPersister = { [weak record] info in
-            record?.writeLoginInfo(info)
-        }
-        runtime.loginActionHandler = { [weak record] _, info in
-            record?.writeLoginInfo(info)
-        }
-        runtime.toastHandler = { text in
-            Task { @MainActor in
-                message = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                messageColor = text.contains("❌") ? .red : .primary
-            }
-        }
-        runtime.browserOpener = { urlString, _ in
-            guard let url = URL(string: urlString) else { return }
-            Task { @MainActor in UIApplication.shared.open(url) }
-        }
-        return runtime
+private struct LoginExecutionOutput: Sendable {
+    let result: String?
+    let toast: String?
+    let browserURL: String?
+    let loginInfo: [String: String]
+    let loginHeader: String?
+}
+
+private final class LoginExecutionCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedToast: String?
+    private var storedBrowserURL: String?
+
+    var toast: String? {
+        lock.lock(); defer { lock.unlock() }
+        return storedToast
+    }
+
+    var browserURL: String? {
+        lock.lock(); defer { lock.unlock() }
+        return storedBrowserURL
+    }
+
+    func setToast(_ value: String) {
+        lock.lock(); defer { lock.unlock() }
+        storedToast = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func setBrowserURL(_ value: String) {
+        lock.lock(); defer { lock.unlock() }
+        storedBrowserURL = value
     }
 }
