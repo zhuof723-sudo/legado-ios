@@ -155,9 +155,9 @@ struct SourceLoginPanel: View {
         record.writeLoginInfo(info)
         try? context.save()
 
-        Task {
+        Task { @MainActor in
             do {
-                let output = try await Task.detached(priority: .userInitiated) {
+                let work: Task<LoginExecutionOutput, Error> = Task.detached(priority: .userInitiated) { () async throws -> LoginExecutionOutput in
                     guard var source = try BookSourceImporter.parse(rawJSON).first else {
                         throw NSError(domain: "login", code: 1,
                                       userInfo: [NSLocalizedDescriptionKey: "书源解析失败"])
@@ -176,7 +176,8 @@ struct SourceLoginPanel: View {
                         loginInfo: runtime.source.loginInfoMap,
                         loginHeader: runtime.source.loginHeader
                     )
-                }.value
+                }
+                let output = try await work.value
 
                 record.writeLoginInfo(output.loginInfo)
                 record.writeLoginHeader(output.loginHeader)
