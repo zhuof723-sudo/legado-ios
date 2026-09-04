@@ -17,6 +17,8 @@ struct SourceLoginPanel: View {
     @State private var runningAction: String?
     @State private var hasLoginHeader = false
     @State private var browserDestination: BrowserDestination?
+    @State private var toastMessage: String?
+    @State private var toastGeneration = 0
 
     /// loginUi 是 JSON 数组字符串：[{"name":"...","type":"text|password|button","action":"..."}]
     private struct LoginUIItem: Identifiable, Decodable {
@@ -141,11 +143,57 @@ struct SourceLoginPanel: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
             }
+
+            if let toastMessage {
+                toastOverlay(toastMessage)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                    .zIndex(100)
+            }
         }
+        .animation(.easeInOut(duration: 0.18), value: toastMessage)
         .onAppear { loadValues() }
         .fullScreenCover(item: $browserDestination) { destination in
             InAppBrowserView(destination: destination)
         }
+    }
+
+    private func toastOverlay(_ text: String) -> some View {
+        ScrollView {
+            Text(text)
+                .font(.system(size: 16))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+                .lineSpacing(4)
+                .frame(maxWidth: .infinity)
+        }
+        .scrollIndicators(.hidden)
+        .frame(maxWidth: 330, maxHeight: 380)
+        .padding(.horizontal, 22)
+        .padding(.vertical, 18)
+        .background(Color.black.opacity(0.82), in: RoundedRectangle(cornerRadius: 16))
+        .shadow(color: .black.opacity(0.24), radius: 16, y: 8)
+        .padding(.horizontal, 28)
+        .contentShape(Rectangle())
+        .onTapGesture { dismissToast() }
+    }
+
+    @MainActor
+    private func showToast(_ text: String) {
+        let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return }
+        toastGeneration += 1
+        let generation = toastGeneration
+        toastMessage = cleaned
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
+            guard toastGeneration == generation else { return }
+            dismissToast()
+        }
+    }
+
+    @MainActor
+    private func dismissToast() {
+        toastGeneration += 1
+        toastMessage = nil
     }
 
     private var topBar: some View {
@@ -174,9 +222,10 @@ struct SourceLoginPanel: View {
                         .frame(width: 44, height: 48)
                 }
 
-                Button("确认") { saveValues() }
+                Button("确认") { confirmLogin() }
                     .font(.headline)
                     .frame(height: 48)
+                    .disabled(isRunning)
             }
             .foregroundStyle(.primary)
             .padding(.horizontal, 10)
@@ -238,8 +287,18 @@ struct SourceLoginPanel: View {
     private func saveValues() {
         record.writeLoginInfo(formValues)
         try? context.save()
-        message = "已保存"
-        messageColor = .green
+        showToast("已保存")
+    }
+
+    private func confirmLogin() {
+        if let loginItem = uiItems.first(where: {
+            let action = $0.normalizedAction.lowercased()
+            return action == "login()" || action == "login" || $0.name.contains("账号登录")
+        }) {
+            runAction(loginItem)
+        } else {
+            saveValues()
+        }
     }
 
     private func runAction(_ item: LoginUIItem) {
@@ -295,8 +354,7 @@ struct SourceLoginPanel: View {
         }
         runtime.toastHandler = { text in
             Task { @MainActor in
-                message = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                messageColor = text.contains("❌") ? .red : .primary
+                showToast(text)
             }
         }
         runtime.browserOpener = { urlString, title in
