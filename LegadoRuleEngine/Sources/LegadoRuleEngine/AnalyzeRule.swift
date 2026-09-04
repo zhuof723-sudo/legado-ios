@@ -157,7 +157,7 @@ public extension RuleDataInterface {
         rule?.toastHandler?(msg)
         return msg
     }
-    public func androidId() -> String { JSCommonMethods.deviceIdentifier }
+    public func androidId() -> String { "" }
     public func deviceID() -> String { JSCommonMethods.deviceIdentifier }
     public func getWebViewUA() -> String { JSCommonMethods.defaultUserAgent }
     public func createSymmetricCrypto(_ transformation: String, _ key: String, _ iv: String) -> SymmetricCryptoJSBridge? {

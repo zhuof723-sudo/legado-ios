@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import UIKit
 import LegadoRuleEngine
 
 /// 书源登录面板：根据 source.loginUi 数组动态生成表单，
@@ -178,12 +179,21 @@ struct SourceLoginPanel: View {
         let runtime = BookSourceRuntime(src)
         let ctxImpl = SourceJSContextImpl(record: record)
         runtime.sourceContext = ctxImpl
-        // 登录表单持久化
         runtime.loginInfoPersister = { [weak record] info in
             record?.writeLoginInfo(info)
         }
-        runtime.loginActionHandler = { [weak record] action, info in
+        runtime.loginActionHandler = { [weak record] _, info in
             record?.writeLoginInfo(info)
+        }
+        runtime.toastHandler = { text in
+            Task { @MainActor in
+                message = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                messageColor = text.contains("❌") ? .red : .primary
+            }
+        }
+        runtime.browserOpener = { urlString, _ in
+            guard let url = URL(string: urlString) else { return }
+            Task { @MainActor in UIApplication.shared.open(url) }
         }
         return runtime
     }

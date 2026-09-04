@@ -200,6 +200,11 @@ public final class BookSourceRuntime {
                 request.setValue("application/x-www-form-urlencoded;charset=UTF-8",
                                  forHTTPHeaderField: "Content-Type")
             }
+        } else if let body = options["body"], !(body is NSNull),
+                  JSONSerialization.isValidJSONObject(body),
+                  let data = try? JSONSerialization.data(withJSONObject: body) {
+            request.httpBody = data
+            request.setValue("application/json;charset=UTF-8", forHTTPHeaderField: "Content-Type")
         }
         for (k, v) in resolveHeaderMap() { request.setValue(v, forHTTPHeaderField: k) }
         if let extraHeaders = options["headers"] as? [String: Any] {

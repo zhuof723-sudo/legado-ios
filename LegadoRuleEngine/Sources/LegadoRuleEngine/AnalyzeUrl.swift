@@ -808,7 +808,7 @@ struct UrlOption {
     func longToast(_ msg: String) -> String {
         print("[longToast] \(msg)"); owner?.toastHandler?(msg); return msg
     }
-    func androidId() -> String { JSCommonMethods.deviceIdentifier }
+    func androidId() -> String { "" }
     func deviceID() -> String { JSCommonMethods.deviceIdentifier }
     func getWebViewUA() -> String { JSCommonMethods.defaultUserAgent }
     func createSymmetricCrypto(_ transformation: String, _ key: String, _ iv: String) -> SymmetricCryptoJSBridge? {
