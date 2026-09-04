@@ -76,6 +76,12 @@ final class LegadoRuleEngineTests: XCTestCase {
         XCTAssertEqual(au.url, "https://example.com/book/1")
     }
 
+    func testAnalyzeUrlPreservesExistingPercentEncoding() {
+        let au = AnalyzeUrl(url: "https://example.com/search?key=我的&source=%E5%B0%8F%E8%AF%B4")
+        let url = au.buildURLRequest().url?.absoluteString
+        XCTAssertEqual(url, "https://example.com/search?key=%E6%88%91%E7%9A%84&source=%E5%B0%8F%E8%AF%B4")
+    }
+
     func testTypedDataURIResponseUsesHexPayload() async throws {
         let payload = #"{"source":"番茄小说","name":"测试"}"#
         let base64 = Data(payload.utf8).base64EncodedString()

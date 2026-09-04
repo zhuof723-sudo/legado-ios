@@ -339,24 +339,50 @@ public final class AnalyzeUrl {
         guard let enc = enc else { return s } // charset == "escape" 表示不编码，原样传
         var allowed = CharacterSet.alphanumerics
         allowed.insert(charactersIn: "-._~")
-        if enc == .utf8 {
-            return s.addingPercentEncoding(withAllowedCharacters: allowed) ?? s
+
+        func encodeRaw(_ value: String) -> String {
+            if enc == .utf8 {
+                return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+            }
+            guard let data = value.data(using: enc) else {
+                return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+            }
+            var result = ""
+            for byte in data {
+                let scalar = UnicodeScalar(byte)
+                if allowed.contains(scalar) {
+                    result.append(Character(scalar))
+                } else {
+                    result += String(format: "%%%02X", byte)
+                }
+            }
+            return result
         }
-        // 非UTF-8字符集：转换编码后再按字节百分号编码
-        guard let data = s.data(using: enc) else {
-            return s.addingPercentEncoding(withAllowedCharacters: allowed) ?? s
-        }
-        var out = ""
-        for byte in data {
-            let scalar = UnicodeScalar(byte)
-            let ch = Character(scalar)
-            if allowed.contains(scalar) {
-                out.append(ch)
+
+        // 书源 JS 经常先调用 encodeURIComponent，URL 规则随后还会统一编码。
+        // 保留合法的 %HH 序列，避免 "%E5" 被再次编码成 "%25E5"；孤立 % 仍正常转义。
+        let characters = Array(s)
+        var output = ""
+        var buffer = ""
+        var index = 0
+        while index < characters.count {
+            if characters[index] == "%", index + 2 < characters.count,
+               characters[index + 1].isHexDigit, characters[index + 2].isHexDigit {
+                if !buffer.isEmpty {
+                    output += encodeRaw(buffer)
+                    buffer.removeAll(keepingCapacity: true)
+                }
+                output.append("%")
+                output.append(characters[index + 1])
+                output.append(characters[index + 2])
+                index += 3
             } else {
-                out += String(format: "%%%02X", byte)
+                buffer.append(characters[index])
+                index += 1
             }
         }
-        return out
+        if !buffer.isEmpty { output += encodeRaw(buffer) }
+        return output
     }
 
     private static func charsetEncoding(_ charset: String?) -> String.Encoding? {
