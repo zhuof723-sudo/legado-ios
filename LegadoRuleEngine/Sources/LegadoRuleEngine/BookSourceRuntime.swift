@@ -314,7 +314,7 @@ public final class BookSourceRuntime {
 
     // MARK: - 搜索
 
-    public func search(_ keyword: String, page: Int = 1) async throws -> [SearchResult] {
+    public func search(_ keyword: String, page: Int = 1, resultLimit: Int = 200) async throws -> [SearchResult] {
         guard let searchUrlRule = source.searchUrl, let rule = source.ruleSearch,
               let listRule = rule.bookList else {
             EngineLogger.log("书源缺少 searchUrl 或 ruleSearch.bookList，无法搜索", tag: source.bookSourceName, level: .warn)
@@ -336,28 +336,39 @@ public final class BookSourceRuntime {
 
         let items = analyzeRule.getElements(listRule)
         EngineLogger.log("列表规则命中 \(items.count) 项", tag: source.bookSourceName)
+        let safeLimit = max(1, resultLimit)
+        let parseItems = items.prefix(safeLimit)
+        if items.count > safeLimit {
+            EngineLogger.log("搜索结果过多，仅解析前 \(safeLimit) 项，省略 \(items.count - safeLimit) 项", tag: source.bookSourceName, level: .warn)
+        }
 
-        return items.compactMap { item in
-            var bookUrl = analyzeRule.getString(rule.bookUrl, mContent: item, isUrl: true)
-            if bookUrl.isEmpty { bookUrl = resp.url.isEmpty ? au.url : resp.url }   // 空详情链接兜底
-            let name = analyzeRule.getString(rule.name, mContent: item)
-            if name.isEmpty { return nil }
-            return SearchResult(
-                name: name,
-                author: analyzeRule.getString(rule.author, mContent: item),
-                intro: stripHTML(analyzeRule.getString(rule.intro, mContent: item)),
-                kind: analyzeRule.getString(rule.kind, mContent: item),
-                lastChapter: analyzeRule.getString(rule.lastChapter, mContent: item),
-                bookUrl: bookUrl,
-                coverUrl: analyzeRule.getString(rule.coverUrl, mContent: item, isUrl: true),
-                wordCount: analyzeRule.getString(rule.wordCount, mContent: item)
-            )
+        return parseItems.compactMap { item -> SearchResult? in
+            autoreleasepool {
+                var bookUrl = analyzeRule.getString(rule.bookUrl, mContent: item, isUrl: true)
+                if bookUrl.isEmpty { bookUrl = resp.url.isEmpty ? au.url : resp.url }   // 空详情链接兜底
+                let name = analyzeRule.getString(rule.name, mContent: item)
+                if name.isEmpty { return nil }
+                return SearchResult(
+                    name: name,
+                    author: analyzeRule.getString(rule.author, mContent: item),
+                    intro: stripHTML(analyzeRule.getString(rule.intro, mContent: item)),
+                    kind: analyzeRule.getString(rule.kind, mContent: item),
+                    lastChapter: analyzeRule.getString(rule.lastChapter, mContent: item),
+                    bookUrl: bookUrl,
+                    coverUrl: analyzeRule.getString(rule.coverUrl, mContent: item, isUrl: true),
+                    wordCount: analyzeRule.getString(rule.wordCount, mContent: item)
+                )
+            }
         }
     }
 
     // MARK: - 目录
 
-    public func getToc(bookUrl: String, maxPages: Int = 50) async throws -> [ChapterInfo] {
+    public func getToc(
+        bookUrl: String,
+        maxPages: Int = 50,
+        resolvedTocUrl: String? = nil
+    ) async throws -> [ChapterInfo] {
         guard let rule = source.ruleToc else {
             EngineLogger.log("书源缺少 ruleToc", tag: source.bookSourceName, level: .warn)
             return []
@@ -371,10 +382,11 @@ public final class BookSourceRuntime {
         if listRule.hasPrefix("-") { reverse = true; listRule = String(listRule.dropFirst()) }
         else if listRule.hasPrefix("+") { listRule = String(listRule.dropFirst()) }
 
-        // 很多源的目录是 JSON 接口/独立地址，由 ruleBookInfo.tocUrl 指定：先解析详情页拿到真正目录地址
-        var tocUrl = bookUrl
-        if let tocRule = source.ruleBookInfo?.tocUrl, !tocRule.isEmpty {
-            let info = try await getBookInfo(bookUrl: bookUrl)
+        // 目录地址已由详情阶段解析时直接复用；否则只做轻量详情解析。
+        var tocUrl = (resolvedTocUrl?.isEmpty == false) ? resolvedTocUrl! : bookUrl
+        if resolvedTocUrl?.isEmpty != false,
+           let tocRule = source.ruleBookInfo?.tocUrl, !tocRule.isEmpty {
+            let info = try await getBookInfo(bookUrl: bookUrl, lightweight: true)
             if !info.tocUrl.isEmpty {
                 tocUrl = info.tocUrl
                 EngineLogger.log("详情页解析出目录地址: \(tocUrl)", tag: source.bookSourceName)
@@ -434,7 +446,7 @@ public final class BookSourceRuntime {
 
     // MARK: - 详情页（ruleBookInfo）
 
-    public func getBookInfo(bookUrl: String) async throws -> BookInfo {
+    public func getBookInfo(bookUrl: String, lightweight: Bool = false) async throws -> BookInfo {
         guard let rule = source.ruleBookInfo else {
             return BookInfo(tocUrl: "")
         }
@@ -474,6 +486,10 @@ public final class BookSourceRuntime {
             } else {
                 resolvedTocUrl = analyzeRule.getRawString(tocRule)
             }
+        }
+
+        if lightweight {
+            return BookInfo(tocUrl: resolvedTocUrl)
         }
 
         return BookInfo(

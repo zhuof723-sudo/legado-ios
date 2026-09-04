@@ -73,7 +73,7 @@ public final class SearchViewModel {
                 group.addTask {
                     let runtime = BookSourceRuntime(source)
                     do {
-                        let r = try await runtime.search(kw, page: page)
+                        let r = try await runtime.search(kw, page: page, resultLimit: maxResultsPerSource)
                         return (sourceUrl, sourceName, .success(r))
                     } catch {
                         return (sourceUrl, sourceName, .failure(error))

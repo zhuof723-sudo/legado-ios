@@ -53,6 +53,17 @@ final class LegadoRuleEngineTests: XCTestCase {
         XCTAssertEqual(rule.getString("$.title", mContent: items[1]), "B")
     }
 
+    func testBookSourceRuntimeSearchResultLimit() async throws {
+        let payload = #"{"data":[{"title":"A","url":"https://example.com/a"},{"title":"B","url":"https://example.com/b"},{"title":"C","url":"https://example.com/c"}]}"#
+        var source = BookSource()
+        source.bookSourceUrl = "https://example.com"
+        source.bookSourceName = "limit-test"
+        source.searchUrl = "data:application/json;base64," + Data(payload.utf8).base64EncodedString()
+        source.ruleSearch = SearchRule(bookList: "$.data", name: "$.title", bookUrl: "$.url")
+        let results = try await BookSourceRuntime(source).search("test", resultLimit: 2)
+        XCTAssertEqual(results.map(\.name), ["A", "B"])
+    }
+
     func testRegexReplaceSuffix() {
         let rule = AnalyzeRule()
         rule.setContent("<p>凡人修仙传</p>")

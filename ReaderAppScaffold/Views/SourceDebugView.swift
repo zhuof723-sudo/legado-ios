@@ -548,7 +548,7 @@ struct SourceDebugView: View {
             return
         }
         do {
-            let list = try await runtime.search(keyword)
+            let list = try await runtime.search(keyword, resultLimit: 10)
             books = list.map {
                 DebugBook(
                     id: $0.bookUrl + "|" + $0.name,
@@ -604,9 +604,9 @@ struct SourceDebugView: View {
         begin(.detail, "正在解析详情")
         log("开始解析详情页", startedAt: startedAt)
         do {
-            let info = try await runtime.getBookInfo(bookUrl: book.bookURL)
+            let info = try await runtime.getBookInfo(bookUrl: book.bookURL, lightweight: true)
             bookInfo = info
-            let author = info.author.isEmpty ? book.author : info.author
+            let author = book.author
             pass(.detail, author.isEmpty ? "详情解析完成" : "作者: \(author)", detailStart)
             log("详情页解析完成", startedAt: startedAt)
         } catch {
@@ -616,7 +616,13 @@ struct SourceDebugView: View {
             skip(.content, "详情解析失败")
             return
         }
-        await runTocAndContent(runtime, source: source, bookURL: book.bookURL, startedAt: startedAt)
+        await runTocAndContent(
+            runtime,
+            source: source,
+            bookURL: book.bookURL,
+            resolvedTocURL: bookInfo?.tocUrl,
+            startedAt: startedAt
+        )
     }
 
     @MainActor
@@ -624,13 +630,14 @@ struct SourceDebugView: View {
         _ runtime: BookSourceRuntime,
         source: BookSource,
         bookURL: String,
+        resolvedTocURL: String? = nil,
         startedAt: Date
     ) async {
         let tocStart = Date()
         begin(.toc, "正在解析目录")
         log("开始解析目录页", startedAt: startedAt)
         do {
-            chapters = try await runtime.getToc(bookUrl: bookURL)
+            chapters = try await runtime.getToc(bookUrl: bookURL, resolvedTocUrl: resolvedTocURL)
             guard let first = chapters.first else {
                 fail(.toc, "目录为空", tocStart)
                 skip(.content, "目录为空")
