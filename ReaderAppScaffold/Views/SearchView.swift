@@ -4,6 +4,8 @@ import LegadoRuleEngine
 
 /// 全局搜索页：跨书源并发搜索（从悬浮玻璃搜索按钮进入）
 struct SearchView: View {
+    let sourceURLFilter: String?
+
     @Environment(\.dismiss) private var dismiss
     @Query(sort: [SortDescriptor(\BookSourceRecord.bookSourceName)])
     private var allSources: [BookSourceRecord]
@@ -12,7 +14,15 @@ struct SearchView: View {
     @State private var selectedResult: TaggedSearchResult?
     @State private var headerCache = HeaderCacheBox()
 
-    private var enabledSources: [BookSourceRecord] { allSources.filter { $0.enabled } }
+    init(sourceURLFilter: String? = nil) {
+        self.sourceURLFilter = sourceURLFilter
+    }
+
+    private var enabledSources: [BookSourceRecord] {
+        allSources.filter {
+            $0.enabled && (sourceURLFilter == nil || $0.bookSourceUrl == sourceURLFilter)
+        }
+    }
 
     private func headers(for result: TaggedSearchResult) -> [String: String] {
         if let cached = headerCache.storage[result.sourceUrl] { return cached }
