@@ -45,7 +45,7 @@ public struct BookInfo {
 }
 
 public final class BookSourceRuntime {
-    public let source: BookSource
+    public var source: BookSource
 
     public weak var sourceContext: SourceJSContext?
     public var toastHandler: ((_ msg: String) -> Void)?
@@ -514,7 +514,7 @@ public final class BookSourceRuntime {
         let result = analyzeRule.evalJS(script)
         return result.map { "\($0)" }
     }
-}
+
     private func stripHTML(_ s: String) -> String {
         guard s.contains("<") || s.contains("&") else { return s }
         var text = s
