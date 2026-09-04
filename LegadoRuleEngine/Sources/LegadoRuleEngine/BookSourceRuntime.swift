@@ -537,7 +537,7 @@ public final class BookSourceRuntime {
 
     /// 在书源 loginUrl 里查找 `function funcName(...) {...}`，用当前上下文执行，返回函数返回值的字符串。
     /// 同时支持箭头函数 `const funcName = (...) => {...}`
-    public func executeLoginAction(_ action: String, infoMap: [String: String]) throws -> String? {
+    public func executeLoginAction(_ action: String, infoMap: [String: String]) async throws -> String? {
         guard let loginScript = source.loginUrl, !loginScript.isEmpty else { return nil }
         persistLoginInfo(infoMap)
         if let data = try? JSONSerialization.data(withJSONObject: infoMap),
