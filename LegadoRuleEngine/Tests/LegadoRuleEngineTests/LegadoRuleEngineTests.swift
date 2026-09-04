@@ -43,6 +43,16 @@ final class LegadoRuleEngineTests: XCTestCase {
         XCTAssertEqual(titles, ["书名A", "书名B"])
     }
 
+    func testJSONPathListFlattensTerminalArray() {
+        let json = #"{"data":[{"title":"A"},{"title":"B"}]}"#
+        let rule = AnalyzeRule()
+        rule.setContent(json)
+        let items = rule.getElements("$.data")
+        XCTAssertEqual(items.count, 2)
+        XCTAssertEqual(rule.getString("$.title", mContent: items[0]), "A")
+        XCTAssertEqual(rule.getString("$.title", mContent: items[1]), "B")
+    }
+
     func testRegexReplaceSuffix() {
         let rule = AnalyzeRule()
         rule.setContent("<p>凡人修仙传</p>")

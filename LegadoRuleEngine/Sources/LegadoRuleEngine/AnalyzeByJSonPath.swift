@@ -121,7 +121,13 @@ public final class AnalyzeByJSonPath {
         guard let rules = try? ruleAnalyzer.splitRule(["&&", "||", "%%"]) else { return result }
 
         if rules.count == 1 {
-            return (try? MiniJSONPath.query(rootAny, rules[0])) ?? []
+            let matched = (try? MiniJSONPath.query(rootAny, rules[0])) ?? []
+            // `$.data` 选择到的是一个数组节点，JsonPath 的 getList 语义应返回该数组的元素，
+            // 而不是把整个数组当成一个列表项。`$.data[*]` 本身已经是多节点，不再展开。
+            if matched.count == 1, let array = matched.first as? [Any] {
+                return array
+            }
+            return matched
         } else {
             var results: [[Any]] = []
             for rl in rules {
