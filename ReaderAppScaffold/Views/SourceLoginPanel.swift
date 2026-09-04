@@ -155,44 +155,45 @@ struct SourceLoginPanel: View {
         record.writeLoginInfo(info)
         try? context.save()
 
-        let _: Task<Void, Never> = Task { @MainActor in
+        DispatchQueue.global(qos: .userInitiated).async {
             do {
-                let work: Task<LoginExecutionOutput, Error> = Task.detached(priority: .userInitiated) { () async throws -> LoginExecutionOutput in
-                    guard var source = try BookSourceImporter.parse(rawJSON).first else {
-                        throw NSError(domain: "login", code: 1,
-                                      userInfo: [NSLocalizedDescriptionKey: "书源解析失败"])
-                    }
-                    source.loginInfoMap = info
-                    source.loginHeader = sourceHeader
-                    let runtime = BookSourceRuntime(source)
-                    let capture = LoginExecutionCapture()
-                    runtime.toastHandler = { capture.setToast($0) }
-                    runtime.browserOpener = { capture.setBrowserURL($0) }
-                    let result = try await runtime.executeLoginAction(action, infoMap: info)
-                    return LoginExecutionOutput(
-                        result: result,
-                        toast: capture.toast,
-                        browserURL: capture.browserURL,
-                        loginInfo: runtime.source.loginInfoMap,
-                        loginHeader: runtime.source.loginHeader
-                    )
+                guard var source = try BookSourceImporter.parse(rawJSON).first else {
+                    throw NSError(domain: "login", code: 1,
+                                  userInfo: [NSLocalizedDescriptionKey: "书源解析失败"])
                 }
-                let output = try await work.value
+                source.loginInfoMap = info
+                source.loginHeader = sourceHeader
+                let runtime = BookSourceRuntime(source)
+                let capture = LoginExecutionCapture()
+                runtime.toastHandler = { capture.setToast($0) }
+                runtime.browserOpener = { capture.setBrowserURL($0) }
+                let result = try runtime.executeLoginAction(action, infoMap: info)
+                let output = LoginExecutionOutput(
+                    result: result,
+                    toast: capture.toast,
+                    browserURL: capture.browserURL,
+                    loginInfo: runtime.source.loginInfoMap,
+                    loginHeader: runtime.source.loginHeader
+                )
 
-                record.writeLoginInfo(output.loginInfo)
-                record.writeLoginHeader(output.loginHeader)
-                try? context.save()
-                hasLoginHeader = !(output.loginHeader?.isEmpty ?? true)
-                if let urlString = output.browserURL, let url = URL(string: urlString) {
-                    UIApplication.shared.open(url)
+                DispatchQueue.main.async {
+                    record.writeLoginInfo(output.loginInfo)
+                    record.writeLoginHeader(output.loginHeader)
+                    try? context.save()
+                    hasLoginHeader = !(output.loginHeader?.isEmpty ?? true)
+                    if let urlString = output.browserURL, let url = URL(string: urlString) {
+                        UIApplication.shared.open(url)
+                    }
+                    message = output.toast ?? output.result.flatMap { $0.isEmpty ? nil : $0 } ?? "已执行 \(action)"
+                    messageColor = (message?.contains("❌") == true) ? .red : .green
+                    isRunning = false
                 }
-                message = output.toast ?? output.result.flatMap { $0.isEmpty ? nil : $0 } ?? "已执行 \(action)"
-                messageColor = (message?.contains("❌") == true) ? .red : .green
-                isRunning = false
             } catch {
-                message = "执行失败：\(error.localizedDescription)"
-                messageColor = .red
-                isRunning = false
+                DispatchQueue.main.async {
+                    message = "执行失败：\(error.localizedDescription)"
+                    messageColor = .red
+                    isRunning = false
+                }
             }
         }
     }
