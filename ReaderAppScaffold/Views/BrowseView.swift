@@ -17,9 +17,15 @@ private struct BrowseBook: Identifiable {
     var id: String { sourceURL + "|" + bookURL + "|" + name + "|" + author }
 }
 
+private enum BrowseBoardPhase: Equatable {
+    case idle, loading, loaded, failed
+}
+
 private struct BrowseBoard: Identifiable {
     let kind: ExploreKindInfo
-    let books: [BrowseBook]
+    var books: [BrowseBook] = []
+    var phase: BrowseBoardPhase = .idle
+    var errorMessage: String?
     var id: String { kind.id }
 }
 
@@ -35,20 +41,21 @@ private final class BrowseExploreModel {
     var boards: [BrowseBoard] = []
     var isLoading = false
     var errorMessage: String?
-    private var generation = UUID()
 
-    var allBooks: [BrowseBook] {
-        var seen = Set<String>()
-        return boards.flatMap(\.books).filter { seen.insert($0.id).inserted }
-    }
+    private var selectedSource: BookSource?
+    private var generation = UUID()
+    private var queue: [String] = []
+    private var isPumping = false
 
     func load(source: BookSource, boardLimit: Int, seed: Int) async {
-        let token = UUID()
-        generation = token
+        generation = UUID()
+        selectedSource = source
+        queue.removeAll()
+        isPumping = false
         isLoading = true
         errorMessage = nil
         boards = []
-        defer { if generation == token { isLoading = false } }
+        defer { isLoading = false }
 
         let runtime = BookSourceRuntime(source)
         let rawKinds = runtime.exploreKinds().filter {
@@ -64,13 +71,41 @@ private final class BrowseExploreModel {
         }
 
         let ordered = randomized(uniqueKinds, seed: seed)
-        let selectedKinds = ordered.prefix(min(max(boardLimit, 2), 10))
-        var failures: [String] = []
-        for kind in selectedKinds {
-            if Task.isCancelled || generation != token { return }
+        boards = ordered.prefix(min(max(boardLimit, 2), 10)).map { BrowseBoard(kind: $0) }
+    }
+
+    func loadSection(_ id: String) {
+        guard let index = boards.firstIndex(where: { $0.id == id }) else { return }
+        guard boards[index].phase == .idle || boards[index].phase == .failed else { return }
+        guard !queue.contains(id) else { return }
+        boards[index].phase = .idle
+        boards[index].errorMessage = nil
+        queue.append(id)
+        pumpQueue()
+    }
+
+    func retrySection(_ id: String) {
+        guard let index = boards.firstIndex(where: { $0.id == id }) else { return }
+        boards[index].phase = .idle
+        boards[index].errorMessage = nil
+        loadSection(id)
+    }
+
+    private func pumpQueue() {
+        guard !isPumping, let id = queue.first,
+              let source = selectedSource,
+              let index = boards.firstIndex(where: { $0.id == id }) else { return }
+        isPumping = true
+        boards[index].phase = .loading
+        let kind = boards[index].kind
+        let token = generation
+
+        Task { [weak self] in
+            guard let self else { return }
             do {
+                let runtime = BookSourceRuntime(source)
                 let values = try await runtime.explore(kind, resultLimit: 24)
-                if Task.isCancelled || generation != token { return }
+                guard !Task.isCancelled, self.generation == token, self.queue.first == id else { return }
                 let books = values.map {
                     BrowseBook(
                         sourceURL: source.bookSourceUrl,
@@ -84,20 +119,23 @@ private final class BrowseExploreModel {
                         coverURL: $0.coverUrl
                     )
                 }
-                if !books.isEmpty {
-                    boards.append(BrowseBoard(kind: kind, books: books))
-                } else {
-                    failures.append(kind.title)
-                }
+                self.finish(id: id, books: books, error: nil)
             } catch {
-                failures.append(kind.title)
-                EngineLogger.log("发现分类[\(kind.title)]加载失败: \(error.localizedDescription)", tag: source.bookSourceName, level: .warn)
+                guard self.generation == token, self.queue.first == id else { return }
+                self.finish(id: id, books: [], error: error.localizedDescription)
             }
         }
+    }
 
-        if boards.isEmpty {
-            errorMessage = failures.isEmpty ? "发现页没有返回书籍。" : "发现分类加载失败：\(failures.joined(separator: "、"))"
+    private func finish(id: String, books: [BrowseBook], error: String?) {
+        if queue.first == id { queue.removeFirst() }
+        if let index = boards.firstIndex(where: { $0.id == id }) {
+            boards[index].books = books
+            boards[index].phase = error == nil ? .loaded : .failed
+            boards[index].errorMessage = error
         }
+        isPumping = false
+        pumpQueue()
     }
 
     private func randomized(_ values: [ExploreKindInfo], seed: Int) -> [ExploreKindInfo] {
@@ -157,7 +195,7 @@ struct BrowseView: View {
                         } else if let error = model.errorMessage, model.boards.isEmpty {
                             errorView(error)
                         } else {
-                            if !guessBooks.isEmpty { guessSection }
+                            if let featured = model.boards.first { featuredSection(featured) }
                             boardSection
                         }
                     }
@@ -301,60 +339,70 @@ struct BrowseView: View {
         .padding(.vertical, 30)
     }
 
-    private var guessBooks: [BrowseBook] {
-        let all = model.allBooks
-        guard !all.isEmpty else { return [] }
-        let ordered = all.sorted { score($0.id, salt: 17) < score($1.id, salt: 17) }
-        return Array(ordered.prefix(min(max(horizontalCount, 2), 10)))
-    }
-
-    private var guessSection: some View {
+    private func featuredSection(_ board: BrowseBoard) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            sectionTitle("猜你喜欢", trailing: "换一批") { refreshBrowse() }
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(alignment: .top, spacing: 14) {
-                    ForEach(guessBooks) { book in
-                        Button { openBook(book) } label: {
-                            VStack(alignment: .leading, spacing: 7) {
-                                SmartCover(url: book.coverURL, title: book.name, headers: coverHeaders)
-                                    .frame(width: 128, height: 172)
-                                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                                    .shadow(color: .black.opacity(0.12), radius: 7, y: 4)
-                                Text(book.name)
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(.primary).lineLimit(1)
-                                Text(book.kind.isEmpty ? book.author : book.kind)
-                                    .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            sectionTitle(board.kind.title, trailing: board.books.isEmpty ? "" : "查看全部") {
+                if !board.books.isEmpty { selectedBoard = board }
+            }
+            Group {
+                switch board.phase {
+                case .loaded where !board.books.isEmpty:
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        LazyHStack(alignment: .top, spacing: 14) {
+                            ForEach(board.books) { book in
+                                Button { openBook(book) } label: {
+                                    VStack(alignment: .leading, spacing: 7) {
+                                        SmartCover(url: book.coverURL, title: book.name, headers: coverHeaders)
+                                            .frame(width: 128, height: 172)
+                                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                                            .shadow(color: .black.opacity(0.12), radius: 7, y: 4)
+                                        Text(book.name)
+                                            .font(.subheadline.weight(.semibold))
+                                            .foregroundStyle(.primary).lineLimit(1)
+                                        Text(book.kind.isEmpty ? book.author : book.kind)
+                                            .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                                    }
+                                    .frame(width: 128, alignment: .leading)
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .frame(width: 128, alignment: .leading)
                         }
-                        .buttonStyle(.plain)
+                        .padding(.horizontal, 1)
+                        .padding(.bottom, 4)
                     }
+                case .failed:
+                    sectionFailure(board)
+                case .loaded:
+                    sectionEmpty
+                case .idle, .loading:
+                    featuredLoading
                 }
-                .padding(.horizontal, 1)
-                .padding(.bottom, 4)
             }
         }
+        .task { model.loadSection(board.id) }
     }
 
     private var boardSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            sectionTitle("发现榜单", trailing: effectiveLayout == 0 ? "横向" : "竖向") {
-                rankLayout = effectiveLayout == 0 ? 1 : 0
-            }
-            if effectiveLayout == 0 {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(alignment: .top, spacing: 16) {
-                        ForEach(model.boards) { board in
-                            boardView(board).frame(width: 326)
-                        }
-                    }
-                    .padding(.horizontal, 1)
-                    .padding(.bottom, 8)
+        let rankedBoards = Array(model.boards.dropFirst())
+        return VStack(alignment: .leading, spacing: 14) {
+            if !rankedBoards.isEmpty {
+                sectionTitle("发现榜单", trailing: effectiveLayout == 0 ? "横向" : "竖向") {
+                    rankLayout = effectiveLayout == 0 ? 1 : 0
                 }
-            } else {
-                LazyVStack(spacing: 16) {
-                    ForEach(model.boards) { board in boardView(board) }
+                if effectiveLayout == 0 {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        LazyHStack(alignment: .top, spacing: 16) {
+                            ForEach(rankedBoards) { board in
+                                boardView(board).frame(width: 326)
+                            }
+                        }
+                        .padding(.horizontal, 1)
+                        .padding(.bottom, 8)
+                    }
+                } else {
+                    LazyVStack(spacing: 16) {
+                        ForEach(rankedBoards) { board in boardView(board) }
+                    }
                 }
             }
         }
@@ -365,12 +413,33 @@ struct BrowseView: View {
             HStack {
                 Text(board.kind.title).font(.title3.bold()).lineLimit(1)
                 Spacer()
-                Button("查看全部") { selectedBoard = board }
-                    .font(.caption).foregroundStyle(.secondary)
+                if !board.books.isEmpty {
+                    Button("查看全部") { selectedBoard = board }
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
             .padding(.bottom, 10)
 
-            let visible = Array(board.books.prefix(min(max(verticalCount, 2), 10)))
+            switch board.phase {
+            case .loaded where !board.books.isEmpty:
+                loadedRankRows(board)
+            case .failed:
+                sectionFailure(board)
+            case .loaded:
+                sectionEmpty
+            case .idle, .loading:
+                rankedLoading
+            }
+        }
+        .padding(16)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.65), lineWidth: 0.6))
+        .task { model.loadSection(board.id) }
+    }
+
+    private func loadedRankRows(_ board: BrowseBoard) -> some View {
+        let visible = Array(board.books.prefix(min(max(verticalCount, 2), 10)))
+        return VStack(spacing: 0) {
             ForEach(Array(visible.enumerated()), id: \.element.id) { index, book in
                 Button { openBook(book) } label: {
                     HStack(spacing: 12) {
@@ -396,23 +465,72 @@ struct BrowseView: View {
                 if index < visible.count - 1 { Divider().padding(.leading, 42) }
             }
         }
-        .padding(16)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.65), lineWidth: 0.6))
+    }
+
+    private var featuredLoading: some View {
+        HStack(spacing: 14) {
+            ForEach(0..<3, id: \.self) { _ in
+                VStack(alignment: .leading, spacing: 8) {
+                    RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.12)).frame(width: 128, height: 172)
+                    RoundedRectangle(cornerRadius: 4).fill(Color.secondary.opacity(0.12)).frame(width: 100, height: 14)
+                }
+            }
+        }
+        .redacted(reason: .placeholder)
+        .overlay { ProgressView() }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .clipped()
+    }
+
+    private var rankedLoading: some View {
+        VStack(spacing: 12) {
+            ForEach(0..<min(max(verticalCount, 2), 4), id: \.self) { _ in
+                HStack(spacing: 12) {
+                    RoundedRectangle(cornerRadius: 7).fill(Color.secondary.opacity(0.12)).frame(width: 30, height: 30)
+                    RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.12)).frame(width: 48, height: 64)
+                    VStack(alignment: .leading, spacing: 8) {
+                        RoundedRectangle(cornerRadius: 4).fill(Color.secondary.opacity(0.12)).frame(height: 14)
+                        RoundedRectangle(cornerRadius: 4).fill(Color.secondary.opacity(0.10)).frame(width: 100, height: 11)
+                    }
+                }
+            }
+        }
+        .redacted(reason: .placeholder)
+        .overlay { ProgressView() }
+    }
+
+    private var sectionEmpty: some View {
+        Text("该分类暂无书籍")
+            .font(.footnote).foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 28)
+    }
+
+    private func sectionFailure(_ board: BrowseBoard) -> some View {
+        VStack(spacing: 8) {
+            Text(board.errorMessage ?? "加载失败")
+                .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            Button("重试") { model.retrySection(board.id) }
+                .font(.footnote.weight(.semibold))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 20)
     }
 
     private func sectionTitle(_ title: String, trailing: String, action: @escaping () -> Void) -> some View {
         HStack {
             Text(title).font(.title3.bold())
             Spacer()
-            Button(action: action) {
-                HStack(spacing: 4) {
-                    Text(trailing)
-                    Image(systemName: "chevron.right")
+            if !trailing.isEmpty {
+                Button(action: action) {
+                    HStack(spacing: 4) {
+                        Text(trailing)
+                        Image(systemName: "chevron.right")
+                    }
+                    .font(.subheadline).foregroundStyle(.secondary)
                 }
-                .font(.subheadline).foregroundStyle(.secondary)
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
     }
 
@@ -455,15 +573,6 @@ struct BrowseView: View {
             message: "点击发现书籍：\(book.name) · \(book.sourceName) · \(String(book.bookURL.prefix(500)))"
         )
         selectedBook = BrowseSelection(book: book, source: source)
-    }
-
-    private func score(_ value: String, salt: Int) -> UInt64 {
-        var hash = UInt64(bitPattern: Int64(refreshSeed &+ salt)) ^ 0xcbf29ce484222325
-        for scalar in value.unicodeScalars {
-            hash ^= UInt64(scalar.value)
-            hash = hash &* 0x100000001b3
-        }
-        return hash
     }
 
     private func rankColor(_ index: Int) -> Color {
