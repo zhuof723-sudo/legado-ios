@@ -393,6 +393,11 @@ public final class BookSourceRuntime {
             }
         }
 
+        if let nativeChapters = try await getSusanToc(tocUrl: tocUrl) {
+            EngineLogger.log("书山原生目录解析完成，共 \(nativeChapters.count) 章", tag: source.bookSourceName)
+            return nativeChapters
+        }
+
         var chapters: [ChapterInfo] = []
         var visited: Set<String> = []
         var currentUrl: String? = tocUrl
@@ -447,6 +452,9 @@ public final class BookSourceRuntime {
     // MARK: - 详情页（ruleBookInfo）
 
     public func getBookInfo(bookUrl: String, lightweight: Bool = false) async throws -> BookInfo {
+        if let native = try await getSusanBookInfo(bookUrl: bookUrl, lightweight: lightweight) {
+            return native
+        }
         guard let rule = source.ruleBookInfo else {
             return BookInfo(tocUrl: "")
         }
