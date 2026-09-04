@@ -15,7 +15,8 @@ struct SourceLoginPanel: View {
     @State private var message: String?
     @State private var messageColor: Color = .secondary
     @State private var isRunning = false
-    @State private var headerStatus: String?
+    @State private var runningAction: String?
+    @State private var hasLoginHeader = false
 
     /// loginUi 是 JSON 数组字符串：[{"name":"...","type":"text|password|button","action":"..."}]
     private struct LoginUIItem: Identifiable, Decodable {
@@ -23,6 +24,24 @@ struct SourceLoginPanel: View {
         let type: String
         let action: String?
         var id: String { name }
+
+        var normalizedAction: String {
+            (action ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    private enum LoginRow: Identifiable {
+        case field(LoginUIItem)
+        case buttons(LoginUIItem, LoginUIItem?)
+        case section(String)
+
+        var id: String {
+            switch self {
+            case .field(let item): return "field-\(item.id)"
+            case .buttons(let first, let second): return "buttons-\(first.id)-\(second?.id ?? "")"
+            case .section(let title): return "section-\(title)"
+            }
+        }
     }
 
     private var uiItems: [LoginUIItem] {
@@ -34,100 +53,183 @@ struct SourceLoginPanel: View {
         return arr
     }
 
-    private var inputs: [LoginUIItem] {
-        uiItems.filter { $0.type != "button" && !$0.type.isEmpty }
-    }
+    private var rows: [LoginRow] {
+        var result: [LoginRow] = []
+        var pendingButton: LoginUIItem?
 
-    private var buttons: [LoginUIItem] {
-        uiItems.filter { $0.type == "button" }
+        func flushButton() {
+            if let pendingButton {
+                result.append(.buttons(pendingButton, nil))
+            }
+            pendingButton = nil
+        }
+
+        for item in uiItems {
+            if item.type != "button" {
+                flushButton()
+                result.append(.field(item))
+            } else if item.normalizedAction.isEmpty {
+                flushButton()
+                result.append(.section(item.name))
+            } else if let first = pendingButton {
+                result.append(.buttons(first, item))
+                pendingButton = nil
+            } else {
+                pendingButton = item
+            }
+        }
+        flushButton()
+        return result
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text(record.bookSourceName)
-                        .font(.headline)
-                    Text("登录面板 · 填写后点击按钮执行对应操作")
-                        .font(.caption).foregroundStyle(.secondary)
+        ZStack {
+            Color(.systemGroupedBackground).ignoresSafeArea()
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .ignoresSafeArea()
 
-                    ForEach(inputs) { item in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(item.name).font(.caption.bold())
-                            if item.type == "password" {
-                                SecureField(item.name,
-                                            text: Binding(
-                                                get: { formValues[item.name] ?? "" },
-                                                set: { formValues[item.name] = $0 }
-                                            ))
-                                .textFieldStyle(.roundedBorder)
-                            } else {
-                                TextField(item.name,
-                                          text: Binding(
-                                            get: { formValues[item.name] ?? "" },
-                                            set: { formValues[item.name] = $0 }
-                                          ))
-                                .textFieldStyle(.roundedBorder)
+            VStack(spacing: 0) {
+                topBar
+
+                ScrollView {
+                    LazyVStack(spacing: 14) {
+                        ForEach(rows) { row in
+                            switch row {
+                            case .field(let item):
+                                inputField(item)
+                            case .buttons(let first, let second):
+                                HStack(spacing: 14) {
+                                    actionButton(first)
+                                    if let second {
+                                        actionButton(second)
+                                    } else {
+                                        Color.clear.frame(maxWidth: .infinity, minHeight: 58)
+                                    }
+                                }
+                            case .section(let title):
+                                Text(title.replacingOccurrences(of: "↓", with: ""))
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.top, 8)
+                                    .padding(.horizontal, 4)
                             }
                         }
-                    }
 
-                    HStack {
-                        Button("💾 保存") { saveValues() }
-                            .buttonStyle(.bordered)
-                        Button("📋 读取") { loadValues() }
-                            .buttonStyle(.bordered)
-                    }
-
-                    Divider()
-
-                    ForEach(buttons) { item in
-                        Button {
-                            runAction(item)
-                        } label: {
-                            HStack {
-                                if isRunning { ProgressView().controlSize(.small) }
-                                Text(item.name).font(.subheadline.bold())
-                                Spacer()
-                            }
-                            .padding(12)
-                            .frame(maxWidth: .infinity)
-                            .background(RoundedRectangle(cornerRadius: 12).fill(Theme.accent.opacity(0.12)))
+                        if hasLoginHeader {
+                            Label("登录凭据已保存", systemImage: "checkmark.shield.fill")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.green)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(14)
+                                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
                         }
-                        .buttonStyle(.plain)
-                        .disabled(isRunning)
-                    }
 
-                    if let headerStatus {
-                        Text("已保存鉴权串: \(headerStatus)")
-                            .font(.caption).foregroundStyle(.secondary)
+                        if let message {
+                            Text(message)
+                                .font(.footnote)
+                                .foregroundStyle(messageColor)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(14)
+                                .background(messageColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
+                        }
                     }
-
-                    if let message {
-                        Text(message)
-                            .font(.caption)
-                            .foregroundStyle(messageColor)
-                            .padding(10)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(RoundedRectangle(cornerRadius: 8).fill(messageColor.opacity(0.08)))
-                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 18)
+                    .padding(.bottom, 24)
                 }
-                .padding(16)
-            }
-            .navigationTitle("登录")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { dismiss() }
-                }
+                .scrollDismissesKeyboard(.interactively)
             }
         }
         .onAppear { loadValues() }
     }
 
+    private var topBar: some View {
+        HStack(spacing: 12) {
+            Button("关闭") { dismiss() }
+                .font(.headline)
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 18)
+                .frame(height: 52)
+                .background(.thinMaterial, in: Capsule())
+
+            Text("登录 - \(record.bookSourceName)")
+                .font(.title3.bold())
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)
+
+            Spacer(minLength: 4)
+
+            HStack(spacing: 4) {
+                Menu {
+                    Button("读取已保存信息", systemImage: "arrow.clockwise") { loadValues() }
+                    Button("清空输入", systemImage: "eraser") { formValues.removeAll() }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.title2)
+                        .frame(width: 44, height: 48)
+                }
+
+                Button("确认") { saveValues() }
+                    .font(.headline)
+                    .frame(height: 48)
+            }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 10)
+            .background(.thinMaterial, in: Capsule())
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    @ViewBuilder
+    private func inputField(_ item: LoginUIItem) -> some View {
+        let binding = Binding(
+            get: { formValues[item.name] ?? "" },
+            set: { formValues[item.name] = $0 }
+        )
+        Group {
+            if item.type == "password" {
+                SecureField(item.name, text: binding)
+            } else {
+                TextField(item.name, text: binding)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            }
+        }
+        .font(.body)
+        .padding(.horizontal, 16)
+        .frame(height: 58)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func actionButton(_ item: LoginUIItem) -> some View {
+        Button {
+            runAction(item)
+        } label: {
+            HStack(spacing: 8) {
+                if runningAction == item.id {
+                    ProgressView().controlSize(.small)
+                }
+                Text(item.name)
+                    .font(.body.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+            }
+            .foregroundStyle(Color.blue)
+            .frame(maxWidth: .infinity, minHeight: 58)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20))
+            .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.white.opacity(0.7), lineWidth: 0.7))
+        }
+        .buttonStyle(.plain)
+        .disabled(isRunning)
+    }
+
     private func loadValues() {
         let info = record.decodeSource()?.loginInfoMap ?? [:]
         for (k, v) in info { formValues[k] = v }
+        hasLoginHeader = !(record.loginHeader?.isEmpty ?? true)
     }
 
     private func saveValues() {
@@ -145,6 +247,7 @@ struct SourceLoginPanel: View {
             return
         }
         isRunning = true
+        runningAction = item.id
         message = nil
         record.writeLoginInfo(formValues)
         try? context.save()
@@ -155,17 +258,19 @@ struct SourceLoginPanel: View {
                 record.writeLoginInfo(formValues)
                 try? context.save()
                 if let header = record.loginHeader, !header.isEmpty {
-                    headerStatus = String(header.prefix(20)) + (header.count > 20 ? "..." : "")
+                    hasLoginHeader = true
                 }
                 await MainActor.run {
                     message = result.flatMap { $0.isEmpty ? nil : $0 } ?? "已执行 \(action)"
                     messageColor = .green
+                    runningAction = nil
                     isRunning = false
                 }
             } catch {
                 await MainActor.run {
                     message = "执行失败：\(error.localizedDescription)"
                     messageColor = .red
+                    runningAction = nil
                     isRunning = false
                 }
             }
