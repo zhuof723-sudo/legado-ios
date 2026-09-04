@@ -465,7 +465,15 @@ public final class AnalyzeUrl {
     /// 发起请求，返回字符串响应。webView 分支需要通过 `webViewEvaluator` 注入实现，否则会抛错。
     public func getStrResponse() async throws -> HTTPStrResponse {
         if let dataBytes = dataURIBytes() {
-            return HTTPStrResponse(url: url, body: String(data: dataBytes, encoding: .utf8), statusCode: 200, headers: [:], callTimeMs: 0)
+            // legado 原版：只要 URL option 带 type，就把载荷转成 hex 字符串。
+            // 书山聚合的 type=susan 随后用 java.hexDecodeToString(result) 还原。
+            let responseBody: String?
+            if type != nil {
+                responseBody = dataBytes.map { String(format: "%02x", $0) }.joined()
+            } else {
+                responseBody = String(data: dataBytes, encoding: .utf8)
+            }
+            return HTTPStrResponse(url: url, body: responseBody, statusCode: 200, headers: [:], callTimeMs: 0)
         }
 
         if useWebView {

@@ -444,9 +444,29 @@ public final class BookSourceRuntime {
         analyzeRule.bookUrl = bookUrl
         analyzeRule.setContent(body, baseUrl: baseUrl)
 
+        // 对齐原版 BookInfo.analyzeBookInfo：先执行 init，再把结果设为详情解析内容。
+        if let initRule = rule.initRule, !initRule.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            EngineLogger.log("执行详情页初始化规则", tag: source.bookSourceName)
+            if let initialized = analyzeRule.getElement(initRule) {
+                analyzeRule.setContent(initialized, baseUrl: baseUrl)
+            } else {
+                EngineLogger.log("详情页初始化规则返回空", tag: source.bookSourceName, level: .warn)
+            }
+        }
+
         func g(_ r: String?, isUrl: Bool = false) -> String {
             guard let r, !r.isEmpty else { return "" }
             return analyzeRule.getString(r, isUrl: isUrl)
+        }
+
+        var resolvedTocUrl = ""
+        if let tocRule = rule.tocUrl, !tocRule.isEmpty {
+            let lowered = tocRule.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if lowered.contains("<js>") || lowered.hasPrefix("@js:") || lowered.hasPrefix("$.") || lowered.hasPrefix("$[") {
+                resolvedTocUrl = analyzeRule.getString(tocRule, isUrl: true)
+            } else {
+                resolvedTocUrl = analyzeRule.getRawString(tocRule)
+            }
         }
 
         return BookInfo(
@@ -455,7 +475,7 @@ public final class BookSourceRuntime {
             intro: stripHTML(g(rule.intro)),
             coverUrl: g(rule.coverUrl, isUrl: true),
             kind: g(rule.kind),
-            tocUrl: analyzeRule.getRawString(rule.tocUrl)
+            tocUrl: resolvedTocUrl
         )
     }
 

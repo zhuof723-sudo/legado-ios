@@ -69,6 +69,14 @@ final class LegadoRuleEngineTests: XCTestCase {
         XCTAssertEqual(au.url, "https://example.com/book/1")
     }
 
+    func testTypedDataURIResponseUsesHexPayload() async throws {
+        let payload = #"{"source":"番茄小说","name":"测试"}"#
+        let base64 = Data(payload.utf8).base64EncodedString()
+        let au = AnalyzeUrl(url: #"data:detailsUrl;base64,\#(base64),{"type":"susan"}"#)
+        let response = try await au.getStrResponse()
+        XCTAssertEqual(JSCommonMethods.hexDecodeToString(response.body ?? ""), payload)
+    }
+
     func testRuleAnalyzerSplit() throws {
         // splitRule 一旦命中某个分隔符（如 "&&"），后续只按这一种分隔符切分，
         // 不会混合 "&&" 与 "||"（elementsType 会记录具体命中的是哪一个）
