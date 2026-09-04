@@ -47,6 +47,7 @@ public final class AnalyzeUrl {
     private var dnsIp: String?
     private var webViewDelayTime: Int64 = 0
     private var baseUrl: String
+    private var pendingRuleUrl: String?
 
     // MARK: - JS 绑定用的上下文数据
 
@@ -108,7 +109,8 @@ public final class AnalyzeUrl {
         baseUrl: String = "",
         headerMap: [String: String]? = nil,
         ruleData: RuleDataInterface? = nil,
-        infoMap: [String: String]? = nil
+        infoMap: [String: String]? = nil,
+        deferInitialization: Bool = false
     ) {
         self.key = key
         self.page = page
@@ -130,7 +132,18 @@ public final class AnalyzeUrl {
                 self.headerMap.removeValue(forKey: "proxy")
             }
         }
-        initUrl(mUrl)
+        if deferInitialization {
+            pendingRuleUrl = mUrl
+        } else {
+            initUrl(mUrl)
+        }
+    }
+
+    /// 延迟构造时，在 jsLib/source/java/cache 等依赖注入完毕后调用。
+    public func initializeDeferred() {
+        guard let rule = pendingRuleUrl else { return }
+        pendingRuleUrl = nil
+        initUrl(rule)
     }
 
     // MARK: - URL 规则解析主流程

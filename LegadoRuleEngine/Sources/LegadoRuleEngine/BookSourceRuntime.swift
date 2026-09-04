@@ -71,7 +71,8 @@ public final class BookSourceRuntime {
             key: key,
             page: page,
             baseUrl: source.bookSourceUrl,
-            headerMap: resolveHeaderMap()
+            headerMap: resolveHeaderMap(),
+            deferInitialization: true
         )
         au.jsLib = source.jsLib
         au.sourceContext = sourceContext
@@ -88,6 +89,7 @@ public final class BookSourceRuntime {
         au.toastHandler = toastHandler
         au.browserOpener = browserOpener
         au.keyValueStore = sourceKeyValueStore
+        au.initializeDeferred()
         return au
     }
 
@@ -544,7 +546,6 @@ public final class BookSourceRuntime {
         }
 
         let analyzeRule = makeAnalyzeRule()
-        analyzeRule.ruleData = LogInfoBridge(infoMap: infoMap)
         analyzeRule.setBaseUrl(source.bookSourceUrl)
 
         let trimmed = action.trimmingCharacters(in: .whitespacesAndNewlines)

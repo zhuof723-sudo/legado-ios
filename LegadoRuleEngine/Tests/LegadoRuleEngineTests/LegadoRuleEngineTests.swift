@@ -55,6 +55,13 @@ final class LegadoRuleEngineTests: XCTestCase {
         XCTAssertEqual(au.url, "https://example.com/list?p=2")
     }
 
+    func testAnalyzeUrlDeferredInitializationRunsAfterJSLibInjection() {
+        let au = AnalyzeUrl(url: "<js>buildUrl(key)</js>", key: "demo", deferInitialization: true)
+        au.jsLib = "function buildUrl(value) { return 'https://example.com/search?q=' + value; }"
+        au.initializeDeferred()
+        XCTAssertEqual(au.url, "https://example.com/search?q=demo")
+    }
+
     func testAnalyzeUrlOptionPOST() {
         let au = AnalyzeUrl(url: #"https://example.com/search, {"method":"POST","headers":{"X-Test":"1"},"body":"kw=test"}"#)
         XCTAssertEqual(au.method, .post)
