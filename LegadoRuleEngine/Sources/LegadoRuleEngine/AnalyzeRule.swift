@@ -275,7 +275,7 @@ public final class AnalyzeRule {
     /// 让规则脚本能直接调用里面定义的公共函数
     public var jsLib: String?
     /// 书源级别的持久变量 + 登录信息绑定，暴露为JS里的 `this.source`
-    public weak var sourceContext: SourceJSContext?
+    public var sourceContext: SourceJSContext?
 
     public var bookName: String?
     public var chapterTitle: String?

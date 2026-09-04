@@ -13,15 +13,20 @@ public final class SourceJSContextImpl: SourceJSContext {
     }
 
     public func getVariable() -> String {
-        // 书源级别的持久变量（聚合书源配置等）
-        // 暂用 UserDefaults 暂存
         guard let record = record else { return "" }
-        let key = "srcVar." + record.bookSourceUrl
-        return UserDefaults.standard.string(forKey: key) ?? ""
+        if let cacheVal = UserDefaults.standard.string(forKey: "srcVar." + record.bookSourceUrl),
+           !cacheVal.isEmpty { return cacheVal }
+        // 常规聚合源的第一个配置以JSON数组形式存入loginInfoJSON，如 [{host:…}]
+        if let json = record.loginInfoJSON, !json.isEmpty {
+            // 若是可序列化变量数组，返回它
+            if json.trimmingCharacters(in: .whitespaces).hasPrefix("[") { return json }
+        }
+        return ""
     }
 
     public func setVariable(_ value: String) {
         guard let record = record else { return }
+        // 非首个请求也可能写入bookId映射等，这里仅提供默认变量槽
         let key = "srcVar." + record.bookSourceUrl
         UserDefaults.standard.set(value, forKey: key)
     }

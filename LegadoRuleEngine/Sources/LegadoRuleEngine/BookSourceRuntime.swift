@@ -47,7 +47,7 @@ public struct BookInfo {
 public final class BookSourceRuntime {
     public var source: BookSource
 
-    public weak var sourceContext: SourceJSContext?
+    public var sourceContext: SourceJSContext?
     public var toastHandler: ((_ msg: String) -> Void)?
     public var browserOpener: ((_ url: String, _ title: String?) -> Void)?
     public var browserOpenerAdvanced: ((_ url: String, _ title: String?, _ injectJs: String?, _ optsJson: String?) -> Void)?

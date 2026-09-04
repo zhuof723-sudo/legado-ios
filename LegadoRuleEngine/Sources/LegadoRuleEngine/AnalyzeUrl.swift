@@ -87,7 +87,7 @@ public final class AnalyzeUrl {
     /// 书源的公共JS库（BookSource.jsLib），每次 evalJS 都会先跑一遍
     public var jsLib: String?
     /// 书源级别的持久变量 + 登录信息绑定，暴露为JS里的 `this.source`
-    public weak var sourceContext: SourceJSContext?
+    public var sourceContext: SourceJSContext?
     /// java.toast/longToast
     public var toastHandler: ((_ msg: String) -> Void)?
     /// java.open/showBrowser/startBrowser*
