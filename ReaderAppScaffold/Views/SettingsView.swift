@@ -288,15 +288,20 @@ struct AboutPage: View {
 }
 
 struct FeedbackPage: View {
+    @State private var browserDestination: BrowserDestination?
+
     var body: some View {
         List {
             Section {
-                if let url = URL(string: "https://github.com/zhuof723-sudo/legado-ios/issues") {
-                    Link(destination: url) {
-                        Label("GitHub Issues", systemImage: "safari")
-                    }
-                    .tint(Theme.accent)
+                Button {
+                    browserDestination = BrowserDestination(
+                        url: URL(string: "https://github.com/zhuof723-sudo/legado-ios/issues")!,
+                        title: "GitHub Issues"
+                    )
+                } label: {
+                    Label("GitHub Issues", systemImage: "globe")
                 }
+                .tint(Theme.accent)
             } header: {
                 Text("反馈渠道")
             } footer: {
@@ -307,5 +312,8 @@ struct FeedbackPage: View {
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("意见反馈")
         .navigationBarTitleDisplayMode(.inline)
+        .fullScreenCover(item: $browserDestination) { destination in
+            InAppBrowserView(destination: destination)
+        }
     }
 }

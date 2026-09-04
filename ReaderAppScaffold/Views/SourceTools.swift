@@ -61,50 +61,12 @@ struct SourceEditView: View {
 
 // MARK: - 登录
 
+/// 保留旧类型名给现有导航兼容，统一复用动态登录面板和 App 内浏览器。
 struct SourceLoginView: View {
     let record: BookSourceRecord
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if let src = record.decodeSource(), let loginUrl = src.loginUrl, !loginUrl.isEmpty {
-                    VStack(spacing: 16) {
-                        Spacer()
-                        Image(systemName: "person.crop.circle")
-                            .font(.system(size: 52, weight: .light))
-                            .foregroundStyle(Theme.accent)
-                        Text("该书源配置了登录地址").font(.headline)
-                        Text(loginUrl).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                        if let url = URL(string: loginUrl) {
-                            Link(destination: url) {
-                                Label("在浏览器中打开登录页", systemImage: "safari")
-                                    .frame(maxWidth: .infinity).padding(.vertical, 13)
-                            }
-                            .prominentGlassButton()
-                            .tint(Theme.accent)
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 24)
-                        }
-                        Text("说明：登录主要是让带 Cookie 的书源生效。当前版本 Cookie 持久化能力有限，登录后若仍无法访问，需要在书源规则里补充 Cookie 相关处理。")
-                            .font(.footnote).foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 24)
-                        Spacer()
-                    }
-                } else {
-                    ContentUnavailableView("未配置登录地址", systemImage: "person.crop.circle.badge.xmark",
-                                           description: Text("该书源没有 loginUrl 字段"))
-                }
-            }
-            .navigationTitle("登录")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { dismiss() }
-                }
-            }
-        }
+        SourceLoginPanel(record: record)
     }
 }
 

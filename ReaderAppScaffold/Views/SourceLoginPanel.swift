@@ -1,6 +1,5 @@
 import SwiftUI
 import SwiftData
-import UIKit
 import LegadoRuleEngine
 
 /// 书源登录面板：根据 source.loginUi 数组动态生成表单，
@@ -17,6 +16,7 @@ struct SourceLoginPanel: View {
     @State private var isRunning = false
     @State private var runningAction: String?
     @State private var hasLoginHeader = false
+    @State private var browserDestination: BrowserDestination?
 
     /// loginUi 是 JSON 数组字符串：[{"name":"...","type":"text|password|button","action":"..."}]
     private struct LoginUIItem: Identifiable, Decodable {
@@ -143,6 +143,9 @@ struct SourceLoginPanel: View {
             }
         }
         .onAppear { loadValues() }
+        .fullScreenCover(item: $browserDestination) { destination in
+            InAppBrowserView(destination: destination)
+        }
     }
 
     private var topBar: some View {
@@ -296,9 +299,10 @@ struct SourceLoginPanel: View {
                 messageColor = text.contains("❌") ? .red : .primary
             }
         }
-        runtime.browserOpener = { urlString, _ in
-            guard let url = URL(string: urlString) else { return }
-            Task { @MainActor in UIApplication.shared.open(url) }
+        runtime.browserOpener = { urlString, title in
+            Task { @MainActor in
+                browserDestination = BrowserDestination(urlString: urlString, title: title)
+            }
         }
         return runtime
     }
