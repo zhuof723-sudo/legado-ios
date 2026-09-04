@@ -560,6 +560,13 @@ public final class BookSourceRuntime {
         let script = loginScript + "\n;" + expression
         // 书源登录函数通过全局 result 读取面板字段。
         let result = analyzeRule.evalJS(script, result: infoMap)
+        if let jsError = analyzeRule.lastJSError {
+            throw NSError(
+                domain: "BookSourceLogin",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: jsError]
+            )
+        }
         return result.map { "\($0)" }
     }
 
@@ -596,6 +603,7 @@ private final class RuntimeSourceJSContext: SourceJSContext {
 
     var bookSourceName: String { owner?.source.bookSourceName ?? "" }
     var loginUi: String { owner?.source.loginUi ?? "" }
+    var loginUrl: String { owner?.source.loginUrl ?? "" }
 
     func getVariable() -> String {
         owner?.sourceKeyValueStore?.get(variableKey) ?? ""

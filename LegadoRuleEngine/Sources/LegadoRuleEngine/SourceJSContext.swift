@@ -11,6 +11,7 @@ import JavaScriptCore
 public protocol SourceJSContext: AnyObject {
     var bookSourceName: String { get }
     var loginUi: String { get }
+    var loginUrl: String { get }
     func getVariable() -> String
     func setVariable(_ value: String)
     /// 对应 source.getLoginHeader() —— 登录后要在后续请求头里带的鉴权信息
@@ -26,12 +27,14 @@ public protocol SourceJSContext: AnyObject {
 public extension SourceJSContext {
     var bookSourceName: String { "" }
     var loginUi: String { "" }
+    var loginUrl: String { "" }
     func putLoginHeader(_ value: String) {}
     func putLoginInfo(_ json: String) {}
 }
 
 @objc protocol SourceJSBridgeExport: JSExport {
     var bookSourceName: String { get }
+    var loginUrl: String { get }
     func loginUi() -> String
     func getVariable() -> String
     func setVariable(_ value: String)
@@ -52,6 +55,7 @@ public extension SourceJSContext {
     }
 
     var bookSourceName: String { context?.bookSourceName ?? "" }
+    var loginUrl: String { context?.loginUrl ?? "" }
     func loginUi() -> String { context?.loginUi ?? "" }
     func getVariable() -> String { context?.getVariable() ?? "" }
     func setVariable(_ value: String) { context?.setVariable(value) }

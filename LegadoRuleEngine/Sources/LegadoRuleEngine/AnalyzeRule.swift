@@ -97,7 +97,7 @@ public extension RuleDataInterface {
         return msg
     }
     public func ajax(_ url: String) -> String? {
-        if let marker = url.range(of: ",{", options: .backwards) {
+        if let marker = url.range(of: ",{", options: []) {
             let actualUrl = String(url[..<marker.lowerBound])
             let json = String(url[url.index(after: marker.lowerBound)...])
             if let options = parseAjaxOptions(json),
@@ -284,6 +284,7 @@ public final class AnalyzeRule {
     public var jsLib: String?
     /// 书源级别的持久变量 + 登录信息绑定，暴露为JS里的 `this.source`
     public var sourceContext: SourceJSContext?
+    public private(set) var lastJSError: String?
 
     public var bookName: String?
     public var chapterTitle: String?
@@ -390,7 +391,11 @@ public final class AnalyzeRule {
 
     @discardableResult
     public func evalJS(_ jsStr: String, result: Any? = nil) -> Any? {
-        guard let context = JSContext() else { return nil }
+        lastJSError = nil
+        guard let context = JSContext() else {
+            lastJSError = "无法创建 JavaScriptCore 上下文"
+            return nil
+        }
         var errorMsg: String?
         context.exceptionHandler = { _, exception in
             errorMsg = exception?.toString()
@@ -422,6 +427,7 @@ public final class AnalyzeRule {
         }
         let value = context.evaluateScript(jsStr)
         if let errorMsg = errorMsg {
+            lastJSError = errorMsg
             print("evalJS 出错: \(errorMsg)\n脚本: \(jsStr)")
             return nil
         }

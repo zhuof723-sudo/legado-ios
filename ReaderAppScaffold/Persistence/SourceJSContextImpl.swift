@@ -19,6 +19,7 @@ public final class SourceJSContextImpl: SourceJSContext {
 
     public var bookSourceName: String { record?.bookSourceName ?? "" }
     public var loginUi: String { record?.decodeSource()?.loginUi ?? "" }
+    public var loginUrl: String { record?.decodeSource()?.loginUrl ?? "" }
 
     public func getVariable() -> String {
         keyValueStore?.get("__source_variable") ?? ""

@@ -771,7 +771,7 @@ struct UrlOption {
         owner?.get(key) ?? ""
     }
     func ajax(_ url: String) -> String? {
-        if let marker = url.range(of: ",{", options: .backwards) {
+        if let marker = url.range(of: ",{", options: []) {
             let actualUrl = String(url[..<marker.lowerBound])
             let json = String(url[url.index(after: marker.lowerBound)...])
             if let data = json.data(using: .utf8),
