@@ -146,6 +146,8 @@ struct SourceLoginPanel: View {
 
             if let toastMessage {
                 toastOverlay(toastMessage)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .padding(.bottom, 128)
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
                     .zIndex(100)
             }
@@ -158,23 +160,20 @@ struct SourceLoginPanel: View {
     }
 
     private func toastOverlay(_ text: String) -> some View {
-        ScrollView {
-            Text(text)
-                .font(.system(size: 16))
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
-                .lineSpacing(4)
-                .frame(maxWidth: .infinity)
-        }
-        .scrollIndicators(.hidden)
-        .frame(maxWidth: 330, maxHeight: 380)
-        .padding(.horizontal, 22)
-        .padding(.vertical, 18)
-        .background(Color.black.opacity(0.82), in: RoundedRectangle(cornerRadius: 16))
-        .shadow(color: .black.opacity(0.24), radius: 16, y: 8)
-        .padding(.horizontal, 28)
-        .contentShape(Rectangle())
-        .onTapGesture { dismissToast() }
+        Text(text)
+            .font(.system(size: 13, weight: .regular))
+            .foregroundStyle(.white)
+            .multilineTextAlignment(.center)
+            .lineSpacing(2)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 15)
+            .padding(.vertical, 10)
+            .frame(maxWidth: 290)
+            .background(Color.black.opacity(0.80), in: RoundedRectangle(cornerRadius: 12))
+            .shadow(color: .black.opacity(0.18), radius: 8, y: 4)
+            .padding(.horizontal, 28)
+            .contentShape(Rectangle())
+            .onTapGesture { dismissToast() }
     }
 
     @MainActor
@@ -184,7 +183,7 @@ struct SourceLoginPanel: View {
         toastGeneration += 1
         let generation = toastGeneration
         toastMessage = cleaned
-        DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             guard toastGeneration == generation else { return }
             dismissToast()
         }

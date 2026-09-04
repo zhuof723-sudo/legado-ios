@@ -43,9 +43,13 @@ public final class UserDefaultsKeyValueStore: SourceKeyValueStore {
         self.defaults = defaults
     }
 
-    private func storageKey(_ key: String) -> String {
+    private var storagePrefix: String {
         let source = Data(namespace.utf8).base64EncodedString()
-        return "legado.source.cache.\(source).\(key)"
+        return "legado.source.cache.\(source)."
+    }
+
+    private func storageKey(_ key: String) -> String {
+        storagePrefix + key
     }
 
     public func get(_ key: String) -> String? {
@@ -58,5 +62,11 @@ public final class UserDefaultsKeyValueStore: SourceKeyValueStore {
 
     public func remove(_ key: String) {
         defaults.removeObject(forKey: storageKey(key))
+    }
+
+    public func removeAll() {
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(storagePrefix) {
+            defaults.removeObject(forKey: key)
+        }
     }
 }
