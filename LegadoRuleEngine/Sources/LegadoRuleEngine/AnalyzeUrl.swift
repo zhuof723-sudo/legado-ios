@@ -919,21 +919,45 @@ enum NetworkUtils {
 
 // MARK: - 简化版并发限流（非逐行移植，语义等价：限制某个来源同时进行中的请求数）
 
+/// 线程安全的并发计数器，用于 SourceRateLimiter 的 nonisolated release()
+private final class AtomicCounter {
+    private let lock = NSLock()
+    private var counts: [String: Int] = [:]
+
+    func get(_ key: String) -> Int {
+        lock.lock(); defer { lock.unlock() }
+        return counts[key] ?? 0
+    }
+
+    func increment(_ key: String) {
+        lock.lock(); defer { lock.unlock() }
+        counts[key, default: 0] += 1
+    }
+
+    func decrement(_ key: String) {
+        lock.lock(); defer { lock.unlock() }
+        if let n = counts[key], n > 0 {
+            counts[key] = n - 1
+        }
+    }
+}
+
 public actor SourceRateLimiter {
     public static let shared = SourceRateLimiter()
 
-    private var inFlight: [String: Int] = [:]
+    /// 并发计数用 nonisolated 原子存储，使 release() 可在同步 defer 上下文中调用
+    private nonisolated let inFlight = AtomicCounter()
     private var requestTimes: [String: [Date]] = [:]
 
     public init() {}
 
     /// 简单并发数限制：同一个key最多同时有 maxConcurrent 个请求在跑
     public func withLimit<T>(_ key: String, maxConcurrent: Int = 1, _ block: () async throws -> T) async rethrows -> T {
-        while (inFlight[key] ?? 0) >= maxConcurrent {
+        while inFlight.get(key) >= maxConcurrent {
             try? await Task.sleep(nanoseconds: 50_000_000)
         }
-        inFlight[key, default: 0] += 1
-        defer { inFlight[key, default: 1] -= 1 }
+        inFlight.increment(key)
+        defer { inFlight.decrement(key) }
         return try await block()
     }
 
@@ -947,10 +971,10 @@ public actor SourceRateLimiter {
 
         guard parts.count > 1, let windowMs = Int(parts[1].trimmingCharacters(in: .whitespaces)), windowMs > 0 else {
             // 只有数量、没有时间窗口：退化成简单并发数限制
-            while (inFlight[key] ?? 0) >= count {
+            while inFlight.get(key) >= count {
                 try? await Task.sleep(nanoseconds: 50_000_000)
             }
-            inFlight[key, default: 0] += 1
+            inFlight.increment(key)
             return
         }
 
@@ -969,10 +993,9 @@ public actor SourceRateLimiter {
         }
     }
 
-    /// 配合 acquire(key:concurrentRate:) 使用：若走的是"只限并发数"分支，请求结束后调用释放占用
-    public func release(key: String) {
-        if let n = inFlight[key], n > 0 {
-            inFlight[key] = n - 1
-        }
+    /// 配合 acquire(key:concurrentRate:) 使用：若走的是"只限并发数"分支，请求结束后调用释放占用。
+    /// 标记为 nonisolated，可在同步 defer 块中直接调用。
+    public nonisolated func release(key: String) {
+        inFlight.decrement(key)
     }
 }
