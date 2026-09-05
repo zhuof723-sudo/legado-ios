@@ -35,7 +35,6 @@ struct SettingsView: View {
                         .padding(.leading, 6)
                     settingGroup {
                         navRow("关于我们", icon: "info.circle", detail: "1.0.0", destination: AboutPage())
-                        navRow("运行日志", icon: "doc.text.magnifyingglass", destination: LogView())
                         navRow("崩溃日志", icon: "exclamationmark.triangle", detail: "\(CrashLogStore.shared.entries.count)", destination: CrashLogView())
                         navRow("意见反馈", icon: "envelope", destination: FeedbackPage())
                     }

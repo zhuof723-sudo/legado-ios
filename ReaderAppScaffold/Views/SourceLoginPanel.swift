@@ -198,14 +198,14 @@ struct SourceLoginPanel: View {
     private var topBar: some View {
         HStack(spacing: 12) {
             Button("关闭") { dismiss() }
-                .font(.headline)
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.primary)
-                .padding(.horizontal, 18)
-                .frame(height: 52)
+                .padding(.horizontal, 14)
+                .frame(height: 36)
                 .glassCard(Capsule(), interactive: true)
 
             Text("登录 - \(record.bookSourceName)")
-                .font(.title3.bold())
+                .font(.subheadline.bold())
                 .lineLimit(1)
                 .minimumScaleFactor(0.78)
 
@@ -217,13 +217,13 @@ struct SourceLoginPanel: View {
                     Button("清空输入", systemImage: "eraser") { formValues.removeAll() }
                 } label: {
                     Image(systemName: "ellipsis.circle")
-                        .font(.title2)
-                        .frame(width: 44, height: 48)
+                        .font(.system(size: 17, weight: .semibold))
+                        .frame(width: 36, height: 36)
                 }
 
                 Button("确认") { confirmLogin() }
-                    .font(.headline)
-                    .frame(height: 48)
+                    .font(.subheadline.weight(.semibold))
+                    .frame(height: 36)
                     .disabled(isRunning)
             }
             .foregroundStyle(.primary)
@@ -231,7 +231,7 @@ struct SourceLoginPanel: View {
             .glassCard(Capsule(), interactive: true)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, 10)
     }
 
     @ViewBuilder
@@ -249,10 +249,10 @@ struct SourceLoginPanel: View {
                     .autocorrectionDisabled()
             }
         }
-        .font(.body)
-        .padding(.horizontal, 16)
-        .frame(height: 58)
-        .glassCard(RoundedRectangle(cornerRadius: 16), interactive: true)
+        .font(.subheadline)
+        .padding(.horizontal, 14)
+        .frame(height: 48)
+        .glassCard(RoundedRectangle(cornerRadius: 14), interactive: true)
     }
 
     private func actionButton(_ item: LoginUIItem) -> some View {
@@ -264,14 +264,13 @@ struct SourceLoginPanel: View {
                     ProgressView().controlSize(.small)
                 }
                 Text(item.name)
-                    .font(.body.weight(.semibold))
+                    .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
             }
             .foregroundStyle(Theme.accent)
-            .frame(maxWidth: .infinity, minHeight: 58)
-            .glassCard(RoundedRectangle(cornerRadius: 20), interactive: true)
-            .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.white.opacity(0.7), lineWidth: 0.7))
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .glassCard(RoundedRectangle(cornerRadius: 14), interactive: true)
         }
         .buttonStyle(.plain)
         .disabled(isRunning)

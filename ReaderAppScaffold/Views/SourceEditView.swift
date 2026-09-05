@@ -380,16 +380,16 @@ struct SourceEditView: View {
         HStack(spacing: 12) {
             Button { dismiss() } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 22, weight: .medium))
+                    .font(.system(size: 17, weight: .medium))
                     .foregroundStyle(Theme.accent)
-                    .frame(width: 58, height: 58)
+                    .frame(width: 36, height: 36)
             }
             .glassCircle()
             .accessibilityLabel("关闭")
 
             Spacer(minLength: 4)
             Text(record.bookSourceName.isEmpty ? "新建书源" : "编辑书源")
-                .font(.title2.bold())
+                .font(.subheadline.bold())
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
             Spacer(minLength: 4)
@@ -399,9 +399,9 @@ struct SourceEditView: View {
                     saveAndDismiss()
                 } label: {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 25, weight: .medium))
+                        .font(.system(size: 17, weight: .medium))
                         .foregroundStyle(canSave ? Theme.accent : Color.secondary)
-                        .frame(width: 58, height: 58)
+                        .frame(width: 36, height: 36)
                 }
                 .disabled(!canSave)
 
@@ -424,16 +424,16 @@ struct SourceEditView: View {
                     }
                 } label: {
                     Image(systemName: "ellipsis")
-                        .font(.system(size: 22, weight: .bold))
+                        .font(.system(size: 17, weight: .bold))
                         .foregroundStyle(Theme.accent)
-                        .frame(width: 54, height: 58)
+                        .frame(width: 36, height: 36)
                 }
             }
             .glassCard(Capsule(), interactive: true)
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 12)
-        .padding(.bottom, 14)
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .padding(.bottom, 12)
         .background(.ultraThinMaterial)
     }
 
@@ -444,9 +444,9 @@ struct SourceEditView: View {
                     selectedTab = tab
                 } label: {
                     Text(tab.rawValue)
-                        .font(.headline)
+                        .font(.footnote.weight(.semibold))
                         .foregroundStyle(selectedTab == tab ? Color.primary : Color.primary.opacity(0.82))
-                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .frame(maxWidth: .infinity, minHeight: 36)
                         .background(
                             selectedTab == tab
                                 ? Theme.cardBg.opacity(0.78)
@@ -460,7 +460,7 @@ struct SourceEditView: View {
         .padding(4)
         .glassCard(Capsule(), interactive: true)
         .padding(.horizontal, 16)
-        .padding(.bottom, 12)
+        .padding(.bottom, 10)
     }
 
     private var basicSettingsCard: some View {

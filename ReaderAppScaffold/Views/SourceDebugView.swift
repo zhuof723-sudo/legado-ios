@@ -102,7 +102,6 @@ struct SourceDebugView: View {
     private enum DebugSheet: Identifiable {
         case source(String, String)
         case chapters
-        case logs
         case crashLogs
         case timeline
         case jsConsole
@@ -111,7 +110,6 @@ struct SourceDebugView: View {
             switch self {
             case .source(let title, _): return "source-\(title)"
             case .chapters: return "chapters"
-            case .logs: return "logs"
             case .crashLogs: return "crash-logs"
             case .timeline: return "timeline"
             case .jsConsole: return "js"
@@ -171,23 +169,23 @@ struct SourceDebugView: View {
     private var topBar: some View {
         HStack {
             Button("关闭") { dismiss() }
-                .font(.headline)
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.primary)
-                .padding(.horizontal, 18)
-                .frame(height: 52)
-                .background(.thinMaterial, in: Capsule())
+                .padding(.horizontal, 14)
+                .frame(height: 36)
+                .glassCard(Capsule(), interactive: true)
 
             Spacer()
             Text("配置测试")
-                .font(.title3.bold())
+                .font(.subheadline.bold())
             Spacer()
 
             debugMenu
-                .frame(width: 58, height: 52)
-                .background(.thinMaterial, in: Capsule())
+                .frame(width: 36, height: 36)
+                .glassCard(Capsule(), interactive: true)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, 10)
     }
 
     private var debugMenu: some View {
@@ -203,9 +201,6 @@ struct SourceDebugView: View {
                 activeSheet = .jsConsole
             }
             .disabled(jsEntries.isEmpty)
-            Button("系统日志 (\(LogStore.shared.entries.count))", systemImage: "waveform.path.ecg.rectangle") {
-                activeSheet = .logs
-            }
             Button("崩溃日志 (\(CrashLogStore.shared.entries.count))", systemImage: "exclamationmark.triangle") {
                 activeSheet = .crashLogs
             }
@@ -262,15 +257,15 @@ struct SourceDebugView: View {
                 TextField("搜索关键词 / URL", text: $keyword)
                     .textFieldStyle(.plain)
                     .padding(.horizontal, 14)
-                    .frame(height: 50)
+                    .frame(height: 48)
                     .glassCard(RoundedRectangle(cornerRadius: 14), interactive: true)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
                     .onSubmit { Task { await run() } }
                 Button("开始") { Task { await run() } }
-                    .font(.headline)
-                    .foregroundStyle(.blue)
-                    .frame(width: 88, height: 50)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 72, height: 48)
                     .glassCard(RoundedRectangle(cornerRadius: 14), interactive: true)
                     .disabled(running)
             }
@@ -480,8 +475,6 @@ struct SourceDebugView: View {
             DebugTextSheet(title: title, text: text)
         case .chapters:
             DebugChapterSheet(chapters: chapters)
-        case .logs:
-            NavigationStack { LogView() }
         case .crashLogs:
             NavigationStack { CrashLogView() }
         case .timeline:

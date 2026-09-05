@@ -173,7 +173,7 @@ struct LocalReaderView: View {
     }
 
     private var bottomBar: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             Text(viewModel.currentTitle ?? bookName)
                 .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             Slider(
@@ -197,18 +197,18 @@ struct LocalReaderView: View {
                 Text("\(pageIndex + 1)/\(pages.count)").font(.caption2).foregroundStyle(.secondary)
             }
         }
-        .padding(14)
-        .glassCard(RoundedRectangle(cornerRadius: 20))
+        .padding(12)
+        .glassCard(RoundedRectangle(cornerRadius: 16))
     }
 
     private func toolButton(_ icon: String, _ label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(spacing: 4) {
-                Image(systemName: icon).font(.system(size: 18, weight: .medium))
+            VStack(spacing: 3) {
+                Image(systemName: icon).font(.system(size: 16, weight: .medium))
                 Text(label).font(.caption2)
             }
             .foregroundStyle(.primary.opacity(0.8))
-            .frame(width: 52, height: 46)
+            .frame(width: 44, height: 40)
         }
         .buttonStyle(.plain)
     }

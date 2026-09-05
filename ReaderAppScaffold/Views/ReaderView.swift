@@ -212,56 +212,52 @@ struct ReaderView: View {
     }
 
     private var immersiveHeader: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             Button { dismiss() } label: {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 25, weight: .semibold))
+                    .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 52, height: 52)
-                    .background(Color.black.opacity(0.32), in: Circle())
-                    .glassCard(Circle(), interactive: true)
-                    .overlay(Circle().stroke(Color.white.opacity(0.12), lineWidth: 0.8))
+                    .frame(width: 36, height: 36)
+                    .glassCircle()
             }
             Spacer(minLength: 0)
-            VStack(spacing: 2) {
+            VStack(spacing: 1) {
                 Text(bookName)
-                    .font(.headline)
+                    .font(.subheadline.bold())
                     .lineLimit(1)
                 if !bookAuthor.isEmpty {
-                    Text(bookAuthor).font(.caption).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
+                    Text(bookAuthor).font(.caption2).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
                 }
             }
             .foregroundStyle(.white)
-            .padding(.horizontal, 20)
-            .frame(height: 52)
-            .background(Color.black.opacity(0.32), in: Capsule())
+            .padding(.horizontal, 14)
+            .frame(height: 36)
+            .background(Color.black.opacity(0.22), in: Capsule())
             .glassCard(Capsule(), interactive: true)
-            .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.8))
             Spacer(minLength: 0)
             SmartCover(url: coverURL, title: bookName)
-                .frame(width: 52, height: 52)
+                .frame(width: 36, height: 36)
                 .clipShape(Circle())
-                .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 1))
+                .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 0.8))
         }
         .environment(\.colorScheme, .dark)
     }
 
     private var immersiveBottomPanel: some View {
-        VStack(spacing: 16) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(viewModel.currentChapterTitle ?? bookName)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
+                    .font(.caption).foregroundStyle(.white).lineLimit(1)
                 Spacer()
                 Text("\(pageIndex + 1) / \(max(pages.count, 1))")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.72))
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.7))
             }
-
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 Button { goPrevPage() } label: {
-                    Image(systemName: "chevron.left").frame(width: 34, height: 34)
+                    Image(systemName: "chevron.left").frame(width: 28, height: 28)
                 }
+                .tint(.white.opacity(0.9))
                 Slider(
                     value: Binding(
                         get: { Double(min(pageIndex, max(pages.count - 1, 0))) },
@@ -271,10 +267,10 @@ struct ReaderView: View {
                 )
                 .tint(Theme.accent)
                 Button { goNextPage() } label: {
-                    Image(systemName: "chevron.right").frame(width: 34, height: 34)
+                    Image(systemName: "chevron.right").frame(width: 28, height: 28)
                 }
+                .tint(.white.opacity(0.9))
             }
-
             HStack {
                 immersiveToolButton("list.bullet", "目录") { showToc = true }
                 Spacer()
@@ -289,22 +285,22 @@ struct ReaderView: View {
             }
         }
         .foregroundStyle(.white)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 18)
-        .background(Color.black.opacity(0.48), in: RoundedRectangle(cornerRadius: 22))
-        .glassCard(RoundedRectangle(cornerRadius: 22), interactive: true)
-        .overlay(RoundedRectangle(cornerRadius: 22).stroke(Color.white.opacity(0.12), lineWidth: 0.8))
-        .shadow(color: .black.opacity(0.34), radius: 22, y: 9)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color.black.opacity(0.36), in: RoundedRectangle(cornerRadius: 18))
+        .glassCard(RoundedRectangle(cornerRadius: 18), interactive: true)
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.1), lineWidth: 0.6))
+        .shadow(color: .black.opacity(0.3), radius: 14, y: 6)
         .environment(\.colorScheme, .dark)
     }
 
     private func immersiveToolButton(_ icon: String, _ label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(spacing: 6) {
-                Image(systemName: icon).font(.system(size: 21, weight: .medium))
-                Text(label).font(.caption)
+            VStack(spacing: 3) {
+                Image(systemName: icon).font(.system(size: 16, weight: .medium))
+                Text(label).font(.caption2)
             }
-            .frame(minWidth: 48, minHeight: 48)
+            .frame(minWidth: 40, minHeight: 40)
         }
         .buttonStyle(.plain)
     }

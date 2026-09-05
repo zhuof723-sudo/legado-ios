@@ -3,6 +3,8 @@ import SwiftData
 import LegadoRuleEngine
 import UIKit
 
+/// 批量测试结果（按书源顺序保留阶段状态）
+
 /// 书源管理（对照 legado 原版功能）：分组筛选 + 搜索 + 批量删除 + 启用/停用 + 置顶/置底 +
 /// 长按菜单(测试/编辑/登录/导出/删除) + 多种导入 + 导出全部 + 日志
 struct BookSourceListView: View {
@@ -15,7 +17,6 @@ struct BookSourceListView: View {
     @State private var editing = false
     @State private var selected = Set<String>()
     @State private var confirmDelete = false
-    @State private var showLog = false
     @State private var showImport = false
     @State private var showUrlImport = false
     @State private var testingSource: BookSourceRecord?
@@ -24,6 +25,7 @@ struct BookSourceListView: View {
     @State private var exportDoc: SourceJSONDocument?
     @State private var showExporter = false
     @State private var exportName = "bookSource.json"
+    @State private var showBatchTest = false
 
     private var groups: [String] {
         var seen = Set<String>()
@@ -68,10 +70,12 @@ struct BookSourceListView: View {
             }
             .sheet(isPresented: $showImport) { ImportSourceView() }
             .sheet(isPresented: $showUrlImport) { UrlImportView() }
-            .sheet(isPresented: $showLog) { NavigationStack { LogView() } }
             .sheet(item: $testingSource) { SourceDebugView(record: $0) }
             .sheet(item: $editingSource) { SourceEditView(record: $0) }
             .sheet(item: $loginSource) { SourceLoginPanel(record: $0) }
+            .fullScreenCover(isPresented: $showBatchTest) {
+                BatchTestView(records: sources.filter { $0.enabled })
+            }
             .fileExporter(isPresented: $showExporter, document: exportDoc, contentType: .json, defaultFilename: exportName) { _ in }
             .confirmationDialog("确定删除选中的 \(selected.count) 个书源？", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("删除 \(selected.count) 个", role: .destructive) { deleteSelected() }
@@ -194,11 +198,6 @@ struct BookSourceListView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            Button { showLog = true } label: {
-                Image(systemName: "doc.text.magnifyingglass")
-            }
-        }
         ToolbarItem(placement: .topBarTrailing) {
             if editing {
                 Button("完成") {
@@ -215,6 +214,8 @@ struct BookSourceListView: View {
                         Button { showUrlImport = true } label: { Label("从网络地址导入", systemImage: "link") }
                         Divider()
                         Button { exportAll() } label: { Label("导出全部书源", systemImage: "square.and.arrow.up") }
+                        Divider()
+                        Button { showBatchTest = true } label: { Label("批量测试", systemImage: "play.circle") }
                     } label: {
                         Image(systemName: "plus")
                     }
