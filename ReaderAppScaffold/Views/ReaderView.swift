@@ -118,10 +118,20 @@ struct ReaderView: View {
 
     private var chrome: some View {
         VStack(spacing: 0) {
-            if showControls { immersiveHeader }
+            if showControls {
+                immersiveHeader
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .top).combined(with: .opacity),
+                        removal: .move(edge: .top).combined(with: .opacity)
+                    ))
+            }
             Spacer(minLength: 0)
             if showControls {
                 immersiveBottomPanel
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .bottom).combined(with: .opacity),
+                        removal: .move(edge: .bottom).combined(with: .opacity)
+                    ))
             } else if !pages.isEmpty {
                 HStack {
                     Text("\(pageIndex + 1)/\(pages.count)")
@@ -133,12 +143,13 @@ struct ReaderView: View {
                 .foregroundStyle(textColor.opacity(0.55))
                 .padding(.horizontal, 18)
                 .padding(.bottom, 8)
+                .transition(.opacity)
             }
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
         .padding(.bottom, 12)
-        .animation(.easeInOut(duration: 0.2), value: showControls)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85, blendDuration: 0.1), value: showControls)
     }
 
     private var immersiveHeader: some View {

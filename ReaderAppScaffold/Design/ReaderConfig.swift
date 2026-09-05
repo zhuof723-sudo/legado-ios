@@ -38,6 +38,8 @@ enum ReaderFont: String, CaseIterable, Identifiable {
     case serif = "宋体"
     case kai = "楷体"
     case hei = "黑体"
+    case round = "圆体"
+    case monospace = "等宽"
 
     var id: String { rawValue }
 
@@ -47,6 +49,8 @@ enum ReaderFont: String, CaseIterable, Identifiable {
         case .serif: return "Songti SC"
         case .kai: return "Kaiti SC"
         case .hei: return "Heiti SC"
+        case .round: return "Yuanti SC"
+        case .monospace: return "Menlo"
         }
     }
 
