@@ -10,17 +10,28 @@ public enum TextPaginator {
         text: String,
         font: UIFont,
         lineSpacing: CGFloat,
+        paragraphSpacing: CGFloat = 0,
+        paragraphIndent: String = "",
+        alignment: NSTextAlignment = .justified,
         pageSize: CGSize
     ) -> [String] {
         guard !text.isEmpty, pageSize.width > 1, pageSize.height > 1 else {
             return text.isEmpty ? [] : [text]
         }
 
+        // 按段落分割，应用段落缩进和段落间距
+        let paragraphs = text.components(separatedBy: .newlines)
+        let processedText = paragraphs
+            .map { paragraphIndent + $0 }
+            .joined(separator: "\n")
+
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = lineSpacing
+        paragraphStyle.paragraphSpacing = paragraphSpacing
         paragraphStyle.lineBreakMode = .byWordWrapping
+        paragraphStyle.alignment = alignment
 
-        let attributed = NSAttributedString(string: text, attributes: [
+        let attributed = NSAttributedString(string: processedText, attributes: [
             .font: font,
             .paragraphStyle: paragraphStyle
         ])
@@ -31,7 +42,7 @@ public enum TextPaginator {
 
         var pages: [String] = []
         var location = 0
-        let ns = text as NSString
+        let ns = processedText as NSString
 
         while location < fullLength {
             let frame = CTFramesetterCreateFrame(framesetter, CFRange(location: location, length: 0), path, nil)
@@ -41,7 +52,12 @@ public enum TextPaginator {
             let length = max(visibleRange.length, 1)
             let safeLength = min(length, fullLength - location)
             let range = NSRange(location: location, length: safeLength)
-            pages.append(ns.substring(with: range))
+            // 去除分页结果开头的换行符（避免下一页以空行开头）
+            var pageText = ns.substring(with: range)
+            if pageText.hasPrefix("\n") {
+                pageText = String(pageText.dropFirst())
+            }
+            pages.append(pageText)
             location += safeLength
         }
         return pages

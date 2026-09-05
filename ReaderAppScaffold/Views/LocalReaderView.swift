@@ -2,18 +2,13 @@ import SwiftUI
 import UIKit
 
 /// 本地 TXT 阅读器（与在线书源阅读器共用同一套 UI：
-/// 真分页 / 中间点击显示工具栏 / 滑动翻页 / 控制栏）
+/// 5种翻页动画 / 丰富排版 / 中间点击显示工具栏 / 控制栏）
 struct LocalReaderView: View {
     @Environment(\.dismiss) private var dismiss
     let bookName: String
     @Bindable var viewModel: TxtReaderViewModel
 
-    @AppStorage("reader.fontSize") private var fontSize: Double = 18
-    @AppStorage("reader.lineSpacingIndex") private var lineSpacingIndex: Int = 1
-    @AppStorage("reader.bgIndex") private var bgIndex: Int = 1
-    @AppStorage("reader.nightMode") private var nightMode = false
-    @AppStorage("reader.eyeCare") private var eyeCare = false
-    @AppStorage("reader.turnMode") private var turnMode: Int = 2
+    @StateObject private var config = ReaderConfig.shared
     @AppStorage("reader.autoRead") private var autoRead = false
 
     @State private var pages: [String] = []
@@ -23,60 +18,43 @@ struct LocalReaderView: View {
     @State private var showSettings = false
     @State private var showToc = false
 
-    private let hPadding: CGFloat = 20
-    private let tPadding: CGFloat = 56
-    private let bPadding: CGFloat = 44
-
     init(book: LocalBook) {
         self.bookName = book.name
         self._viewModel = Bindable(TxtReaderViewModel(book: book))
     }
 
-    private var lineSpacingValue: CGFloat {
-        [CGFloat(4), CGFloat(8), CGFloat(14)][min(max(lineSpacingIndex, 0), 2)]
-    }
-    private var effectiveIndex: Int { nightMode ? 4 : min(max(bgIndex, 0), 3) }
-    private var bgColor: Color { Theme.readerBackgrounds[effectiveIndex] }
-    private var textColor: Color { Theme.readerTextColors[effectiveIndex] }
+    private var bgColor: Color { config.currentTheme.background }
+    private var textColor: Color { config.currentTheme.textColor }
 
     var body: some View {
         GeometryReader { geo in
             let pageSize = CGSize(
-                width: max(geo.size.width - hPadding * 2, 1),
-                height: max(geo.size.height - tPadding - bPadding, 1)
+                width: max(geo.size.width - config.paddingLeft - config.paddingRight, 1),
+                height: max(geo.size.height - config.paddingTop - config.paddingBottom, 1)
             )
-            let key = "\(viewModel.currentContent.hashValue)|\(Int(fontSize))|\(lineSpacingIndex)|"
+            let key = "\(viewModel.currentContent.hashValue)|\(Int(config.fontSize))|\(config.lineSpacing)|\(config.fontName)|\(config.bold)|\(config.paragraphSpacing)|\(config.paragraphIndent)|\(config.textAlignment)|"
                 + "\(Int(pageSize.width))x\(Int(pageSize.height))|\(viewModel.currentIndex)"
 
             ZStack {
                 bgColor.ignoresSafeArea()
 
                 if paginatedForKey == key, pageIndex < pages.count {
-                    if turnMode == 2 {
-                        TabView(selection: $pageIndex) {
-                            ForEach(pages.indices, id: \.self) { i in
-                                pageText(pages[i], pageSize: pageSize).tag(i)
-                            }
-                        }
-                        .tabViewStyle(.page(indexDisplayMode: .never))
-                        .ignoresSafeArea(edges: .bottom)
-                        .overlay(alignment: .bottom) {
-                            if showControls { bottomBar }
-                        }
-                    } else {
-                        pageText(pages[pageIndex], pageSize: pageSize)
-                            .id("\(pageIndex)-\(key)")
-                            .animation(.easeInOut(duration: 0.22), value: pageIndex)
-                    }
+                    PageReaderView(
+                        pages: pages,
+                        pageIndex: $pageIndex,
+                        pageSize: pageSize,
+                        config: config,
+                        onPageChange: { _ in }
+                    )
                 } else {
                     ProgressView()
                 }
 
-                if eyeCare {
+                if config.eyeCare {
                     Color.yellow.opacity(0.07).ignoresSafeArea().allowsHitTesting(false)
                 }
 
-                if turnMode != 2 {
+                if config.currentPageAnim != .slide && config.currentPageAnim != .scroll {
                     readerTapOverlay
                 }
 
@@ -89,13 +67,14 @@ struct LocalReaderView: View {
             .task(id: autoRead) {
                 guard autoRead else { return }
                 while !Task.isCancelled {
-                    try? await Task.sleep(nanoseconds: 3_500_000_000)
+                    try? await Task.sleep(nanoseconds: UInt64(config.autoReadSpeed * 1_000_000_000))
                     if Task.isCancelled { break }
                     goNextPage()
                 }
             }
         }
         .statusBarHidden(!showControls)
+        .preferredColorScheme(config.nightMode ? .dark : .light)
         .toolbar(.hidden, for: .tabBar)
         .sheet(isPresented: $showSettings) {
             ReaderSettingsPanel().presentationDetents([.medium, .large])
@@ -106,16 +85,7 @@ struct LocalReaderView: View {
         }
     }
 
-    // MARK: - 正文
-
-    private func pageText(_ s: String, pageSize: CGSize) -> some View {
-        Text(s)
-            .font(.system(size: fontSize))
-            .lineSpacing(lineSpacingValue)
-            .foregroundStyle(textColor)
-            .frame(width: pageSize.width, height: pageSize.height, alignment: .topLeading)
-            .frame(maxWidth: .infinity, alignment: .top)
-    }
+    // MARK: - 点击区域
 
     private var readerTapOverlay: some View {
         GeometryReader { proxy in
@@ -146,7 +116,7 @@ struct LocalReaderView: View {
             } else if !pages.isEmpty {
                 Text("\(pageIndex + 1) / \(pages.count)")
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(textColor.opacity(0.55))
                     .padding(.bottom, 10)
             }
         }
@@ -186,13 +156,13 @@ struct LocalReaderView: View {
             .tint(Theme.accent)
             HStack {
                 toolButton("list.bullet", "目录") { showToc = true }
-                toolButton(nightMode ? "sun.max" : "moon", nightMode ? "日间" : "夜间") {
-                    nightMode.toggle()
+                toolButton(config.nightMode ? "sun.max" : "moon", config.nightMode ? "日间" : "夜间") {
+                    config.nightMode.toggle()
                 }
                 toolButton(autoRead ? "pause.circle" : "play.circle", "自动") {
                     autoRead.toggle()
                 }
-                toolButton("textformat.size", "字号") { showSettings = true }
+                toolButton("textformat.size", "排版") { showSettings = true }
                 Spacer()
                 Text("\(pageIndex + 1)/\(pages.count)").font(.caption2).foregroundStyle(.secondary)
             }
@@ -272,13 +242,18 @@ struct LocalReaderView: View {
         guard !viewModel.currentContent.isEmpty else {
             pages = []; paginatedForKey = key; return
         }
-        let fSize = fontSize
-        let lSpacing = lineSpacingValue
+        let font = config.uiFont
+        let lSpacing = config.lineSpacing
+        let pSpacing = config.paragraphSpacing
+        let indent = config.indentPrefix
         let result = await Task.detached(priority: .userInitiated) {
             TextPaginator.paginate(
                 text: viewModel.currentContent,
-                font: UIFont.systemFont(ofSize: fSize),
+                font: font,
                 lineSpacing: lSpacing,
+                paragraphSpacing: pSpacing,
+                paragraphIndent: indent,
+                alignment: config.coreTextAlignment,
                 pageSize: pageSize
             )
         }.value
