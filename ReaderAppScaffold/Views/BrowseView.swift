@@ -46,9 +46,12 @@ private final class BrowseExploreModel {
     private var generation = UUID()
     private var queue: [String] = []
     private var isPumping = false
+    private var activeTask: Task<Void, Never>?
 
-    func load(source: BookSource, boardLimit: Int, seed: Int) async {
+    func load(source: BookSource, boardLimit: Int) async {
         generation = UUID()
+        activeTask?.cancel()
+        activeTask = nil
         selectedSource = source
         queue.removeAll()
         isPumping = false
@@ -70,17 +73,24 @@ private final class BrowseExploreModel {
             return
         }
 
-        let ordered = randomized(uniqueKinds, seed: seed)
-        boards = ordered.prefix(min(max(boardLimit, 2), 10)).map { BrowseBoard(kind: $0) }
+        // 分类顺序严格遵循书源 exploreUrl；仅展示样式可以随机交替。
+        // 分类数量由书源发现决定；只设一个上限保护页面，内容仍按视口懒加载。
+        boards = uniqueKinds.prefix(min(max(boardLimit, 2), 12)).map { BrowseBoard(kind: $0) }
     }
 
     func loadSection(_ id: String) {
-        guard let index = boards.firstIndex(where: { $0.id == id }) else { return }
-        guard boards[index].phase == .idle || boards[index].phase == .failed else { return }
-        guard !queue.contains(id) else { return }
-        boards[index].phase = .idle
-        boards[index].errorMessage = nil
-        queue.append(id)
+        guard let targetIndex = boards.firstIndex(where: { $0.id == id }) else { return }
+        guard boards[targetIndex].phase == .idle || boards[targetIndex].phase == .failed else { return }
+        if boards[targetIndex].phase == .failed {
+            boards[targetIndex].phase = .idle
+            boards[targetIndex].errorMessage = nil
+        }
+
+        // 即使多个视图同帧出现，也始终把此前尚未加载的分类按书源顺序排进队列。
+        for index in 0...targetIndex where boards[index].phase == .idle {
+            let candidateID = boards[index].id
+            if !queue.contains(candidateID) { queue.append(candidateID) }
+        }
         pumpQueue()
     }
 
@@ -100,7 +110,7 @@ private final class BrowseExploreModel {
         let kind = boards[index].kind
         let token = generation
 
-        Task { [weak self] in
+        activeTask = Task { [weak self] in
             guard let self else { return }
             do {
                 let runtime = BookSourceRuntime(source)
@@ -135,21 +145,10 @@ private final class BrowseExploreModel {
             boards[index].errorMessage = error
         }
         isPumping = false
+        activeTask = nil
         pumpQueue()
     }
 
-    private func randomized(_ values: [ExploreKindInfo], seed: Int) -> [ExploreKindInfo] {
-        values.sorted { score($0.id, seed: seed) < score($1.id, seed: seed) }
-    }
-
-    private func score(_ value: String, seed: Int) -> UInt64 {
-        var hash = UInt64(bitPattern: Int64(seed)) ^ 0xcbf29ce484222325
-        for scalar in value.unicodeScalars {
-            hash ^= UInt64(scalar.value)
-            hash = hash &* 0x100000001b3
-        }
-        return hash
-    }
 }
 
 struct BrowseView: View {
@@ -165,7 +164,7 @@ struct BrowseView: View {
     @State private var refreshNotice = false
 
     @AppStorage("browse.sourceURL") private var selectedSourceURL = ""
-    @AppStorage("browse.rankLayout") private var rankLayout = 0
+    @AppStorage("browse.rankLayout.v2") private var rankLayout = 2
     @AppStorage("browse.rankVerticalCount") private var verticalCount = 4
     @AppStorage("browse.rankHorizontalCount") private var horizontalCount = 4
 
@@ -175,9 +174,26 @@ struct BrowseView: View {
     }
     private var activeSource: BookSource? { activeRecord?.decodeSource() }
     private var selectedSourceName: String { activeRecord?.bookSourceName ?? "切换书源" }
-    private var effectiveLayout: Int { rankLayout == 2 ? abs(refreshSeed % 2) : rankLayout }
+    private var layoutLabel: String {
+        switch rankLayout {
+        case 0: return "横向"
+        case 1: return "竖向"
+        default: return "随机交替"
+        }
+    }
+
+    private var alternatingStartsHorizontal: Bool { refreshSeed % 2 == 0 }
+
+    private func isHorizontal(index: Int) -> Bool {
+        switch rankLayout {
+        case 0: return true
+        case 1: return false
+        default: return index % 2 == 0 ? alternatingStartsHorizontal : !alternatingStartsHorizontal
+        }
+    }
+
     private var taskKey: String {
-        "\(selectedSourceURL)|\(refreshSeed)|\(horizontalCount)"
+        "\(selectedSourceURL)|\(refreshSeed)"
     }
 
     var body: some View {
@@ -195,8 +211,13 @@ struct BrowseView: View {
                         } else if let error = model.errorMessage, model.boards.isEmpty {
                             errorView(error)
                         } else {
-                            if let featured = model.boards.first { featuredSection(featured) }
-                            boardSection
+                            ForEach(Array(model.boards.enumerated()), id: \.element.id) { index, board in
+                                if isHorizontal(index: index) {
+                                    featuredSection(board)
+                                } else {
+                                    boardView(board)
+                                }
+                            }
                         }
                     }
                     .padding(.horizontal, 16)
@@ -273,18 +294,18 @@ struct BrowseView: View {
 
             Menu {
                 Picker("榜单排列方式", selection: $rankLayout) {
-                    Label("横向滑动", systemImage: "rectangle.3.group").tag(0)
-                    Label("竖向排列", systemImage: "list.bullet.rectangle").tag(1)
-                    Label("随机排列", systemImage: "shuffle").tag(2)
+                    Label("全部横向", systemImage: "rectangle.3.group").tag(0)
+                    Label("全部竖向", systemImage: "list.bullet.rectangle").tag(1)
+                    Label("随机横竖交替", systemImage: "shuffle").tag(2)
                 }
-                Picker("竖排展示数", selection: $verticalCount) {
+                Picker("竖向展示数", selection: $verticalCount) {
                     ForEach(2...10, id: \.self) { Text("\($0) 本").tag($0) }
                 }
-                Picker("横滑榜单数", selection: $horizontalCount) {
-                    ForEach(2...10, id: \.self) { Text("\($0) 个").tag($0) }
+                Picker("横向展示数", selection: $horizontalCount) {
+                    ForEach(2...10, id: \.self) { Text("\($0) 本").tag($0) }
                 }
                 Divider()
-                Button("随机刷新发现", systemImage: "shuffle") { refreshBrowse() }
+                Button("重新随机起始方向", systemImage: "shuffle") { refreshBrowse() }
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 19, weight: .bold))
@@ -292,6 +313,7 @@ struct BrowseView: View {
                     .frame(width: 52, height: 52)
                     .background(.thinMaterial, in: Circle())
             }
+            .accessibilityLabel("榜单布局：\(layoutLabel)")
         }
     }
 
@@ -349,7 +371,7 @@ struct BrowseView: View {
                 case .loaded where !board.books.isEmpty:
                     ScrollView(.horizontal, showsIndicators: false) {
                         LazyHStack(alignment: .top, spacing: 14) {
-                            ForEach(board.books) { book in
+                            ForEach(board.books.prefix(min(max(horizontalCount, 2), 10))) { book in
                                 Button { openBook(book) } label: {
                                     VStack(alignment: .leading, spacing: 7) {
                                         SmartCover(url: book.coverURL, title: book.name, headers: coverHeaders)
@@ -380,32 +402,6 @@ struct BrowseView: View {
             }
         }
         .task { model.loadSection(board.id) }
-    }
-
-    private var boardSection: some View {
-        let rankedBoards = Array(model.boards.dropFirst())
-        return VStack(alignment: .leading, spacing: 14) {
-            if !rankedBoards.isEmpty {
-                sectionTitle("发现榜单", trailing: effectiveLayout == 0 ? "横向" : "竖向") {
-                    rankLayout = effectiveLayout == 0 ? 1 : 0
-                }
-                if effectiveLayout == 0 {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        LazyHStack(alignment: .top, spacing: 16) {
-                            ForEach(rankedBoards) { board in
-                                boardView(board).frame(width: 326)
-                            }
-                        }
-                        .padding(.horizontal, 1)
-                        .padding(.bottom, 8)
-                    }
-                } else {
-                    LazyVStack(spacing: 16) {
-                        ForEach(rankedBoards) { board in boardView(board) }
-                    }
-                }
-            }
-        }
     }
 
     private func boardView(_ board: BrowseBoard) -> some View {
@@ -556,7 +552,7 @@ struct BrowseView: View {
             model.errorMessage = "请先启用并选择一个书源。"
             return
         }
-        await model.load(source: source, boardLimit: horizontalCount, seed: refreshSeed)
+        await model.load(source: source, boardLimit: 12)
     }
 
     private func refreshBrowse() {
