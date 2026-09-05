@@ -752,7 +752,7 @@ struct SourceEditView: View {
                 } label: {
                     Text(tab.rawValue)
                         .font(.headline)
-                        .foregroundStyle(selectedTab == tab ? .primary : .primary.opacity(0.82))
+                        .foregroundStyle(selectedTab == tab ? Color.primary : Color.primary.opacity(0.82))
                         .frame(maxWidth: .infinity, minHeight: 48)
                         .background(
                             selectedTab == tab
@@ -860,7 +860,7 @@ struct SourceEditView: View {
                         .foregroundStyle(.primary)
                     Text(preview(for: field))
                         .font(field.code ? .system(.subheadline, design: .monospaced) : .subheadline)
-                        .foregroundStyle(draft.value(field.path).isEmpty ? .secondary : .primary.opacity(0.58))
+                        .foregroundStyle(draft.value(field.path).isEmpty ? Color.secondary : Color.primary.opacity(0.58))
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                 }
