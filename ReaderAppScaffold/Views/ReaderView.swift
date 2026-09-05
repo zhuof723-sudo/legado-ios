@@ -1,6 +1,8 @@
 import SwiftUI
 import SwiftData
 import UIKit
+import AVFoundation
+import Combine
 
 /// 阅读器：CoreText 精确分页 + 覆盖/滑动翻页 + 液态玻璃控制层（对照设计稿）
 struct ReaderView: View {
@@ -9,6 +11,8 @@ struct ReaderView: View {
     @Bindable var viewModel: ReaderViewModel
     let bookUrl: String
     let bookName: String
+    let bookAuthor: String
+    let coverURL: String
 
     @AppStorage("reader.fontSize") private var fontSize: Double = 18
     @AppStorage("reader.lineSpacingIndex") private var lineSpacingIndex: Int = 1
@@ -17,7 +21,9 @@ struct ReaderView: View {
     @AppStorage("reader.eyeCare") private var eyeCare = false
     @AppStorage("reader.turnMode") private var turnMode: Int = 2      // 0覆盖 1仿真 2滑动
     @AppStorage("reader.autoRead") private var autoRead = false
+    @AppStorage("reader.immersiveDarkInitialized") private var immersiveDarkInitialized = false
 
+    @StateObject private var speech = ReaderSpeechController()
     @State private var pages: [String] = []
     @State private var paginatedForKey = ""
     @State private var pageIndex = 0
@@ -25,16 +31,25 @@ struct ReaderView: View {
     @State private var showControls = false
     @State private var showSettings = false
     @State private var showToc = false
+    @State private var showChapterSearch = false
     @State private var pageSizeState: CGSize = .zero
 
     private let hPadding: CGFloat = 20
     private let tPadding: CGFloat = 56
     private let bPadding: CGFloat = 44
 
-    init(viewModel: ReaderViewModel, bookUrl: String, bookName: String) {
+    init(
+        viewModel: ReaderViewModel,
+        bookUrl: String,
+        bookName: String,
+        bookAuthor: String = "",
+        coverURL: String = ""
+    ) {
         self.viewModel = viewModel
         self.bookUrl = bookUrl
         self.bookName = bookName
+        self.bookAuthor = bookAuthor
+        self.coverURL = coverURL
     }
 
     private var lineSpacingValue: CGFloat {
@@ -84,16 +99,34 @@ struct ReaderView: View {
                 }
             }
         }
-        .statusBarHidden(!showControls)
+        .statusBarHidden(false)
+        .preferredColorScheme(nightMode ? .dark : .light)
         .readerActive()
         .toolbar(.hidden, for: .tabBar)
+        .onAppear {
+            if !immersiveDarkInitialized {
+                nightMode = true
+                immersiveDarkInitialized = true
+            }
+        }
+        .onDisappear { speech.stop() }
         .sheet(isPresented: $showSettings) {
             ReaderSettingsPanel().presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showToc) {
             TocSheet(bookUrl: bookUrl, viewModel: viewModel).presentationDetents([.large])
         }
-        .onChange(of: viewModel.currentIndex) { saveProgress() }
+        .sheet(isPresented: $showChapterSearch) {
+            ReaderChapterSearchView(text: viewModel.currentContent)
+                .presentationDetents([.medium, .large])
+        }
+        .onChange(of: viewModel.currentIndex) {
+            saveProgress()
+            if speech.isSpeaking, pageIndex < pages.count { speech.speak(pages[pageIndex]) }
+        }
+        .onChange(of: pageIndex) {
+            if speech.isSpeaking, pageIndex < pages.count { speech.speak(pages[pageIndex]) }
+        }
     }
 
     // MARK: - 正文
@@ -109,9 +142,6 @@ struct ReaderView: View {
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
                 .ignoresSafeArea(edges: .bottom)
-                .overlay(alignment: .bottom) {
-                    if showControls { bottomBar }
-                }
             } else {
                 pageText(pages[pageIndex], pageSize: pageSize)
                     .id("\(pageIndex)-\(key)")
@@ -158,81 +188,124 @@ struct ReaderView: View {
     }
 
 
-    // MARK: - 控制层（液态玻璃）
+    // MARK: - 沉浸式控制层
 
     private var chrome: some View {
         VStack(spacing: 0) {
-            if showControls { topBar }
+            if showControls { immersiveHeader }
             Spacer(minLength: 0)
             if showControls {
-                bottomBar
+                immersiveBottomPanel
             } else if !pages.isEmpty {
-                Text("\(pageIndex + 1) / \(pages.count)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .padding(.bottom, 10)
+                HStack {
+                    Text("\(pageIndex + 1)/\(pages.count)")
+                    Spacer()
+                    Text(viewModel.currentChapterTitle ?? "")
+                        .lineLimit(1)
+                }
+                .font(.caption2)
+                .foregroundStyle(textColor.opacity(0.55))
+                .padding(.horizontal, 18)
+                .padding(.bottom, 8)
             }
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 12)
         .animation(.easeInOut(duration: 0.2), value: showControls)
     }
 
-    private var topBar: some View {
+    private var immersiveHeader: some View {
         HStack(spacing: 12) {
             Button { dismiss() } label: {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .frame(width: 36, height: 36)
-                    .background(Circle().fill(Color.white.opacity(0.7)))
+                    .font(.system(size: 25, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 52, height: 52)
+                    .background(Color.black.opacity(0.42), in: Circle())
+                    .overlay(Circle().stroke(Color.white.opacity(0.12), lineWidth: 0.8))
             }
-            Text(viewModel.currentChapterTitle ?? bookName)
-                .font(.subheadline.bold())
-                .lineLimit(1)
-            Spacer()
+            Spacer(minLength: 0)
+            VStack(spacing: 2) {
+                Text(bookName)
+                    .font(.headline)
+                    .lineLimit(1)
+                if !bookAuthor.isEmpty {
+                    Text(bookAuthor).font(.caption).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
+                }
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 20)
+            .frame(height: 52)
+            .background(Color.black.opacity(0.46), in: Capsule())
+            .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.8))
+            Spacer(minLength: 0)
+            SmartCover(url: coverURL, title: bookName)
+                .frame(width: 52, height: 52)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 1))
         }
-        .padding(10)
-        .glassCard(RoundedRectangle(cornerRadius: 16))
+        .environment(\.colorScheme, .dark)
     }
 
-    private var bottomBar: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(viewModel.currentChapterTitle ?? bookName)
-                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            Slider(
-                value: Binding(
-                    get: { Double(min(pageIndex, max(pages.count - 1, 0))) },
-                    set: { pageIndex = Int($0) }
-                ),
-                in: 0...Double(max(pages.count - 1, 1))
-            )
-            .tint(Theme.accent)
+    private var immersiveBottomPanel: some View {
+        VStack(spacing: 16) {
+            HStack {
+                Text(viewModel.currentChapterTitle ?? bookName)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Spacer()
+                Text("\(pageIndex + 1) / \(max(pages.count, 1))")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.72))
+            }
+
+            HStack(spacing: 12) {
+                Button { goPrevPage() } label: {
+                    Image(systemName: "chevron.left").frame(width: 34, height: 34)
+                }
+                Slider(
+                    value: Binding(
+                        get: { Double(min(pageIndex, max(pages.count - 1, 0))) },
+                        set: { pageIndex = Int($0.rounded()) }
+                    ),
+                    in: 0...Double(max(pages.count - 1, 1))
+                )
+                .tint(Theme.accent)
+                Button { goNextPage() } label: {
+                    Image(systemName: "chevron.right").frame(width: 34, height: 34)
+                }
+            }
 
             HStack {
-                toolButton("list.bullet", "目录") { showToc = true }
-                toolButton(nightMode ? "sun.max" : "moon", nightMode ? "日间" : "夜间") {
-                    nightMode.toggle()
-                }
-                toolButton(autoRead ? "pause.circle" : "play.circle", "自动") {
-                    autoRead.toggle()
-                }
-                toolButton("textformat.size", "字号") { showSettings = true }
+                immersiveToolButton("list.bullet", "目录") { showToc = true }
                 Spacer()
-                Text("\(pageIndex + 1)/\(pages.count)").font(.caption2).foregroundStyle(.secondary)
+                immersiveToolButton(speech.isSpeaking ? "speaker.wave.2.fill" : "speaker.wave.2", "听书") {
+                    guard pageIndex < pages.count else { return }
+                    speech.toggle(pages[pageIndex])
+                }
+                Spacer()
+                immersiveToolButton("magnifyingglass", "搜索") { showChapterSearch = true }
+                Spacer()
+                immersiveToolButton("textformat.size", "大小") { showSettings = true }
             }
         }
-        .padding(14)
-        .glassCard(RoundedRectangle(cornerRadius: 20))
+        .foregroundStyle(.white)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 18)
+        .background(Color.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 26))
+        .overlay(RoundedRectangle(cornerRadius: 26).stroke(Color.white.opacity(0.12), lineWidth: 0.8))
+        .shadow(color: .black.opacity(0.34), radius: 22, y: 9)
+        .environment(\.colorScheme, .dark)
     }
 
-    private func toolButton(_ icon: String, _ label: String, action: @escaping () -> Void) -> some View {
+    private func immersiveToolButton(_ icon: String, _ label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(spacing: 4) {
-                Image(systemName: icon).font(.system(size: 18, weight: .medium))
-                Text(label).font(.caption2)
+            VStack(spacing: 6) {
+                Image(systemName: icon).font(.system(size: 21, weight: .medium))
+                Text(label).font(.caption)
             }
-            .foregroundStyle(.primary.opacity(0.8))
-            .frame(width: 52, height: 46)
+            .frame(minWidth: 48, minHeight: 48)
         }
         .buttonStyle(.plain)
     }
@@ -298,6 +371,78 @@ struct ReaderView: View {
             book.lastReadAt = Date()
             book.totalChapters = viewModel.chapters.count
             try? context.save()
+        }
+    }
+}
+
+
+@MainActor
+private final class ReaderSpeechController: ObservableObject {
+    @Published private(set) var isSpeaking = false
+    private let synthesizer = AVSpeechSynthesizer()
+
+    func toggle(_ text: String) {
+        if isSpeaking {
+            stop()
+        } else {
+            speak(text)
+        }
+    }
+
+    func speak(_ text: String) {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        if synthesizer.isSpeaking { synthesizer.stopSpeaking(at: .immediate) }
+        let utterance = AVSpeechUtterance(string: text)
+        utterance.voice = AVSpeechSynthesisVoice(language: "zh-CN")
+        utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+        synthesizer.speak(utterance)
+        isSpeaking = true
+    }
+
+    func stop() {
+        synthesizer.stopSpeaking(at: .immediate)
+        isSpeaking = false
+    }
+}
+
+private struct ReaderChapterSearchView: View {
+    @Environment(\.dismiss) private var dismiss
+    let text: String
+    @State private var query = ""
+
+    private var matches: [String] {
+        let keyword = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !keyword.isEmpty else { return [] }
+        return text
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && $0.localizedCaseInsensitiveContains(keyword) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    ContentUnavailableView("章内搜索", systemImage: "magnifyingglass",
+                                           description: Text("输入关键字查找当前章节内容"))
+                } else if matches.isEmpty {
+                    ContentUnavailableView("没有找到结果", systemImage: "magnifyingglass",
+                                           description: Text("当前章节不包含“\(query)”"))
+                } else {
+                    List(Array(matches.enumerated()), id: \.offset) { _, line in
+                        Text(line).font(.body).textSelection(.enabled)
+                    }
+                    .listStyle(.plain)
+                }
+            }
+            .searchable(text: $query, prompt: "搜索当前章节")
+            .navigationTitle("章内搜索")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { dismiss() }
+                }
+            }
         }
     }
 }

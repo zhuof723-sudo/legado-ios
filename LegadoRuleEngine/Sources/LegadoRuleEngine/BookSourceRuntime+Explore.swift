@@ -105,6 +105,13 @@ extension BookSourceRuntime {
         guard let body = response.body else { return [] }
         let baseURL = response.url.isEmpty ? analyzeURL.url : response.url
 
+        if isSusanExploreSource,
+           let native = normalizeSusanExplore(body: body, resultLimit: resultLimit) {
+            EngineLogger.log("书山原生发现[\(kind.title)]解析 \(native.count) 本", tag: source.bookSourceName)
+            if cacheTTL > 0, !native.isEmpty { await ExploreCache.shared.save(native, key: cacheKey) }
+            return native
+        }
+
         let analyzer = makeAnalyzeRule()
         analyzer.setContent(body, baseUrl: baseURL)
         let items = analyzer.getElements(listRule)
@@ -148,6 +155,112 @@ extension BookSourceRuntime {
         if reverse { result.reverse() }
         if cacheTTL > 0, !result.isEmpty { await ExploreCache.shared.save(result, key: cacheKey) }
         return result
+    }
+
+    private var isSusanExploreSource: Bool {
+        source.bookSourceUrl == "书山聚合" || source.bookSourceName.contains("书山聚合")
+    }
+
+    private func normalizeSusanExplore(body: String, resultLimit: Int) -> [SearchResult]? {
+        guard let data = body.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
+            return nil
+        }
+        let rows = findSusanBookRows(object)
+        guard !rows.isEmpty else { return nil }
+
+        var results: [SearchResult] = []
+        var seen = Set<String>()
+        for row in rows.prefix(max(1, resultLimit)) {
+            let name = firstExploreString(row, keys: ["book_name", "bookName", "original_book_name", "title"])
+            guard !name.isEmpty else { continue }
+            let bookID = firstExploreString(row, keys: ["book_id", "bookId", "series_id", "bookIdStr"])
+            let originalURL = firstExploreString(row, keys: ["book_url", "bookUrl", "url"])
+            var sourceName = firstExploreString(row, keys: ["source", "sourceName"], fallback: "番茄小说")
+            var detailURL = originalURL
+            if bookID.count == 19, bookID.allSatisfy({ $0.isNumber }) {
+                let api = "https://api5-normal-sinfonlineb.fqnovel.com/reading/bookapi/multi-detail/v/?aid=1967&iid=1&version_code=999&book_id=\(bookID)"
+                detailURL = JSCommonMethods.base64Encode(api)
+                sourceName = "番茄小说"
+            } else if !originalURL.isEmpty {
+                detailURL = JSCommonMethods.base64Encode(originalURL)
+            }
+            guard !detailURL.isEmpty else { continue }
+
+            let cover = firstExploreString(row, keys: ["thumb_url", "audio_thumb_uri", "thumbUri", "cover", "cover_url"])
+            let intro = firstExploreString(row, keys: ["abstract", "desc", "description"])
+            let payload: [String: Any] = [
+                "source": sourceName,
+                "url": detailURL,
+                "cover": cover,
+                "desc": intro,
+                "name": name
+            ]
+            guard JSONSerialization.isValidJSONObject(payload),
+                  let payloadData = try? JSONSerialization.data(withJSONObject: payload) else { continue }
+            let encoded = payloadData.base64EncodedString()
+            let bookURL = "data:detailsUrl;base64,\(encoded),{\"type\":\"susan\"}"
+            let identity = bookURL + "|" + name
+            guard seen.insert(identity).inserted else { continue }
+
+            results.append(SearchResult(
+                name: name,
+                author: firstExploreString(row, keys: ["author", "author_name", "authorName"]),
+                intro: stripHTML(intro),
+                kind: firstExploreString(row, keys: ["tags", "category", "genre"]),
+                lastChapter: firstExploreString(row, keys: ["lastChapterTitle", "last_chapter_title", "latestChapterTitle"]),
+                bookUrl: bookURL,
+                coverUrl: cover,
+                wordCount: firstExploreString(row, keys: ["word_number", "WordsCount", "wordCount"])
+            ))
+        }
+        return results
+    }
+
+    private func findSusanBookRows(_ value: Any, depth: Int = 0) -> [[String: Any]] {
+        guard depth < 10 else { return [] }
+        if let array = value as? [Any] {
+            let dictionaries = array.compactMap { $0 as? [String: Any] }
+            if !dictionaries.isEmpty, dictionaries.contains(where: { looksLikeSusanBook($0) }) {
+                return dictionaries.filter { looksLikeSusanBook($0) }
+            }
+            for child in array {
+                let found = findSusanBookRows(child, depth: depth + 1)
+                if !found.isEmpty { return found }
+            }
+        }
+        if let dictionary = value as? [String: Any] {
+            let preferredKeys = ["book_list", "book_info", "publication_list", "book_data", "records", "data_list", "list", "result", "data"]
+            for key in preferredKeys {
+                if let child = dictionary[key] {
+                    let found = findSusanBookRows(child, depth: depth + 1)
+                    if !found.isEmpty { return found }
+                }
+            }
+            for child in dictionary.values {
+                let found = findSusanBookRows(child, depth: depth + 1)
+                if !found.isEmpty { return found }
+            }
+        }
+        return []
+    }
+
+    private func looksLikeSusanBook(_ object: [String: Any]) -> Bool {
+        let name = firstExploreString(object, keys: ["book_name", "bookName", "original_book_name", "title"])
+        let id = firstExploreString(object, keys: ["book_id", "bookId", "series_id", "book_url", "url"])
+        return !name.isEmpty && !id.isEmpty
+    }
+
+    private func firstExploreString(
+        _ object: [String: Any],
+        keys: [String],
+        fallback: String = ""
+    ) -> String {
+        for key in keys {
+            let value = exploreString(object[key])
+            if !value.isEmpty { return value }
+        }
+        return fallback
     }
 
     private func parseExploreKindArray(_ values: [Any]) -> [ExploreKindInfo] {

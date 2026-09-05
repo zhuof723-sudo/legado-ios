@@ -73,7 +73,13 @@ struct BookDetailView: View {
             }
             .fullScreenCover(isPresented: $openReader) {
                 if let vm = readerVM {
-                    ReaderView(viewModel: vm, bookUrl: bookUrl, bookName: name)
+                    ReaderView(
+                        viewModel: vm,
+                        bookUrl: bookUrl,
+                        bookName: name,
+                        bookAuthor: author,
+                        coverURL: coverUrl
+                    )
                 }
             }
         }
@@ -232,7 +238,7 @@ struct BookDetailView: View {
         )
         context.insert(book)
         try context.save()
-        CrashReporter.shared.breadcrumb(level: "info", tag: "shelf", message: "开始阅读自动加入书架：\(name)")
+        CrashReporter.shared.breadcrumb(level: "info", tag: "shelf", message: "用户手动加入书架：\(name)")
         return book
     }
 
@@ -253,38 +259,40 @@ struct BookDetailView: View {
         startError = nil
         defer { isStartingReading = false }
 
-        do {
-            // 必须先持久化入架；后续目录或正文失败，也不会丢失这本书。
-            let book = try ensureShelfBook()
-            let vm = readerVM ?? ReaderViewModel(source: source)
-            readerVM = vm
-            CrashReporter.shared.breadcrumb(
-                level: "info",
-                tag: "book-detail",
-                message: "开始阅读加载目录：\(name) · \(String(bookUrl.prefix(500)))"
-            )
-            await vm.loadToc(bookUrl: bookUrl)
-            guard !vm.chapters.isEmpty else {
-                startError = vm.errorMessage ?? "获取目录失败"
-                return
-            }
-
-            book.totalChapters = vm.chapters.count
-            let index = min(max(book.lastReadChapterIndex, 0), vm.chapters.count - 1)
-            await vm.openChapter(at: index)
-            guard !vm.currentContent.isEmpty else {
-                startError = vm.errorMessage ?? "获取正文失败"
-                try? context.save()
-                return
-            }
-
-            book.lastReadAt = Date()
-            book.lastReadChapterIndex = index
-            book.lastReadChapterTitle = vm.currentChapterTitle
-            try context.save()
-            openReader = true
-        } catch {
-            startError = "开始阅读失败：\(error.localizedDescription)"
+        let existingBook = shelfBook
+        let vm = readerVM ?? ReaderViewModel(source: source)
+        readerVM = vm
+        CrashReporter.shared.breadcrumb(
+            level: "info",
+            tag: "book-detail",
+            message: "开始阅读加载目录（不自动入架）：\(name) · \(String(bookUrl.prefix(500)))"
+        )
+        await vm.loadToc(bookUrl: bookUrl)
+        guard !vm.chapters.isEmpty else {
+            startError = vm.errorMessage ?? "获取目录失败"
+            return
         }
+
+        let savedIndex = existingBook?.lastReadChapterIndex ?? 0
+        let index = min(max(savedIndex, 0), vm.chapters.count - 1)
+        await vm.openChapter(at: index)
+        guard !vm.currentContent.isEmpty else {
+            startError = vm.errorMessage ?? "获取正文失败"
+            return
+        }
+
+        // 只有原本已经在书架中的书才更新持久进度；未入架的书保持临时阅读。
+        if let existingBook {
+            existingBook.totalChapters = vm.chapters.count
+            existingBook.lastReadAt = Date()
+            existingBook.lastReadChapterIndex = index
+            existingBook.lastReadChapterTitle = vm.currentChapterTitle
+            do {
+                try context.save()
+            } catch {
+                startError = "保存阅读进度失败：\(error.localizedDescription)"
+            }
+        }
+        openReader = true
     }
 }

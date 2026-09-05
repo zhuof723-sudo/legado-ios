@@ -104,6 +104,24 @@ final class LegadoRuleEngineTests: XCTestCase {
         XCTAssertNil(cleared)
     }
 
+    func testSusanExploreNormalizesRealBookFields() async throws {
+        let payload = #"{"data":{"book_list":[{"bookId":"7362544544950275134","bookName":"真实发现书","author":"作者","thumbUri":"https://example.com/cover.jpg","abstract":"简介","lastChapterTitle":"第10章"}]}}"#
+        var source = BookSource()
+        source.bookSourceUrl = "书山聚合"
+        source.bookSourceName = "📚书山聚合"
+        source.ruleExplore = ExploreRule(bookList: "$.data.book_list")
+        let dataURL = "data:application/json;base64," + Data(payload.utf8).base64EncodedString()
+        let results = try await BookSourceRuntime(source).explore(
+            ExploreKindInfo(title: "巅峰榜单", url: dataURL),
+            resultLimit: 10,
+            cacheTTL: 0
+        )
+        XCTAssertEqual(results.count, 1)
+        XCTAssertEqual(results[0].name, "真实发现书")
+        XCTAssertEqual(results[0].coverUrl, "https://example.com/cover.jpg")
+        XCTAssertTrue(results[0].bookUrl.hasPrefix("data:detailsUrl;base64,"))
+    }
+
     func testRegexReplaceSuffix() {
         let rule = AnalyzeRule()
         rule.setContent("<p>凡人修仙传</p>")

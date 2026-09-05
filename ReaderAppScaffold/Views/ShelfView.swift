@@ -64,8 +64,14 @@ struct ShelfView: View {
             }
             .background(Theme.bg.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
-            .navigationDestination(item: $readerVM) { vm in
-                ReaderView(viewModel: vm, bookUrl: openBook?.bookUrl ?? "", bookName: openBook?.name ?? "")
+            .fullScreenCover(item: $readerVM) { vm in
+                ReaderView(
+                    viewModel: vm,
+                    bookUrl: openBook?.bookUrl ?? "",
+                    bookName: openBook?.name ?? "",
+                    bookAuthor: openBook?.author ?? "",
+                    coverURL: openBook?.coverUrl ?? ""
+                )
             }
             .sheet(isPresented: $showImport) { ImportSourceView() }
             .sheet(isPresented: $showSourceList) { BookSourceListView() }
