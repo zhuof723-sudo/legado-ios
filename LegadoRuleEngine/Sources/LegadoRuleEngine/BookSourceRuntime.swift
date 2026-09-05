@@ -705,7 +705,7 @@ private final class RuntimeSourceJSContext: SourceJSContext {
         if let headerMap = BookSourceRuntime.parseLoginHeaderMap(value),
            let cookie = headerMap["Cookie"] ?? headerMap["cookie"],
            let host = owner?.source.bookSourceUrl {
-            AnalyzeUrl.cookieStore.mergeCookies(cookie, for: host)
+            AnalyzeUrl.cookieStore.mergeCookies(host, cookie)
         }
     }
 
