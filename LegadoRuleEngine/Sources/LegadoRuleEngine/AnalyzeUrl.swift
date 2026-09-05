@@ -646,6 +646,8 @@ public enum AnalyzeUrlError: Error {
 public protocol CookieStoring {
     func getCookie(_ domain: String) -> String
     func setCookie(_ domain: String, _ cookie: String)
+    /// 合并 cookie 字符串到现有 cookie（同名 cookie 覆盖，不同名追加）
+    func mergeCookies(_ domain: String, _ cookie: String)
 }
 
 /// 默认内存版 Cookie 存储，仅供跑通流程用。生产环境建议换成基于文件/数据库的持久化实现。
@@ -662,6 +664,34 @@ public final class InMemoryCookieStore: CookieStoring {
     public func setCookie(_ domain: String, _ cookie: String) {
         lock.lock(); defer { lock.unlock() }
         store[domain] = cookie
+    }
+
+    public func mergeCookies(_ domain: String, _ cookie: String) {
+        lock.lock(); defer { lock.unlock() }
+        let existing = store[domain] ?? ""
+        if existing.isEmpty {
+            store[domain] = cookie
+            return
+        }
+        // 解析现有 cookie 为 name=value 字典
+        var merged: [String: String] = [:]
+        var order: [String] = []
+        for part in existing.components(separatedBy: ";") {
+            let kv = part.trimmingCharacters(in: .whitespaces)
+            guard !kv.isEmpty else { continue }
+            let name = String(kv.split(separator: "=", maxSplits: 1).first ?? Substring(kv))
+            if merged[name] == nil { order.append(name) }
+            merged[name] = kv
+        }
+        // 合并新 cookie
+        for part in cookie.components(separatedBy: ";") {
+            let kv = part.trimmingCharacters(in: .whitespaces)
+            guard !kv.isEmpty else { continue }
+            let name = String(kv.split(separator: "=", maxSplits: 1).first ?? Substring(kv))
+            if merged[name] == nil { order.append(name) }
+            merged[name] = kv
+        }
+        store[domain] = order.map { merged[$0] ?? "" }.joined(separator: "; ")
     }
 }
 
