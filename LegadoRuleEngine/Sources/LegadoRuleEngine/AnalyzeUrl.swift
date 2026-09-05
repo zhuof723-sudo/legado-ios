@@ -426,9 +426,12 @@ public final class AnalyzeUrl {
 
     // MARK: - JS 执行
 
+    /// 共享 JSVirtualMachine：避免每次 evalJS 都创建新的 VM，减少内存开销
+    private static let sharedVirtualMachine = JSVirtualMachine()
+
     @discardableResult
     public func evalJS(_ jsStr: String, result: Any? = nil) -> Any? {
-        guard let context = JSContext() else { return nil }
+        guard let context = JSContext(virtualMachine: Self.sharedVirtualMachine) else { return nil }
         var errorMsg: String?
         context.exceptionHandler = { _, exception in errorMsg = exception?.toString() }
 

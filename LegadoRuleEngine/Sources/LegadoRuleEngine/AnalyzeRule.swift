@@ -388,10 +388,13 @@ public final class AnalyzeRule {
 
     // MARK: - JS 执行
 
+    /// 共享 JSVirtualMachine：避免每次 evalJS 都创建新的 VM，减少内存开销
+    private static let sharedVirtualMachine = JSVirtualMachine()
+
     @discardableResult
     public func evalJS(_ jsStr: String, result: Any? = nil) -> Any? {
         lastJSError = nil
-        guard let context = JSContext() else {
+        guard let context = JSContext(virtualMachine: Self.sharedVirtualMachine) else {
             lastJSError = "无法创建 JavaScriptCore 上下文"
             return nil
         }

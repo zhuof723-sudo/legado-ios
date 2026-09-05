@@ -128,46 +128,68 @@ public final class BookSourceRuntime {
         return rule
     }
 
-    /// 解析请求头
+    /// 解析请求头（对齐 legado-E：loginHeader 为 JSON map 时合并，自动补 UA）
     public func resolveHeaderMap() -> [String: String] {
         if let cached = resolvedHeaderCache { return cached }
         var result: [String: String] = [:]
-        guard let header = source.header else {
-            if let h = source.loginHeader, !h.isEmpty { result["Authorization"] = h }
-            resolvedHeaderCache = result
-            return result
-        }
-        let trimmed = header.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty {
-            let isJS = trimmed.lowercased().hasPrefix("@js:") || trimmed.lowercased().hasPrefix("<js>")
-            if isJS {
-                var jsBody = trimmed
-                if jsBody.lowercased().hasPrefix("@js:") {
-                    jsBody = String(jsBody.dropFirst(4))
-                } else {
-                    jsBody = jsBody
-                        .replacingOccurrences(of: "<js>", with: "", options: [.caseInsensitive])
-                        .replacingOccurrences(of: "</js>", with: "", options: [.caseInsensitive])
-                }
-                let rule = makeAnalyzeRule()
-                rule.setBaseUrl(source.bookSourceUrl)
-                if let evaluated = rule.evalJS(jsBody) {
-                    let str = "\(evaluated)"
-                    if let data = str.data(using: .utf8),
-                       let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                        for (k, v) in obj { result[k] = "\(v)" }
+
+        if let header = source.header {
+            let trimmed = header.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                let isJS = trimmed.lowercased().hasPrefix("@js:") || trimmed.lowercased().hasPrefix("<js>")
+                if isJS {
+                    var jsBody = trimmed
+                    if jsBody.lowercased().hasPrefix("@js:") {
+                        jsBody = String(jsBody.dropFirst(4))
+                    } else {
+                        jsBody = jsBody
+                            .replacingOccurrences(of: "<js>", with: "", options: [.caseInsensitive])
+                            .replacingOccurrences(of: "</js>", with: "", options: [.caseInsensitive])
                     }
+                    let rule = makeAnalyzeRule()
+                    rule.setBaseUrl(source.bookSourceUrl)
+                    if let evaluated = rule.evalJS(jsBody) {
+                        let str = "\(evaluated)"
+                        if let data = str.data(using: .utf8),
+                           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                            for (k, v) in obj { result[k] = "\(v)" }
+                        }
+                    }
+                } else if let obj = source.parsedHeaderMap() as [String: String]? {
+                    for (k, v) in obj { result[k] = v }
                 }
-            } else if let obj = source.parsedHeaderMap() as [String: String]? {
-                for (k, v) in obj { result[k] = v }
             }
         }
-        // 如果有 loginHeader（来源：source.putLoginHeader），默认作为 Authorization 头带上
-        if let h = source.loginHeader, !h.isEmpty, result["Authorization"] == nil {
-            result["Authorization"] = h
+
+        // legado-E 兼容：loginHeader 是 JSON map 时合并所有键值对；纯字符串时作为 Authorization（向后兼容）
+        if let h = source.loginHeader, !h.isEmpty {
+            if let loginHeaderMap = Self.parseLoginHeaderMap(h) {
+                for (k, v) in loginHeaderMap where result[k] == nil {
+                    result[k] = v
+                }
+            } else if result["Authorization"] == nil {
+                result["Authorization"] = h
+            }
         }
+
+        // 自动添加默认 User-Agent（对齐 legado-E getHeaderMap）
+        if result["User-Agent"] == nil && result["user-agent"] == nil {
+            result["User-Agent"] = JSCommonMethods.defaultUserAgent
+        }
+
         resolvedHeaderCache = result
         return result
+    }
+
+    /// 尝试把 loginHeader 解析成 JSON map（legado-E 兼容格式：{"Cookie":"...","X-Api-Key":"..."}）
+    static func parseLoginHeaderMap(_ header: String) -> [String: String]? {
+        let trimmed = header.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("{") && trimmed.hasSuffix("}") else { return nil }
+        guard let data = trimmed.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        var map: [String: String] = [:]
+        for (k, v) in obj { map[k] = "\(v)" }
+        return map
     }
 
     private func blockingAjax(_ urlString: String) -> String? {
@@ -679,6 +701,12 @@ private final class RuntimeSourceJSContext: SourceJSContext {
 
     func putLoginHeader(_ value: String) {
         owner?.source.loginHeader = value
+        // legado-E 兼容：从 loginHeader JSON 中提取 Cookie 并保存到 cookie store
+        if let headerMap = BookSourceRuntime.parseLoginHeaderMap(value),
+           let cookie = headerMap["Cookie"] ?? headerMap["cookie"],
+           let host = owner?.source.bookSourceUrl {
+            AnalyzeUrl.cookieStore.mergeCookies(cookie, for: host)
+        }
     }
 
     func getLoginInfoMap() -> [String: String] {
