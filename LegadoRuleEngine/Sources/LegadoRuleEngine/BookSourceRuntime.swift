@@ -3,7 +3,7 @@ import Foundation
 /// 把 `BookSource` + `AnalyzeUrl` + `AnalyzeRule` 串起来的胶水层：
 /// 搜索 → 目录 → 正文 三步，并对齐 legado 原版的若干行为（目录倒序/去重/空链接兜底）。
 /// 每一步都写引擎日志，方便定位"搜得到但打不开"的问题。
-public struct ExploreKindInfo: Identifiable, Equatable, Sendable {
+public struct ExploreKindInfo: Identifiable, Equatable, Codable, Sendable {
     public let title: String
     public let url: String
     public let type: String
@@ -16,7 +16,7 @@ public struct ExploreKindInfo: Identifiable, Equatable, Sendable {
     }
 }
 
-public struct SearchResult {
+public struct SearchResult: Codable, Sendable {
     public let name: String
     public let author: String
     public let intro: String
@@ -68,6 +68,7 @@ public final class BookSourceRuntime {
     public var searchBookHandler: ((_ keyword: String, _ sourceFilter: String?) -> Void)?
     /// 书源级 KV（cache.put / cache.get / java.put / java.get 的数据后端）
     public var sourceKeyValueStore: SourceKeyValueStore?
+    private var resolvedHeaderCache: [String: String]?
 
     public init(_ source: BookSource) {
         self.source = source
@@ -128,9 +129,11 @@ public final class BookSourceRuntime {
 
     /// 解析请求头
     public func resolveHeaderMap() -> [String: String] {
+        if let cached = resolvedHeaderCache { return cached }
         var result: [String: String] = [:]
         guard let header = source.header else {
             if let h = source.loginHeader, !h.isEmpty { result["Authorization"] = h }
+            resolvedHeaderCache = result
             return result
         }
         let trimmed = header.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -162,6 +165,7 @@ public final class BookSourceRuntime {
         if let h = source.loginHeader, !h.isEmpty, result["Authorization"] == nil {
             result["Authorization"] = h
         }
+        resolvedHeaderCache = result
         return result
     }
 

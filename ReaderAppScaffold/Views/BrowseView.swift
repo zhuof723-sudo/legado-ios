@@ -43,25 +43,37 @@ private final class BrowseExploreModel {
     var errorMessage: String?
 
     private var selectedSource: BookSource?
+    private var allKinds: [ExploreKindInfo] = []
     private var generation = UUID()
     private var queue: [String] = []
     private var isPumping = false
     private var activeTask: Task<Void, Never>?
+    private var cacheTTL: TimeInterval = 1800
+    private var forceRefresh = false
 
-    func load(source: BookSource, boardLimit: Int) async {
+    func load(
+        source: BookSource,
+        boardLimit: Int,
+        cacheTTL: TimeInterval,
+        forceRefresh: Bool
+    ) async {
         generation = UUID()
         activeTask?.cancel()
         activeTask = nil
         selectedSource = source
+        self.cacheTTL = cacheTTL
+        self.forceRefresh = forceRefresh
         queue.removeAll()
         isPumping = false
         isLoading = true
         errorMessage = nil
         boards = []
+        allKinds = []
         defer { isLoading = false }
 
         let runtime = BookSourceRuntime(source)
-        let rawKinds = runtime.exploreKinds().filter {
+        let cachedKinds = await runtime.exploreKindsCached(cacheTTL: cacheTTL, forceRefresh: forceRefresh)
+        let rawKinds = cachedKinds.filter {
             $0.type.lowercased() == "url" && !$0.url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         var seenKinds = Set<String>()
@@ -73,9 +85,18 @@ private final class BrowseExploreModel {
             return
         }
 
-        // 分类顺序严格遵循书源 exploreUrl；仅展示样式可以随机交替。
-        // 分类数量由书源发现决定；只设一个上限保护页面，内容仍按视口懒加载。
-        boards = uniqueKinds.prefix(min(max(boardLimit, 2), 12)).map { BrowseBoard(kind: $0) }
+        // 分类顺序严格遵循书源 exploreUrl；先建立少量分类，向下滚动再分批追加。
+        allKinds = uniqueKinds
+        appendMoreSections(batchSize: min(max(boardLimit, 2), 6))
+    }
+
+    var hasMoreSections: Bool { boards.count < allKinds.count }
+
+    func appendMoreSections(batchSize: Int = 4) {
+        guard hasMoreSections else { return }
+        let start = boards.count
+        let end = min(allKinds.count, start + max(1, batchSize))
+        boards.append(contentsOf: allKinds[start..<end].map { BrowseBoard(kind: $0) })
     }
 
     func loadSection(_ id: String) {
@@ -114,7 +135,12 @@ private final class BrowseExploreModel {
             guard let self else { return }
             do {
                 let runtime = BookSourceRuntime(source)
-                let values = try await runtime.explore(kind, resultLimit: 24)
+                let values = try await runtime.explore(
+                    kind,
+                    resultLimit: 24,
+                    cacheTTL: self.cacheTTL,
+                    forceRefresh: self.forceRefresh
+                )
                 guard !Task.isCancelled, self.generation == token, self.queue.first == id else { return }
                 let books = values.map {
                     BrowseBook(
@@ -162,11 +188,13 @@ struct BrowseView: View {
     @State private var selectedBoard: BrowseBoard?
     @State private var refreshSeed = Int(Date().timeIntervalSince1970)
     @State private var refreshNotice = false
+    @State private var forceRefreshRequested = false
 
     @AppStorage("browse.sourceURL") private var selectedSourceURL = ""
     @AppStorage("browse.rankLayout.v2") private var rankLayout = 2
     @AppStorage("browse.rankVerticalCount") private var verticalCount = 4
     @AppStorage("browse.rankHorizontalCount") private var horizontalCount = 4
+    @AppStorage("browse.cacheTTLMinutes") private var cacheTTLMinutes = 30
 
     private var enabledSources: [BookSourceRecord] { allSources.filter(\.enabled) }
     private var activeRecord: BookSourceRecord? {
@@ -193,7 +221,7 @@ struct BrowseView: View {
     }
 
     private var taskKey: String {
-        "\(selectedSourceURL)|\(refreshSeed)"
+        "\(selectedSourceURL)|\(refreshSeed)|\(cacheTTLMinutes)"
     }
 
     var body: some View {
@@ -217,6 +245,16 @@ struct BrowseView: View {
                                 } else {
                                     boardView(board)
                                 }
+                            }
+                            if model.hasMoreSections {
+                                HStack(spacing: 10) {
+                                    ProgressView().controlSize(.small)
+                                    Text("继续加载发现分类…")
+                                        .font(.footnote).foregroundStyle(.secondary)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 24)
+                                .onAppear { model.appendMoreSections() }
                             }
                         }
                     }
@@ -303,6 +341,15 @@ struct BrowseView: View {
                 }
                 Picker("横向展示数", selection: $horizontalCount) {
                     ForEach(2...10, id: \.self) { Text("\($0) 本").tag($0) }
+                }
+                Picker("缓存有效期", selection: $cacheTTLMinutes) {
+                    Text("不缓存").tag(0)
+                    Text("5 分钟").tag(5)
+                    Text("15 分钟").tag(15)
+                    Text("30 分钟").tag(30)
+                    Text("1 小时").tag(60)
+                    Text("6 小时").tag(360)
+                    Text("24 小时").tag(1_440)
                 }
                 Divider()
                 Button("重新随机起始方向", systemImage: "shuffle") { refreshBrowse() }
@@ -552,10 +599,18 @@ struct BrowseView: View {
             model.errorMessage = "请先启用并选择一个书源。"
             return
         }
-        await model.load(source: source, boardLimit: 12)
+        let forceRefresh = forceRefreshRequested
+        forceRefreshRequested = false
+        await model.load(
+            source: source,
+            boardLimit: 12,
+            cacheTTL: TimeInterval(max(0, cacheTTLMinutes) * 60),
+            forceRefresh: forceRefresh
+        )
     }
 
     private func refreshBrowse() {
+        forceRefreshRequested = true
         refreshSeed = Int.random(in: 1...Int.max / 4)
         refreshNotice = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { refreshNotice = false }
@@ -643,27 +698,59 @@ private struct BrowseBoardSheet: View {
     let source: BookSource?
     let onSelect: (BrowseBook) -> Void
 
+    @State private var books: [BrowseBook]
+    @State private var currentPage = 1
+    @State private var isLoadingMore = false
+    @State private var reachedEnd = false
+    @State private var loadError: String?
+    @AppStorage("browse.cacheTTLMinutes") private var cacheTTLMinutes = 30
+
+    init(board: BrowseBoard, source: BookSource?, onSelect: @escaping (BrowseBook) -> Void) {
+        self.board = board
+        self.source = source
+        self.onSelect = onSelect
+        self._books = State(initialValue: board.books)
+    }
+
     var body: some View {
         NavigationStack {
-            List(board.books) { book in
-                Button {
-                    dismiss()
-                    DispatchQueue.main.async { onSelect(book) }
-                } label: {
-                    HStack(spacing: 12) {
-                        SmartCover(url: book.coverURL, title: book.name, headers: source?.parsedHeaderMap() ?? [:])
-                            .frame(width: 48, height: 66)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(book.name).font(.headline).foregroundStyle(.primary).lineLimit(1)
-                            Text(book.author).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
-                            if !book.intro.isEmpty {
-                                Text(book.intro).font(.caption2).foregroundStyle(.tertiary).lineLimit(2)
+            List {
+                ForEach(Array(books.enumerated()), id: \.element.id) { index, book in
+                    Button {
+                        dismiss()
+                        DispatchQueue.main.async { onSelect(book) }
+                    } label: {
+                        HStack(spacing: 12) {
+                            SmartCover(url: book.coverURL, title: book.name, headers: source?.parsedHeaderMap() ?? [:])
+                                .frame(width: 48, height: 66)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(book.name).font(.headline).foregroundStyle(.primary).lineLimit(1)
+                                Text(book.author).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                                if !book.intro.isEmpty {
+                                    Text(book.intro).font(.caption2).foregroundStyle(.tertiary).lineLimit(2)
+                                }
                             }
                         }
+                        .padding(.vertical, 4)
                     }
-                    .padding(.vertical, 4)
+                    .buttonStyle(.plain)
+                    .onAppear {
+                        if index >= books.count - 2 { Task { await loadMore() } }
+                    }
                 }
-                .buttonStyle(.plain)
+
+                if isLoadingMore {
+                    HStack { Spacer(); ProgressView("加载下一页…"); Spacer() }
+                } else if let loadError {
+                    Button("加载失败，点击重试：\(loadError)") {
+                        Task { await loadMore() }
+                    }
+                    .font(.footnote).foregroundStyle(.red)
+                } else if reachedEnd {
+                    Text("已加载全部 \(books.count) 本")
+                        .font(.footnote).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                }
             }
             .listStyle(.plain)
             .navigationTitle(board.kind.title)
@@ -673,6 +760,45 @@ private struct BrowseBoardSheet: View {
                     Button("关闭") { dismiss() }
                 }
             }
+        }
+    }
+
+    @MainActor
+    private func loadMore() async {
+        guard !isLoadingMore, !reachedEnd, let source else { return }
+        isLoadingMore = true
+        loadError = nil
+        defer { isLoadingMore = false }
+        let nextPage = currentPage + 1
+        do {
+            let values = try await BookSourceRuntime(source).explore(
+                board.kind,
+                page: nextPage,
+                resultLimit: 24,
+                cacheTTL: TimeInterval(max(0, cacheTTLMinutes) * 60)
+            )
+            var known = Set(books.map(\.id))
+            let newBooks = values.map {
+                BrowseBook(
+                    sourceURL: source.bookSourceUrl,
+                    sourceName: source.bookSourceName,
+                    name: $0.name,
+                    author: $0.author,
+                    intro: $0.intro,
+                    kind: $0.kind,
+                    lastChapter: $0.lastChapter,
+                    bookURL: $0.bookUrl,
+                    coverURL: $0.coverUrl
+                )
+            }.filter { known.insert($0.id).inserted }
+            if newBooks.isEmpty {
+                reachedEnd = true
+            } else {
+                books.append(contentsOf: newBooks)
+                currentPage = nextPage
+            }
+        } catch {
+            loadError = error.localizedDescription
         }
     }
 }

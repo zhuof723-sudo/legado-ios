@@ -91,6 +91,19 @@ final class LegadoRuleEngineTests: XCTestCase {
         XCTAssertEqual(results.first?.coverUrl, "https://example.com/a.jpg")
     }
 
+    func testExploreCacheHonorsTTLAndClear() async {
+        let sourceURL = "https://cache-test.example.com/\(UUID().uuidString)"
+        let key = await ExploreCache.shared.cacheKey(sourceURL: sourceURL, component: "page-1")
+        await ExploreCache.shared.save(["A", "B"], key: key)
+        let cached = await ExploreCache.shared.load([String].self, key: key, ttl: 60)
+        XCTAssertEqual(cached ?? [], ["A", "B"])
+        let disabled = await ExploreCache.shared.load([String].self, key: key, ttl: 0)
+        XCTAssertNil(disabled)
+        await ExploreCache.shared.clear(sourceURL: sourceURL)
+        let cleared = await ExploreCache.shared.load([String].self, key: key, ttl: 60)
+        XCTAssertNil(cleared)
+    }
+
     func testRegexReplaceSuffix() {
         let rule = AnalyzeRule()
         rule.setContent("<p>凡人修仙传</p>")

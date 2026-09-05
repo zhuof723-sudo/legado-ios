@@ -6,6 +6,11 @@ extension BookSourceRuntime {
         guard let raw = source.exploreUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
               !raw.isEmpty else { return [] }
 
+        // 先在 JavaScriptCore 外解析一次请求头；发现脚本内的 java.ajax 直接复用，避免同步重入 JS。
+        if raw.lowercased().hasPrefix("@js:") || raw.lowercased().hasPrefix("<js>") {
+            _ = resolveHeaderMap()
+        }
+
         let evaluated: Any
         if raw.lowercased().hasPrefix("@js:") {
             let rule = makeAnalyzeRule()
@@ -44,13 +49,42 @@ extension BookSourceRuntime {
         }
     }
 
+    public func exploreKindsCached(
+        cacheTTL: TimeInterval = 900,
+        forceRefresh: Bool = false
+    ) async -> [ExploreKindInfo] {
+        let component = "kinds|\(source.exploreUrl ?? "")|\(sourceContext?.getVariable() ?? "")|\(source.loginHeader ?? "")"
+        let key = await ExploreCache.shared.cacheKey(sourceURL: source.bookSourceUrl, component: component)
+        if !forceRefresh,
+           let cached = await ExploreCache.shared.load([ExploreKindInfo].self, key: key, ttl: cacheTTL) {
+            EngineLogger.log("发现分类命中缓存，共 \(cached.count) 项", tag: source.bookSourceName)
+            return cached
+        }
+        let values = exploreKinds()
+        if cacheTTL > 0, !values.isEmpty { await ExploreCache.shared.save(values, key: key) }
+        return values
+    }
+
+    public func clearExploreCache() async {
+        await ExploreCache.shared.clear(sourceURL: source.bookSourceUrl)
+    }
+
     /// 获取某个发现分类的真实书籍列表，解析字段完全来自 ruleExplore。
     public func explore(
         _ kind: ExploreKindInfo,
         page: Int = 1,
-        resultLimit: Int = 20
+        resultLimit: Int = 20,
+        cacheTTL: TimeInterval = 900,
+        forceRefresh: Bool = false
     ) async throws -> [SearchResult] {
         guard !kind.url.isEmpty else { return [] }
+        let component = "books|\(kind.id)|\(page)|\(resultLimit)|\(sourceContext?.getVariable() ?? "")|\(source.loginHeader ?? "")"
+        let cacheKey = await ExploreCache.shared.cacheKey(sourceURL: source.bookSourceUrl, component: component)
+        if !forceRefresh,
+           let cached = await ExploreCache.shared.load([SearchResult].self, key: cacheKey, ttl: cacheTTL) {
+            EngineLogger.log("发现分类[\(kind.title)]命中缓存，共 \(cached.count) 项", tag: source.bookSourceName)
+            return cached
+        }
         let exploreRule = source.ruleExplore
         let searchRule = source.ruleSearch
         let useSearchRule = exploreRule?.bookList?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
@@ -112,6 +146,7 @@ extension BookSourceRuntime {
             }
         }
         if reverse { result.reverse() }
+        if cacheTTL > 0, !result.isEmpty { await ExploreCache.shared.save(result, key: cacheKey) }
         return result
     }
 

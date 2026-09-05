@@ -5,6 +5,7 @@ import LegadoRuleEngine
 /// 全局搜索页：跨书源并发搜索（从悬浮玻璃搜索按钮进入）
 struct SearchView: View {
     let sourceURLFilter: String?
+    let embeddedInTab: Bool
 
     @Environment(\.dismiss) private var dismiss
     @Query(sort: [SortDescriptor(\BookSourceRecord.bookSourceName)])
@@ -14,8 +15,9 @@ struct SearchView: View {
     @State private var selectedResult: TaggedSearchResult?
     @State private var headerCache = HeaderCacheBox()
 
-    init(sourceURLFilter: String? = nil) {
+    init(sourceURLFilter: String? = nil, embeddedInTab: Bool = false) {
         self.sourceURLFilter = sourceURLFilter
+        self.embeddedInTab = embeddedInTab
     }
 
     private var enabledSources: [BookSourceRecord] {
@@ -45,8 +47,10 @@ struct SearchView: View {
             .navigationTitle("搜索")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { dismiss() }
+                if !embeddedInTab {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("关闭") { dismiss() }
+                    }
                 }
             }
             .searchable(
