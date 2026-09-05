@@ -16,6 +16,8 @@ struct BookDetailView: View {
 
     @State private var readerVM: ReaderViewModel?
     @State private var openReader = false
+    @State private var isStartingReading = false
+    @State private var startError: String?
     @State private var expanded = false
     @State private var headerCache = HeaderCacheBox()
 
@@ -52,6 +54,12 @@ struct BookDetailView: View {
                     topBar
                     headerCard
                     actionButtons
+                    if let startError {
+                        Text(startError)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                     progressCard
                     introSection
                 }
@@ -60,25 +68,12 @@ struct BookDetailView: View {
             }
             .background(Theme.bg.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
-            .task {
-                guard readerVM == nil else { return }
-                CrashReporter.shared.breadcrumb(
-                    level: "info",
-                    tag: "book-detail",
-                    message: "开始加载详情目录：\(name) · \(String(bookUrl.prefix(500)))"
-                )
-                let vm = ReaderViewModel(source: source)
-                readerVM = vm
-                await vm.loadToc(bookUrl: bookUrl)
-                if let book = shelfBook {
-                    book.totalChapters = vm.chapters.count
-                    try? context.save()
-                }
+            .onAppear {
+                if readerVM == nil { readerVM = ReaderViewModel(source: source) }
             }
-            .navigationDestination(isPresented: $openReader) {
+            .fullScreenCover(isPresented: $openReader) {
                 if let vm = readerVM {
                     ReaderView(viewModel: vm, bookUrl: bookUrl, bookName: name)
-                        .toolbar(.hidden, for: .tabBar)
                 }
             }
         }
@@ -132,12 +127,15 @@ struct BookDetailView: View {
     private var actionButtons: some View {
         HStack(spacing: 12) {
             Button {
-                addToShelf()
-                openReader = true
+                Task { await startReading() }
             } label: {
                 VStack(spacing: 2) {
-                    Text(shelfBook?.lastReadAt != nil ? "继续阅读" : "开始阅读")
-                        .font(.subheadline.bold())
+                    if isStartingReading {
+                        ProgressView().tint(.white)
+                    } else {
+                        Text(shelfBook?.lastReadAt != nil ? "继续阅读" : "开始阅读")
+                            .font(.subheadline.bold())
+                    }
                     if let book = shelfBook, totalChapters > 0 {
                         Text("第 \(min(book.lastReadChapterIndex + 1, totalChapters)) 章 / \(totalChapters) 章")
                             .font(.caption2)
@@ -146,6 +144,7 @@ struct BookDetailView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 11)
             }
+            .disabled(isStartingReading)
             .prominentGlassButton()
             .tint(Theme.accent)
             .foregroundStyle(.white)
@@ -220,14 +219,72 @@ struct BookDetailView: View {
         return h
     }
 
+    @MainActor
+    private func ensureShelfBook() throws -> ShelfBook {
+        if let existing = shelfBook { return existing }
+        let book = ShelfBook(
+            bookUrl: bookUrl,
+            sourceUrl: source.bookSourceUrl,
+            name: name,
+            author: author,
+            intro: intro,
+            coverUrl: coverUrl
+        )
+        context.insert(book)
+        try context.save()
+        CrashReporter.shared.breadcrumb(level: "info", tag: "shelf", message: "开始阅读自动加入书架：\(name)")
+        return book
+    }
+
+    @MainActor
     private func addToShelf() {
-        if shelfBook == nil {
-            let book = ShelfBook(
-                bookUrl: bookUrl, sourceUrl: source.bookSourceUrl,
-                name: name, author: author, intro: intro, coverUrl: coverUrl
-            )
-            context.insert(book)
+        do {
+            _ = try ensureShelfBook()
+            startError = nil
+        } catch {
+            startError = "加入书架失败：\(error.localizedDescription)"
         }
-        try? context.save()
+    }
+
+    @MainActor
+    private func startReading() async {
+        guard !isStartingReading else { return }
+        isStartingReading = true
+        startError = nil
+        defer { isStartingReading = false }
+
+        do {
+            // 必须先持久化入架；后续目录或正文失败，也不会丢失这本书。
+            let book = try ensureShelfBook()
+            let vm = readerVM ?? ReaderViewModel(source: source)
+            readerVM = vm
+            CrashReporter.shared.breadcrumb(
+                level: "info",
+                tag: "book-detail",
+                message: "开始阅读加载目录：\(name) · \(String(bookUrl.prefix(500)))"
+            )
+            await vm.loadToc(bookUrl: bookUrl)
+            guard !vm.chapters.isEmpty else {
+                startError = vm.errorMessage ?? "获取目录失败"
+                return
+            }
+
+            book.totalChapters = vm.chapters.count
+            let index = min(max(book.lastReadChapterIndex, 0), vm.chapters.count - 1)
+            await vm.openChapter(at: index)
+            guard !vm.currentContent.isEmpty else {
+                startError = vm.errorMessage ?? "获取正文失败"
+                try? context.save()
+                return
+            }
+
+            book.lastReadAt = Date()
+            book.lastReadChapterIndex = index
+            book.lastReadChapterTitle = vm.currentChapterTitle
+            try context.save()
+            openReader = true
+        } catch {
+            startError = "开始阅读失败：\(error.localizedDescription)"
+        }
     }
 }
