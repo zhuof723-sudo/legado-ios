@@ -801,13 +801,16 @@ struct UrlOption {
         owner?.get(key) ?? ""
     }
     func ajax(_ url: String) -> String? {
-        if let marker = url.range(of: ",{", options: []) {
-            let actualUrl = String(url[..<marker.lowerBound])
-            let json = String(url[url.index(after: marker.lowerBound)...])
-            if let data = json.data(using: .utf8),
-               let options = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let response = owner?.ajaxEvaluatorWithOptions?(actualUrl, options) {
-                return response.body()
+        // 兼容 java.ajax(url + "," + JSON.stringify(opts)) 以及逗号后带空格的写法
+        if let commaIdx = url.firstIndex(of: ",") {
+            let afterComma = url[url.index(after: commaIdx)...].trimmingCharacters(in: .whitespacesAndNewlines)
+            if afterComma.hasPrefix("{") {
+                let actualUrl = String(url[..<commaIdx])
+                if let data = afterComma.data(using: .utf8),
+                   let options = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let response = owner?.ajaxEvaluatorWithOptions?(actualUrl, options) {
+                    return response.body()
+                }
             }
         }
         return owner?.ajaxEvaluator?(url)
@@ -816,15 +819,10 @@ struct UrlOption {
         owner?.ajaxEvaluatorWithOptions?(url, [:])
     }
     func ajax(_ url: String, _ options: String) -> JSStrResponse? {
-        var actualUrl = url
-        var actualOpts = options
-        if let commaIdx = url.firstIndex(of: ",") {
-            actualUrl = String(url[..<commaIdx])
-            actualOpts = String(url[url.index(after: commaIdx)...])
-        }
-        if let data = actualOpts.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
+        // 双参数版本：直接使用传入的 url 和 options，不再从 url 中截断
+        if let data = options.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
            let opts = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            return owner?.ajaxEvaluatorWithOptions?(actualUrl, opts)
+            return owner?.ajaxEvaluatorWithOptions?(url, opts)
         }
         return nil
     }

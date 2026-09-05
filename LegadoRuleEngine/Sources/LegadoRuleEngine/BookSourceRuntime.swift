@@ -272,7 +272,16 @@ public final class BookSourceRuntime {
 
     /// 同步并发批量请求，js.ajaxAll(urls) 用。返回每条响应的 body 字符串列表（顺序与输入一致）。
     func blockingAjaxAll(_ urls: [String]) -> [JSStrResponse] {
-        urls.compactMap { blockingAjaxWithOptions($0, [:]) }
+        guard !urls.isEmpty else { return [] }
+        var results: [JSStrResponse?] = Array(repeating: nil, count: urls.count)
+        let lock = NSLock()
+        DispatchQueue.concurrentPerform(iterations: urls.count) { index in
+            let result = blockingAjaxWithOptions(urls[index], [:])
+            lock.lock()
+            results[index] = result
+            lock.unlock()
+        }
+        return results.compactMap { $0 }
     }
 
     /// 同步阻塞版 POST，供 JS 里 java.post(url, body, headers) 调用
@@ -347,6 +356,7 @@ public final class BookSourceRuntime {
         let au = makeAnalyzeUrl(searchUrlRule, key: keyword, page: page)
         EngineLogger.log("搜索请求: \(au.ruleUrl)", tag: source.bookSourceName)
         await SourceRateLimiter.shared.acquire(key: source.bookSourceUrl, concurrentRate: source.concurrentRate)
+        defer { SourceRateLimiter.shared.release(key: source.bookSourceUrl) }
         let resp = try await au.getStrResponse()
         guard let body = resp.body else {
             EngineLogger.log("搜索响应为空", tag: source.bookSourceName, level: .error)
@@ -433,6 +443,7 @@ public final class BookSourceRuntime {
             let au = makeAnalyzeUrl(url, bookUrl: bookUrl)
             EngineLogger.log("目录请求: \(au.ruleUrl)", tag: source.bookSourceName)
             await SourceRateLimiter.shared.acquire(key: source.bookSourceUrl, concurrentRate: source.concurrentRate)
+            defer { SourceRateLimiter.shared.release(key: source.bookSourceUrl) }
             let resp = try await au.getStrResponse()
             guard let body = resp.body else {
                 EngineLogger.log("目录响应为空: \(url)", tag: source.bookSourceName, level: .error)
@@ -464,7 +475,7 @@ public final class BookSourceRuntime {
             }
         }
 
-        if !reverse { chapters.reverse() }
+        if reverse { chapters.reverse() }
         // 去重（按 url，保留先出现的）
         var seen = Set<String>()
         chapters = chapters.filter { seen.insert($0.url.isEmpty ? $0.name : $0.url).inserted }
@@ -484,6 +495,7 @@ public final class BookSourceRuntime {
         let au = makeAnalyzeUrl(bookUrl, bookUrl: bookUrl)
         EngineLogger.log("详情请求: \(au.ruleUrl)", tag: source.bookSourceName)
         await SourceRateLimiter.shared.acquire(key: source.bookSourceUrl, concurrentRate: source.concurrentRate)
+        defer { SourceRateLimiter.shared.release(key: source.bookSourceUrl) }
         let resp = try await au.getStrResponse()
         guard let body = resp.body else {
             EngineLogger.log("详情响应为空", tag: source.bookSourceName, level: .error)
@@ -553,6 +565,7 @@ public final class BookSourceRuntime {
             let au = makeAnalyzeUrl(url)
             EngineLogger.log("正文请求: \(au.ruleUrl)", tag: source.bookSourceName)
             await SourceRateLimiter.shared.acquire(key: source.bookSourceUrl, concurrentRate: source.concurrentRate)
+            defer { SourceRateLimiter.shared.release(key: source.bookSourceUrl) }
             let resp = try await au.getStrResponse()
             guard let body = resp.body else {
                 EngineLogger.log("正文响应为空: \(url)", tag: source.bookSourceName, level: .error)

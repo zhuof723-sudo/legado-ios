@@ -97,31 +97,26 @@ public extension RuleDataInterface {
         return msg
     }
     public func ajax(_ url: String) -> String? {
-        if let marker = url.range(of: ",{", options: []) {
-            let actualUrl = String(url[..<marker.lowerBound])
-            let json = String(url[url.index(after: marker.lowerBound)...])
-            if let options = parseAjaxOptions(json),
-               let response = rule?.ajaxEvaluatorWithOptions?(actualUrl, options) {
-                return response.body()
+        // 兼容 java.ajax(url + "," + JSON.stringify(opts)) 以及逗号后带空格的写法
+        if let commaIdx = url.firstIndex(of: ",") {
+            let afterComma = url[url.index(after: commaIdx)...].trimmingCharacters(in: .whitespacesAndNewlines)
+            if afterComma.hasPrefix("{") {
+                let actualUrl = String(url[..<commaIdx])
+                if let options = parseAjaxOptions(afterComma),
+                   let response = rule?.ajaxEvaluatorWithOptions?(actualUrl, options) {
+                    return response.body()
+                }
             }
         }
         return rule?.ajaxEvaluator?(url)
     }
     public func ajax2(_ url: String) -> JSStrResponse? {
-        guard let opts = try? JSONSerialization.jsonObject(with: Data("{}".utf8)) as? [String: Any] else { return nil }
-        return rule?.ajaxEvaluatorWithOptions?(url, opts)
+        rule?.ajaxEvaluatorWithOptions?(url, [:])
     }
     public func ajax(_ url: String, _ options: String) -> JSStrResponse? {
-        // 书山聚合写法: java.ajax(url + "," + JSON.stringify({method, body, ...}))
-        // 即 url 格式是 "http://.../api,JSON.stringify(opts)"，逗号前是 URL，后是 options
-        var actualUrl = url
-        var actualOpts = options
-        if let commaIdx = url.firstIndex(of: ",") {
-            actualUrl = String(url[..<commaIdx])
-            actualOpts = String(url[url.index(after: commaIdx)...])
-        }
-        guard let opts = parseAjaxOptions(actualOpts) else { return nil }
-        return rule?.ajaxEvaluatorWithOptions?(actualUrl, opts)
+        // 双参数版本：直接使用传入的 url 和 options，不再从 url 中截断
+        guard let opts = parseAjaxOptions(options) else { return nil }
+        return rule?.ajaxEvaluatorWithOptions?(url, opts)
     }
     public func ajaxAll(_ urls: [String]) -> [Any] {
         rule?.ajaxAllEvaluator?(urls).map { $0 as Any } ?? []
@@ -595,7 +590,7 @@ public final class AnalyzeRule {
                 sourceRule.makeUpRule(result)
                 guard let cur = result else { continue }
                 let rule = sourceRule.rule
-                if !rule.trimmingCharacters(in: .whitespaces).isEmpty || sourceRule.replaceRegex.isEmpty {
+                if !rule.trimmingCharacters(in: .whitespaces).isEmpty {
                     switch sourceRule.mode {
                     case .webJs:
                         result = getWebJsResult(rule, cur)
@@ -740,6 +735,7 @@ public final class AnalyzeRule {
         if result != nil, !ruleList.isEmpty {
             for sourceRule in ruleList {
                 putRule(sourceRule.putMap)
+                sourceRule.makeUpRule(result)
                 guard let cur = result else { continue }
                 let rule = sourceRule.rule
                 switch sourceRule.mode {
