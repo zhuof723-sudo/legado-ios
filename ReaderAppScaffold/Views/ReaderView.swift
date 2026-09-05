@@ -49,7 +49,7 @@ struct ReaderView: View {
                 width: max(geo.size.width - config.paddingH * 2, 1),
                 height: max(geo.size.height - config.paddingTop - config.paddingBottom, 1)
             )
-            let paginationKey = "\(viewModel.currentContent.hashValue)|\(Int(config.fontSize))|\(config.lineSpacing)|\(config.fontName)|\(config.bold)|\(config.paragraphSpacing)|\(config.paragraphIndent)|"
+            let paginationKey = "\(viewModel.currentContent.hashValue)|\(Int(config.fontSize))|\(config.lineSpacing)|\(config.bold)|\(config.paragraphSpacing)|\(config.paragraphIndent)|"
                 + "\(Int(pageSize.width))x\(Int(pageSize.height))|\(viewModel.currentIndex)"
 
             ZStack {

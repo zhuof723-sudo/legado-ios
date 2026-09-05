@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 阅读设置面板（翻页动画 / 主题 / 字体 / 排版 / 边距）
+/// 阅读设置面板（翻页动画 / 主题 / 排版 / 边距）
 struct ReaderSettingsPanel: View {
     @StateObject private var config = ReaderConfig.shared
     @AppStorage("reader.autoRead") private var autoRead = false
@@ -31,18 +31,6 @@ struct ReaderSettingsPanel: View {
                                 themeOption(theme)
                             }
                             Spacer()
-                        }
-                    }
-                }
-
-                // MARK: - 字体
-                Group {
-                    sectionLabel("字体")
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 10) {
-                            ForEach(ReaderFont.allCases) { font in
-                                fontOption(font)
-                            }
                         }
                     }
                 }
@@ -154,21 +142,6 @@ struct ReaderSettingsPanel: View {
                         .foregroundStyle(Theme.accent)
                 }
             }
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func fontOption(_ font: ReaderFont) -> some View {
-        let isActive = config.fontName == font.rawValue
-        return Button { config.fontName = font.rawValue } label: {
-            Text("字")
-                .font(font.swiftUIFont(size: 18, bold: false))
-                .foregroundStyle(isActive ? Theme.accent : .primary.opacity(0.7))
-                .frame(width: 48, height: 40)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(isActive ? Theme.accent.opacity(0.12) : Color(.secondarySystemBackground))
-                )
         }
         .buttonStyle(.plain)
     }

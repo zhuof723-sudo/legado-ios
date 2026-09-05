@@ -1,9 +1,9 @@
 import SwiftUI
 import UIKit
 
-// MARK: - 单页内容视图控制器
+// MARK: - 单页内容视图
 
-final class PageContentViewController: UIViewController {
+final class PageContentView: UIView {
     let text: String
     let config: ReaderConfig
     private let textView = UITextView()
@@ -11,18 +11,14 @@ final class PageContentViewController: UIViewController {
     init(text: String, config: ReaderConfig) {
         self.text = text
         self.config = config
-        super.init(nibName: nil, bundle: nil)
+        super.init(frame: .zero)
+        setupTextView()
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        view.backgroundColor = .clear
-        setupTextView()
-    }
-
     private func setupTextView() {
+        backgroundColor = .clear
         textView.translatesAutoresizingMaskIntoConstraints = false
         textView.backgroundColor = .clear
         textView.isEditable = false
@@ -31,7 +27,6 @@ final class PageContentViewController: UIViewController {
         textView.textContainer.lineFragmentPadding = 0
         textView.showsVerticalScrollIndicator = false
         textView.showsHorizontalScrollIndicator = false
-        textView.text = text
 
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = config.lineSpacing
@@ -47,12 +42,12 @@ final class PageContentViewController: UIViewController {
         ]
         textView.attributedText = NSAttributedString(string: text, attributes: attributes)
 
-        view.addSubview(textView)
+        addSubview(textView)
         NSLayoutConstraint.activate([
-            textView.topAnchor.constraint(equalTo: view.topAnchor),
-            textView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            textView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            textView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            textView.topAnchor.constraint(equalTo: topAnchor),
+            textView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            textView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            textView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
     }
 }
@@ -68,19 +63,170 @@ protocol PageReaderContainer: AnyObject {
     func updatePages(_ newPages: [String], keepIndex: Int)
 }
 
-// MARK: - UIPageViewController 基类（滑动/仿真/覆盖/无动画）
+// MARK: - 水平滑动翻页（UIScrollView + pagingEnabled，最流畅）
 
-final class PageViewControllerReader: UIPageViewController, PageReaderContainer, UIPageViewControllerDataSource, UIPageViewControllerDelegate {
+final class HorizontalSlideReader: UIView, PageReaderContainer, UIScrollViewDelegate {
     var pages: [String] = []
     let config: ReaderConfig
     var currentIndex: Int = 0
     var onPageChanged: ((Int) -> Void)?
 
-    init(pages: [String], config: ReaderConfig, initialIndex: Int, transitionStyle: UIPageViewController.TransitionStyle) {
+    private let scrollView = UIScrollView()
+    private let stackView = UIStackView()
+    private var pageViews: [PageContentView] = []
+    private var isProgrammaticScroll = false
+
+    init(pages: [String], config: ReaderConfig, initialIndex: Int) {
         self.pages = pages
         self.config = config
         self.currentIndex = initialIndex
-        super.init(transitionStyle: transitionStyle, navigationOrientation: .horizontal, options: nil)
+        super.init(frame: .zero)
+        setupScrollView()
+        reloadPages()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // 布局完成后，确保当前页位置正确
+        if !isProgrammaticScroll {
+            let targetX = CGFloat(currentIndex) * scrollView.bounds.width
+            if abs(scrollView.contentOffset.x - targetX) > 1 {
+                scrollView.contentOffset = CGPoint(x: targetX, y: 0)
+            }
+        }
+    }
+
+    private func setupScrollView() {
+        backgroundColor = .clear
+
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.delegate = self
+        scrollView.isPagingEnabled = true
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.showsVerticalScrollIndicator = false
+        scrollView.alwaysBounceHorizontal = true
+        scrollView.alwaysBounceVertical = false
+        scrollView.bounces = true
+        scrollView.scrollsToTop = false
+
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        stackView.axis = .horizontal
+        stackView.spacing = 0
+        stackView.alignment = .fill
+        stackView.distribution = .fillEqually
+
+        addSubview(scrollView)
+        scrollView.addSubview(stackView)
+
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            stackView.topAnchor.constraint(equalTo: scrollView.topAnchor),
+            stackView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
+            stackView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
+            stackView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+            stackView.heightAnchor.constraint(equalTo: scrollView.heightAnchor)
+        ])
+    }
+
+    private func reloadPages() {
+        pageViews.forEach { $0.removeFromSuperview() }
+        pageViews.removeAll()
+
+        for text in pages {
+            let pageView = PageContentView(text: text, config: config)
+            pageView.translatesAutoresizingMaskIntoConstraints = false
+            stackView.addArrangedSubview(pageView)
+            pageView.widthAnchor.constraint(equalTo: scrollView.widthAnchor).isActive = true
+            pageViews.append(pageView)
+        }
+
+        // 确保 contentSize 正确
+        setNeedsLayout()
+        layoutIfNeeded()
+
+        // 跳转到初始页
+        let safeIndex = min(max(currentIndex, 0), max(pages.count - 1, 0))
+        currentIndex = safeIndex
+        isProgrammaticScroll = true
+        scrollView.contentOffset = CGPoint(x: CGFloat(safeIndex) * scrollView.bounds.width, y: 0)
+        isProgrammaticScroll = false
+    }
+
+    func updatePages(_ newPages: [String], keepIndex: Int) {
+        pages = newPages
+        let safeIndex = min(max(keepIndex, 0), max(newPages.count - 1, 0))
+        currentIndex = safeIndex
+        reloadPages()
+    }
+
+    func goToPage(_ index: Int, animated: Bool) {
+        guard index >= 0, index < pages.count else { return }
+        currentIndex = index
+        isProgrammaticScroll = true
+        let targetX = CGFloat(index) * scrollView.bounds.width
+        scrollView.setContentOffset(CGPoint(x: targetX, y: 0), animated: animated)
+        if !animated {
+            isProgrammaticScroll = false
+        }
+    }
+
+    // MARK: - UIScrollViewDelegate
+
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        isProgrammaticScroll = false
+        let pageWidth = scrollView.bounds.width
+        guard pageWidth > 0 else { return }
+        let page = Int(round(scrollView.contentOffset.x / pageWidth))
+        let clampedPage = min(max(page, 0), pages.count - 1)
+        if clampedPage != currentIndex {
+            currentIndex = clampedPage
+            onPageChanged?(currentIndex)
+        }
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        let pageWidth = scrollView.bounds.width
+        guard pageWidth > 0 else { return }
+        let page = Int(round(scrollView.contentOffset.x / pageWidth))
+        let clampedPage = min(max(page, 0), pages.count - 1)
+        if clampedPage != currentIndex {
+            currentIndex = clampedPage
+            onPageChanged?(currentIndex)
+        }
+    }
+
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate {
+            let pageWidth = scrollView.bounds.width
+            guard pageWidth > 0 else { return }
+            let page = Int(round(scrollView.contentOffset.x / pageWidth))
+            let clampedPage = min(max(page, 0), pages.count - 1)
+            if clampedPage != currentIndex {
+                currentIndex = clampedPage
+                onPageChanged?(currentIndex)
+            }
+        }
+    }
+}
+
+// MARK: - 仿真翻页（UIPageViewController pageCurl）
+
+final class CurlPageReader: UIPageViewController, PageReaderContainer, UIPageViewControllerDataSource, UIPageViewControllerDelegate {
+    var pages: [String] = []
+    let config: ReaderConfig
+    var currentIndex: Int = 0
+    var onPageChanged: ((Int) -> Void)?
+
+    init(pages: [String], config: ReaderConfig, initialIndex: Int) {
+        self.pages = pages
+        self.config = config
+        self.currentIndex = initialIndex
+        super.init(transitionStyle: .pageCurl, navigationOrientation: .horizontal, options: nil)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -115,11 +261,20 @@ final class PageViewControllerReader: UIPageViewController, PageReaderContainer,
         }
     }
 
-    private func makeVC(at index: Int) -> PageContentViewController {
-        PageContentViewController(text: pages[safe: index] ?? "", config: config)
+    private func makeVC(at index: Int) -> UIViewController {
+        let vc = UIViewController()
+        vc.view.backgroundColor = .clear
+        let pageView = PageContentView(text: pages[safe: index] ?? "", config: config)
+        pageView.translatesAutoresizingMaskIntoConstraints = false
+        vc.view.addSubview(pageView)
+        NSLayoutConstraint.activate([
+            pageView.topAnchor.constraint(equalTo: vc.view.topAnchor),
+            pageView.leadingAnchor.constraint(equalTo: vc.view.leadingAnchor),
+            pageView.trailingAnchor.constraint(equalTo: vc.view.trailingAnchor),
+            pageView.bottomAnchor.constraint(equalTo: vc.view.bottomAnchor)
+        ])
+        return vc
     }
-
-    // MARK: - DataSource
 
     func pageViewController(_ pageViewController: UIPageViewController, viewControllerBefore viewController: UIViewController) -> UIViewController? {
         guard currentIndex > 0 else { return nil }
@@ -131,104 +286,112 @@ final class PageViewControllerReader: UIPageViewController, PageReaderContainer,
         return makeVC(at: currentIndex + 1)
     }
 
-    // MARK: - Delegate
-
     func pageViewController(_ pageViewController: UIPageViewController, didFinishAnimating finished: Bool, previousViewControllers: [UIViewController], transitionCompleted completed: Bool) {
-        guard completed,
-              let vc = pageViewController.viewControllers?.first as? PageContentViewController,
-              let index = pages.firstIndex(of: vc.text) else { return }
-        currentIndex = index
-        onPageChanged?(index)
+        guard completed else { return }
+        // pageCurl 模式下通过子视图查找当前页比较复杂，这里用简单的方式：
+        // 由于我们只在 goToPage 和手势翻页时更新，手势翻页由 UIPageViewController 自动处理
+        // 我们需要在动画完成后更新 currentIndex
+        if let vc = pageViewController.viewControllers?.first,
+           let pageView = vc.view.subviews.first as? PageContentView,
+           let index = pages.firstIndex(of: pageView.text) {
+            currentIndex = index
+            onPageChanged?(index)
+        }
     }
 }
 
-// MARK: - 滚动模式（UIScrollView 连续滚动）
+// MARK: - 垂直滚动翻页
 
-final class ScrollPageReader: UIViewController, PageReaderContainer, UIScrollViewDelegate {
+final class VerticalScrollReader: UIView, PageReaderContainer, UIScrollViewDelegate {
     var pages: [String] = []
     let config: ReaderConfig
     var currentIndex: Int = 0
     var onPageChanged: ((Int) -> Void)?
 
     private let scrollView = UIScrollView()
-    private let contentView = UIStackView()
-    private var pageVCs: [PageContentViewController] = []
+    private let stackView = UIStackView()
+    private var pageViews: [PageContentView] = []
 
     init(pages: [String], config: ReaderConfig, initialIndex: Int) {
         self.pages = pages
         self.config = config
         self.currentIndex = initialIndex
-        super.init(nibName: nil, bundle: nil)
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        view.backgroundColor = .clear
+        super.init(frame: .zero)
         setupScrollView()
         reloadPages()
     }
 
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
     private func setupScrollView() {
+        backgroundColor = .clear
+
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.delegate = self
-        scrollView.isPagingEnabled = false
         scrollView.showsVerticalScrollIndicator = false
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.alwaysBounceVertical = true
+        scrollView.scrollsToTop = false
 
-        contentView.translatesAutoresizingMaskIntoConstraints = false
-        contentView.axis = .vertical
-        contentView.spacing = 0
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        stackView.axis = .vertical
+        stackView.spacing = 0
+        stackView.alignment = .fill
+        stackView.distribution = .fillEqually
 
-        view.addSubview(scrollView)
-        scrollView.addSubview(contentView)
+        addSubview(scrollView)
+        scrollView.addSubview(stackView)
 
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: view.topAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            contentView.topAnchor.constraint(equalTo: scrollView.topAnchor),
-            contentView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
-            contentView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
-            contentView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
-            contentView.widthAnchor.constraint(equalTo: scrollView.widthAnchor)
+            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            stackView.topAnchor.constraint(equalTo: scrollView.topAnchor),
+            stackView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
+            stackView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
+            stackView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+            stackView.widthAnchor.constraint(equalTo: scrollView.widthAnchor)
         ])
     }
 
     private func reloadPages() {
-        pageVCs.forEach { $0.removeFromParent(); $0.view.removeFromSuperview() }
-        pageVCs.removeAll()
+        pageViews.forEach { $0.removeFromSuperview() }
+        pageViews.removeAll()
 
-        for (index, text) in pages.enumerated() {
-            let vc = PageContentViewController(text: text, config: config)
-            addChild(vc)
-            vc.view.translatesAutoresizingMaskIntoConstraints = false
-            contentView.addArrangedSubview(vc.view)
-            vc.view.heightAnchor.constraint(equalTo: view.heightAnchor).isActive = true
-            vc.didMove(toParent: self)
-            pageVCs.append(vc)
+        for text in pages {
+            let pageView = PageContentView(text: text, config: config)
+            pageView.translatesAutoresizingMaskIntoConstraints = false
+            stackView.addArrangedSubview(pageView)
+            pageView.heightAnchor.constraint(equalTo: scrollView.heightAnchor).isActive = true
+            pageViews.append(pageView)
         }
+
+        setNeedsLayout()
+        layoutIfNeeded()
+
+        let safeIndex = min(max(currentIndex, 0), max(pages.count - 1, 0))
+        currentIndex = safeIndex
+        scrollView.contentOffset = CGPoint(x: 0, y: CGFloat(safeIndex) * scrollView.bounds.height)
     }
 
     func updatePages(_ newPages: [String], keepIndex: Int) {
         pages = newPages
-        currentIndex = min(max(keepIndex, 0), max(newPages.count - 1, 0))
+        let safeIndex = min(max(keepIndex, 0), max(newPages.count - 1, 0))
+        currentIndex = safeIndex
         reloadPages()
     }
 
     func goToPage(_ index: Int, animated: Bool) {
-        guard index >= 0, index < pageVCs.count else { return }
-        let targetY = pageVCs[index].view.frame.origin.y
+        guard index >= 0, index < pageViews.count else { return }
+        let targetY = CGFloat(index) * scrollView.bounds.height
         scrollView.setContentOffset(CGPoint(x: 0, y: targetY), animated: animated)
         currentIndex = index
         onPageChanged?(index)
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        let pageHeight = view.bounds.height
+        let pageHeight = scrollView.bounds.height
         guard pageHeight > 0 else { return }
         let approximateIndex = Int((scrollView.contentOffset.y + pageHeight / 2) / pageHeight)
         let clampedIndex = min(max(approximateIndex, 0), pages.count - 1)
@@ -239,49 +402,42 @@ final class ScrollPageReader: UIViewController, PageReaderContainer, UIScrollVie
     }
 }
 
-// MARK: - 无动画模式（直接切换）
+// MARK: - 无动画翻页
 
-final class NonePageReader: UIViewController, PageReaderContainer {
+final class NonePageReader: UIView, PageReaderContainer {
     var pages: [String] = []
     let config: ReaderConfig
     var currentIndex: Int = 0
     var onPageChanged: ((Int) -> Void)?
 
-    private var currentVC: PageContentViewController?
+    private var currentPageView: PageContentView?
 
     init(pages: [String], config: ReaderConfig, initialIndex: Int) {
         self.pages = pages
         self.config = config
         self.currentIndex = initialIndex
-        super.init(nibName: nil, bundle: nil)
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        view.backgroundColor = .clear
+        super.init(frame: .zero)
+        backgroundColor = .clear
         if !pages.isEmpty {
             showPage(at: min(currentIndex, pages.count - 1))
         }
     }
 
-    private func showPage(at index: Int) {
-        currentVC?.removeFromParent()
-        currentVC?.view.removeFromSuperview()
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-        let vc = PageContentViewController(text: pages[safe: index] ?? "", config: config)
-        addChild(vc)
-        vc.view.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(vc.view)
+    private func showPage(at index: Int) {
+        currentPageView?.removeFromSuperview()
+
+        let pageView = PageContentView(text: pages[safe: index] ?? "", config: config)
+        pageView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(pageView)
         NSLayoutConstraint.activate([
-            vc.view.topAnchor.constraint(equalTo: view.topAnchor),
-            vc.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            vc.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            vc.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            pageView.topAnchor.constraint(equalTo: topAnchor),
+            pageView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            pageView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            pageView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
-        vc.didMove(toParent: self)
-        currentVC = vc
+        currentPageView = pageView
         currentIndex = index
     }
 
@@ -300,13 +456,13 @@ final class NonePageReader: UIViewController, PageReaderContainer {
 
 // MARK: - SwiftUI 包装
 
-struct PageReaderViewRepresentable: UIViewControllerRepresentable {
+struct PageReaderViewRepresentable: UIViewRepresentable {
     let pages: [String]
     let config: ReaderConfig
     @Binding var currentIndex: Int
     var onPageChanged: ((Int) -> Void)?
 
-    func makeUIViewController(context: Context) -> UIViewController {
+    func makeUIView(context: Context) -> UIView {
         let reader = makeReader(for: config.currentPageAnim)
         reader.onPageChanged = { index in
             DispatchQueue.main.async {
@@ -314,11 +470,11 @@ struct PageReaderViewRepresentable: UIViewControllerRepresentable {
                 onPageChanged?(index)
             }
         }
-        return reader as! UIViewController
+        return reader as! UIView
     }
 
-    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
-        guard let reader = uiViewController as? PageReaderContainer else { return }
+    func updateUIView(_ uiView: UIView, context: Context) {
+        guard let reader = uiView as? PageReaderContainer else { return }
         if reader.pages != pages {
             reader.updatePages(pages, keepIndex: currentIndex)
         }
@@ -333,11 +489,11 @@ struct PageReaderViewRepresentable: UIViewControllerRepresentable {
     private func makeReader(for anim: PageAnimationType) -> PageReaderContainer {
         switch anim {
         case .slide, .cover:
-            return PageViewControllerReader(pages: pages, config: config, initialIndex: currentIndex, transitionStyle: .scroll)
+            return HorizontalSlideReader(pages: pages, config: config, initialIndex: currentIndex)
         case .simulation:
-            return PageViewControllerReader(pages: pages, config: config, initialIndex: currentIndex, transitionStyle: .pageCurl)
+            return CurlPageReader(pages: pages, config: config, initialIndex: currentIndex)
         case .scroll:
-            return ScrollPageReader(pages: pages, config: config, initialIndex: currentIndex)
+            return VerticalScrollReader(pages: pages, config: config, initialIndex: currentIndex)
         case .none:
             return NonePageReader(pages: pages, config: config, initialIndex: currentIndex)
         }
