@@ -3,7 +3,7 @@ import SwiftData
 import UIKit
 import LegadoRuleEngine
 
-private enum SourceEditTab: String, CaseIterable, Identifiable {
+enum SourceEditTab: String, CaseIterable, Identifiable {
     case basic = "基本"
     case search = "搜索"
     case explore = "发现"
@@ -144,6 +144,7 @@ private final class SourceEditorDraft {
     var enabled = true
     var enabledExplore = true
     var enabledCookieJar = true
+    var presentsAndroidIdentity = true
     var eventListener = false
     var customButton = false
     private var root: [String: Any]
@@ -167,6 +168,7 @@ private final class SourceEditorDraft {
         enabled = boolValue(root["enabled"], fallback: true)
         enabledExplore = boolValue(root["enabledExplore"], fallback: true)
         enabledCookieJar = boolValue(root["enabledCookieJar"], fallback: true)
+        presentsAndroidIdentity = boolValue(root["presentsAndroidIdentity"], fallback: true)
         eventListener = boolValue(root["eventListener"], fallback: false)
         customButton = boolValue(root["customButton"], fallback: false)
     }
@@ -183,6 +185,7 @@ private final class SourceEditorDraft {
         output["enabled"] = enabled
         output["enabledExplore"] = enabledExplore
         output["enabledCookieJar"] = enabledCookieJar
+        output["presentsAndroidIdentity"] = presentsAndroidIdentity
         output["eventListener"] = eventListener
         output["customButton"] = customButton
         guard JSONSerialization.isValidJSONObject(output) else {
@@ -265,7 +268,7 @@ private final class SourceEditorDraft {
 }
 
 @MainActor
-struct SourceEditView: View {
+private struct LegacySourceEditView: View {
     let record: BookSourceRecord
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
@@ -596,5 +599,485 @@ private struct RawSourceJSONEditor: View {
                     }
                 }
         }
+    }
+}
+
+@MainActor
+struct SourceEditView: View {
+    let record: BookSourceRecord
+    @Environment(\.modelContext) private var context
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var draft: SourceEditorDraft
+    @State private var selectedTab: SourceEditTab = .basic
+    @State private var editingField: SourceEditField?
+    @State private var showDebug = false
+    @State private var showRawJSON = false
+    @State private var rawJSONText = ""
+    @State private var notice: String?
+    @State private var errorMessage: String?
+
+    init(record: BookSourceRecord) {
+        self.record = record
+        self._draft = State(initialValue: SourceEditorDraft(rawJSON: record.rawJSON))
+    }
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            Color(red: 0.82, green: 0.88, blue: 0.98).ignoresSafeArea()
+            VStack(spacing: 0) {
+                header
+                tabPicker
+                ScrollView {
+                    LazyVStack(spacing: 14) {
+                        if selectedTab == .basic {
+                            basicSettingsCard
+                        }
+                        fieldGroup(SourceEditSchema.fields(for: selectedTab))
+                        if selectedTab == .basic {
+                            advancedSettingsCard
+                        }
+                        if let errorMessage {
+                            Text(errorMessage)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 18)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 14)
+                    .padding(.bottom, 30)
+                }
+                .scrollDismissesKeyboard(.interactively)
+            }
+
+            if let notice {
+                Text(notice)
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Color.black.opacity(0.78), in: Capsule())
+                    .padding(.bottom, 24)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.18), value: notice)
+        .toolbar(.hidden, for: .navigationBar)
+        .sheet(item: $editingField) { field in
+            SourceFieldEditor(
+                field: field,
+                initialValue: draft.value(field.path),
+                onSave: { value in
+                    draft.setValue(value, path: field.path)
+                }
+            )
+            .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showDebug) {
+            SourceDebugView(record: record)
+        }
+        .sheet(isPresented: $showRawJSON) {
+            RawSourceJSONEditor(text: $rawJSONText) { applyRawJSON() }
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            Button { dismiss() } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(.blue)
+                    .frame(width: 58, height: 58)
+                    .background(Color.white.opacity(0.86), in: Circle())
+            }
+            .accessibilityLabel("关闭")
+
+            Spacer(minLength: 4)
+            Text(record.bookSourceName.isEmpty ? "新建书源" : "编辑书源")
+                .font(.title2.bold())
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+            Spacer(minLength: 4)
+
+            HStack(spacing: 0) {
+                Button {
+                    saveAndDismiss()
+                } label: {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 25, weight: .medium))
+                        .foregroundStyle(canSave ? .blue : .secondary)
+                        .frame(width: 58, height: 58)
+                }
+                .disabled(!canSave)
+
+                Menu {
+                    Button("保存配置", systemImage: "checkmark.circle") { save() }
+                    Button("测试当前配置", systemImage: "ladybug") {
+                        if save() { showDebug = true }
+                    }
+                    Button("查看原始 JSON", systemImage: "curlybraces") {
+                        rawJSONText = draft.rawPreview()
+                        showRawJSON = true
+                    }
+                    Button("复制 JSON", systemImage: "doc.on.doc") {
+                        UIPasteboard.general.string = draft.rawPreview()
+                        showNotice("已复制书源 JSON")
+                    }
+                    Button("恢复已保存内容", systemImage: "arrow.counterclockwise") {
+                        draft = SourceEditorDraft(rawJSON: record.rawJSON)
+                        showNotice("已恢复")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(.blue)
+                        .frame(width: 54, height: 58)
+                }
+            }
+            .background(Color.white.opacity(0.86), in: Capsule())
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 12)
+        .padding(.bottom, 14)
+        .background(Color.white.opacity(0.30))
+    }
+
+    private var tabPicker: some View {
+        HStack(spacing: 2) {
+            ForEach(SourceEditTab.allCases) { tab in
+                Button {
+                    selectedTab = tab
+                } label: {
+                    Text(tab.rawValue)
+                        .font(.headline)
+                        .foregroundStyle(selectedTab == tab ? .primary : .primary.opacity(0.82))
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .background(
+                            selectedTab == tab
+                                ? Color.white.opacity(0.95)
+                                : Color.clear,
+                            in: Capsule()
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(4)
+        .background(Color.black.opacity(0.06), in: Capsule())
+        .padding(.horizontal, 16)
+        .padding(.bottom, 12)
+    }
+
+    private var basicSettingsCard: some View {
+        VStack(spacing: 0) {
+            settingRow("类型", subtitle: typeName) {
+                Menu {
+                    Picker("类型", selection: $draft.sourceType) {
+                        Text("文字").tag(0)
+                        Text("音频").tag(1)
+                        Text("图片").tag(2)
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Text(typeName).foregroundStyle(.blue)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.caption)
+                    }
+                }
+            }
+            settingRow("启用", subtitle: "允许此书源参与搜索和阅读") {
+                Toggle("", isOn: $draft.enabled).labelsHidden().tint(.blue)
+            }
+            settingRow("发现", subtitle: "在浏览页显示该书源的发现内容") {
+                Toggle("", isOn: $draft.enabledExplore).labelsHidden().tint(.blue)
+            }
+            settingRow("提供设备标识码", subtitle: "默认开启，书源需要设备码时才会拿到。只有在某个书源不能被当成 Android 时才关闭。") {
+                Toggle("", isOn: $draft.presentsAndroidIdentity).labelsHidden().tint(.blue)
+            }
+        }
+        .editorCard()
+    }
+
+    private var advancedSettingsCard: some View {
+        VStack(spacing: 0) {
+            settingRow("CookieJar", subtitle: "保存网站 Cookie") {
+                Toggle("", isOn: $draft.enabledCookieJar).labelsHidden().tint(.blue)
+            }
+            settingRow("事件监听", subtitle: "启用书源事件回调") {
+                Toggle("", isOn: $draft.eventListener).labelsHidden().tint(.blue)
+            }
+            settingRow("定制按钮", subtitle: "启用书源自定义按钮") {
+                Toggle("", isOn: $draft.customButton).labelsHidden().tint(.blue)
+            }
+        }
+        .editorCard()
+    }
+
+    @ViewBuilder
+    private func settingRow<Trailing: View>(
+        _ title: String,
+        subtitle: String,
+        @ViewBuilder trailing: () -> Trailing
+    ) -> some View {
+        HStack(alignment: .center, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.body)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+            }
+            Spacer(minLength: 8)
+            trailing()
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 15)
+        .overlay(alignment: .bottom) {
+            Divider().padding(.leading, 18)
+        }
+    }
+
+    private func fieldGroup(_ fields: [SourceEditField]) -> some View {
+        VStack(spacing: 0) {
+            ForEach(fields) { field in
+                fieldRow(field)
+                if field.id != fields.last?.id { Divider().padding(.leading, 18) }
+            }
+        }
+        .editorCard()
+    }
+
+    private func fieldRow(_ field: SourceEditField) -> some View {
+        Button {
+            editingField = field
+        } label: {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(displayTitle(for: field))
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                    Text(preview(for: field))
+                        .font(field.code ? .system(.subheadline, design: .monospaced) : .subheadline)
+                        .foregroundStyle(draft.value(field.path).isEmpty ? .secondary : .primary.opacity(0.58))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 15)
+            .frame(minHeight: field.minHeight > 130 ? 88 : 76)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func displayTitle(for field: SourceEditField) -> String {
+        switch field.path {
+        case "bookSourceUrl": return "书源地址"
+        case "bookSourceName": return "书源名称"
+        case "bookSourceGroup": return "书源分组"
+        case "bookSourceComment": return "源注释"
+        case "loginUrl": return "登入页 URL"
+        case "loginUi": return "登录 UI"
+        case "loginCheckJs": return "登入检查 JS"
+        case "coverDecodeJs": return "封面解密"
+        case "bookUrlPattern": return "书籍 URL 正则"
+        case "header": return "请求头"
+        case "variableComment": return "变量说明"
+        case "concurrentRate": return "并发率"
+        case "jsLib": return "jsLib"
+        case "searchUrl": return "搜索 URL"
+        case "exploreUrl": return "发现地址规则"
+        case "ruleSearch.bookList": return "书籍列表规则"
+        case "ruleSearch.checkKeyWord": return "校验关键字"
+        case "ruleSearch.name": return "书名规则"
+        case "ruleSearch.author": return "作者规则"
+        case "ruleSearch.kind": return "分类规则"
+        case "ruleSearch.wordCount": return "字数规则"
+        case "ruleSearch.lastChapter": return "最新章节规则"
+        case "ruleSearch.intro": return "简介规则"
+        case "ruleSearch.coverUrl": return "封面规则"
+        case "ruleSearch.bookUrl": return "详情页 URL 规则"
+        case "ruleSearch.updateTime": return "更新时间规则"
+        case "ruleExplore.bookList": return "书籍列表规则"
+        case "ruleExplore.name": return "书名规则"
+        case "ruleExplore.author": return "作者规则"
+        case "ruleExplore.kind": return "分类规则"
+        case "ruleExplore.wordCount": return "字数规则"
+        case "ruleExplore.lastChapter": return "最新章节规则"
+        case "ruleExplore.intro": return "简介规则"
+        case "ruleExplore.coverUrl": return "封面规则"
+        case "ruleExplore.bookUrl": return "详情页 URL 规则"
+        case "ruleExplore.updateTime": return "更新时间规则"
+        case "ruleBookInfo.init": return "预处理规则"
+        case "ruleBookInfo.name": return "书名规则"
+        case "ruleBookInfo.author": return "作者规则"
+        case "ruleBookInfo.kind": return "分类规则"
+        case "ruleBookInfo.wordCount": return "字数规则"
+        case "ruleBookInfo.lastChapter": return "最新章节规则"
+        case "ruleBookInfo.intro": return "简介规则"
+        case "ruleBookInfo.coverUrl": return "封面规则"
+        case "ruleBookInfo.tocUrl": return "目录 URL 规则"
+        case "ruleBookInfo.canReName": return "允许修改书名作者"
+        case "ruleBookInfo.downloadUrls": return "下载 URL 规则"
+        case "ruleBookInfo.updateTime": return "更新时间规则"
+        case "ruleToc.preUpdateJs": return "更新之前 JS"
+        case "ruleToc.chapterList": return "章节列表规则"
+        case "ruleToc.chapterName": return "章节名称规则"
+        case "ruleToc.chapterUrl": return "章节 URL 规则"
+        case "ruleToc.formatJs": return "格式化规则"
+        case "ruleToc.wordCount": return "字数规则"
+        case "ruleToc.isVolume": return "卷标识"
+        case "ruleToc.updateTime": return "章节信息"
+        case "ruleToc.isVip": return "VIP 标识"
+        case "ruleToc.isPay": return "购买标识"
+        case "ruleToc.nextTocUrl": return "目录下一页规则"
+        case "ruleContent.content": return "正文规则"
+        case "ruleContent.subContent": return "正文副本"
+        case "ruleContent.title": return "章节名称规则"
+        case "ruleContent.nextContentUrl": return "正文下一页 URL 规则"
+        case "ruleContent.webJs": return "WebView JS"
+        case "ruleContent.sourceRegex": return "资源正则"
+        case "ruleContent.replaceRegex": return "净化规则"
+        case "ruleContent.imageStyle": return "图片样式"
+        case "ruleContent.imageDecode": return "图片解密"
+        case "ruleContent.payAction": return "购买操作"
+        case "ruleContent.callBackJs": return "回调操作"
+        default: return field.title
+        }
+    }
+
+    private func preview(for field: SourceEditField) -> String {
+        let value = draft.value(field.path)
+        if value.isEmpty { return field.placeholder }
+        let lines = value.split(separator: "\n", omittingEmptySubsequences: false)
+        let compact = lines.prefix(2).joined(separator: "\n")
+        return compact + (lines.count > 2 ? "…" : "")
+    }
+
+    private var typeName: String {
+        switch draft.sourceType {
+        case 1: return "音频"
+        case 2: return "图片"
+        default: return "文字"
+        }
+    }
+
+    private var canSave: Bool {
+        !draft.value("bookSourceUrl").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !draft.value("bookSourceName").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    @discardableResult
+    private func save() -> Bool {
+        do {
+            let json = try draft.encodedJSON()
+            guard let source = try BookSourceImporter.parse(json).first,
+                  !source.bookSourceUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  !source.bookSourceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw NSError(domain: "SourceEditor", code: 2,
+                              userInfo: [NSLocalizedDescriptionKey: "书源地址和名称不能为空"])
+            }
+            let old = (record.rawJSON, record.bookSourceUrl, record.bookSourceName, record.bookSourceGroup, record.enabled)
+            record.rawJSON = json
+            record.bookSourceUrl = source.bookSourceUrl
+            record.bookSourceName = source.bookSourceName
+            record.bookSourceGroup = source.bookSourceGroup
+            record.enabled = source.enabled
+            do {
+                try context.save()
+                errorMessage = nil
+                showNotice("书源已保存")
+                return true
+            } catch {
+                record.rawJSON = old.0
+                record.bookSourceUrl = old.1
+                record.bookSourceName = old.2
+                record.bookSourceGroup = old.3
+                record.enabled = old.4
+                throw error
+            }
+        } catch {
+            errorMessage = "保存失败：\(error.localizedDescription)"
+            return false
+        }
+    }
+
+    private func saveAndDismiss() {
+        if save() { dismiss() }
+    }
+
+    private func applyRawJSON() {
+        guard (try? BookSourceImporter.parse(rawJSONText).first) != nil else {
+            errorMessage = "原始 JSON 无法解析"
+            return
+        }
+        draft = SourceEditorDraft(rawJSON: rawJSONText)
+        showRawJSON = false
+        errorMessage = nil
+        showNotice("已应用原始 JSON")
+    }
+
+    private func showNotice(_ text: String) {
+        notice = text
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            if notice == text { notice = nil }
+        }
+    }
+}
+
+private struct SourceFieldEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    let field: SourceEditField
+    @State private var text: String
+    let onSave: (String) -> Void
+
+    init(field: SourceEditField, initialValue: String, onSave: @escaping (String) -> Void) {
+        self.field = field
+        self._text = State(initialValue: initialValue)
+        self.onSave = onSave
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(field.title)
+                    .font(.headline)
+                    .foregroundStyle(Theme.accent)
+                TextEditor(text: $text)
+                    .font(field.code ? .system(.body, design: .monospaced) : .body)
+                    .scrollContentBackground(.hidden)
+                    .padding(10)
+                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(.separator, lineWidth: 0.7))
+            }
+            .padding(16)
+            .navigationTitle("编辑字段")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") {
+                        onSave(text)
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+private extension View {
+    func editorCard() -> some View {
+        background(Color(red: 0.91, green: 0.96, blue: 1.0), in: RoundedRectangle(cornerRadius: 24))
+            .overlay(RoundedRectangle(cornerRadius: 24).stroke(Color.white.opacity(0.72), lineWidth: 0.8))
     }
 }

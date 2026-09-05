@@ -158,7 +158,9 @@ public extension RuleDataInterface {
         return msg
     }
     public func androidId() -> String { "" }
-    public func deviceID() -> String { JSCommonMethods.deviceIdentifier }
+    public func deviceID() -> String {
+        rule?.presentsDeviceIdentity == true ? JSCommonMethods.deviceIdentifier : ""
+    }
     public func getWebViewUA() -> String { JSCommonMethods.defaultUserAgent }
     public func createSymmetricCrypto(_ transformation: String, _ key: String, _ iv: String) -> SymmetricCryptoJSBridge? {
         SymmetricCryptoJSBridge(transformation: transformation, key: key, iv: iv)
@@ -293,6 +295,8 @@ public final class AnalyzeRule {
     public var chapterUrl: String?
     /// JS 里 source.getKey() 返回的书源地址
     public var sourceKey: String?
+    /// 每个书源可控制是否向 JS 暴露系统 identifierForVendor
+    public var presentsDeviceIdentity: Bool = true
 
     // MARK: - 内部状态
 

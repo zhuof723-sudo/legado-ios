@@ -92,6 +92,7 @@ public final class BookSourceRuntime {
         au.sourceContext = sourceContext
         au.bookUrl = bookUrl
         au.sourceKey = source.bookSourceUrl
+        au.presentsDeviceIdentity = source.presentsAndroidIdentity
         au.enabledCookieJar = source.enabledCookieJar ?? true
         au.ajaxEvaluator = { [weak self] url in self?.blockingAjax(url) }
         au.ajaxEvaluatorWithOptions = { [weak self] url, opts in self?.blockingAjaxWithOptions(url, opts) }
@@ -112,6 +113,7 @@ public final class BookSourceRuntime {
         rule.jsLib = source.jsLib
         rule.sourceContext = sourceContext
         rule.sourceKey = source.bookSourceUrl
+        rule.presentsDeviceIdentity = source.presentsAndroidIdentity
         rule.ajaxEvaluator = { [weak self] url in self?.blockingAjax(url) }
         rule.ajaxEvaluatorWithOptions = { [weak self] url, opts in self?.blockingAjaxWithOptions(url, opts) }
         rule.ajaxAllEvaluator = { [weak self] urls in self?.blockingAjaxAll(urls) ?? [] }

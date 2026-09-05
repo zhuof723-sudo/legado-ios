@@ -211,6 +211,8 @@ public struct BookSource: Codable, Equatable {
     public var enabledExplore: Bool = true
     public var jsLib: String?
     public var enabledCookieJar: Bool? = true
+    /// 是否允许书源读取 iOS 系统提供的 identifierForVendor（绝不伪造设备码）
+    public var presentsAndroidIdentity: Bool = true
     /// 并发率，形如 "1/1000"（1000ms内最多1个请求）
     public var concurrentRate: String?
     /// 请求头，JSON对象字符串，如 {"User-Agent":"..."}
@@ -246,7 +248,7 @@ public struct BookSource: Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case bookSourceUrl, bookSourceName, bookSourceGroup, bookSourceType
         case bookUrlPattern, customOrder, enabled, enabledExplore, jsLib
-        case enabledCookieJar, concurrentRate, header, loginUrl, loginUi
+        case enabledCookieJar, presentsAndroidIdentity, concurrentRate, header, loginUrl, loginUi
         case loginCheckJs, coverDecodeJs, bookSourceComment, variableComment
         case lastUpdateTime, respondTime, weight, exploreUrl, exploreScreen
         case searchUrl, eventListener, customButton
@@ -268,6 +270,7 @@ public struct BookSource: Codable, Equatable {
         enabledExplore = Self.decode(c, .enabledExplore, true)
         jsLib = Self.decodeOpt(c, .jsLib)
         enabledCookieJar = Self.decodeOpt(c, .enabledCookieJar)
+        presentsAndroidIdentity = Self.decode(c, .presentsAndroidIdentity, true)
         concurrentRate = Self.decodeOpt(c, .concurrentRate)
         header = Self.decodeHeader(c, .header)
         loginUrl = Self.decodeOpt(c, .loginUrl)

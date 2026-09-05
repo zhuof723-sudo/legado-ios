@@ -61,6 +61,8 @@ public final class AnalyzeUrl {
     public var bookUrl: String?
     /// JS 里 source.getKey() 返回的书源地址
     public var sourceKey: String?
+    /// 每个书源可控制是否向 JS 暴露系统 identifierForVendor
+    public var presentsDeviceIdentity: Bool = true
     public var chapterVariableGet: ((String) -> String)?
     public var chapterVariablePut: ((String, String) -> Void)?
 
@@ -850,7 +852,9 @@ struct UrlOption {
         print("[longToast] \(msg)"); owner?.toastHandler?(msg); return msg
     }
     func androidId() -> String { "" }
-    func deviceID() -> String { JSCommonMethods.deviceIdentifier }
+    func deviceID() -> String {
+        owner?.presentsDeviceIdentity == true ? JSCommonMethods.deviceIdentifier : ""
+    }
     func getWebViewUA() -> String { JSCommonMethods.defaultUserAgent }
     func createSymmetricCrypto(_ transformation: String, _ key: String, _ iv: String) -> SymmetricCryptoJSBridge? {
         SymmetricCryptoJSBridge(transformation: transformation, key: key, iv: iv)
