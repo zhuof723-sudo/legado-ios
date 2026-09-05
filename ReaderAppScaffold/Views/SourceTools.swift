@@ -3,62 +3,6 @@ import SwiftData
 import LegadoRuleEngine
 import UniformTypeIdentifiers
 
-// MARK: - 编辑配置
-
-struct SourceEditView: View {
-    let record: BookSourceRecord
-    @Environment(\.modelContext) private var context
-    @Environment(\.dismiss) private var dismiss
-    @State private var text: String
-    @State private var message: String?
-
-    init(record: BookSourceRecord) {
-        self.record = record
-        self._text = State(initialValue: record.rawJSON)
-    }
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 8) {
-                TextEditor(text: $text)
-                    .font(.system(.footnote, design: .monospaced))
-                    .autocorrectionDisabled()
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(.separator))
-                    .padding(.horizontal, 12)
-                    .padding(.top, 8)
-                if let message {
-                    Text(message).font(.footnote).foregroundStyle(.red).padding(.horizontal, 16)
-                }
-            }
-            .navigationTitle("编辑配置")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") { save() }
-                }
-            }
-        }
-    }
-
-    private func save() {
-        let parsed = try? BookSourceImporter.parse(text)
-        guard let s = parsed?.first, !s.bookSourceUrl.isEmpty else {
-            message = "JSON 解析失败或缺少 bookSourceUrl 字段"
-            return
-        }
-        record.rawJSON = text
-        record.bookSourceName = s.bookSourceName
-        record.bookSourceGroup = s.bookSourceGroup
-        record.bookSourceUrl = s.bookSourceUrl
-        record.enabled = s.enabled
-        try? context.save()
-        dismiss()
-    }
-}
-
 // MARK: - 登录
 
 /// 保留旧类型名给现有导航兼容，统一复用动态登录面板和 App 内浏览器。

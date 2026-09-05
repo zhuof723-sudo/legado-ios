@@ -341,6 +341,14 @@ final class LegadoRuleEngineTests: XCTestCase {
         XCTAssertEqual(sources[1].bookSourceType, .audio)
     }
 
+    func testTocWordCountRuleRoundTrip() throws {
+        let json = #"{"bookSourceUrl":"https://example.com","bookSourceName":"A","ruleToc":{"chapterName":"title","wordCount":"wc"}}"#
+        let source = try BookSourceImporter.parse(json)[0]
+        XCTAssertEqual(source.ruleToc?.wordCount, "wc")
+        let encoded = try BookSourceImporter.encode(source)
+        XCTAssertEqual(try BookSourceImporter.parse(encoded)[0].ruleToc?.wordCount, "wc")
+    }
+
     // MARK: - SourceRateLimiter
 
     func testRateLimiterThrottlesWithinWindow() async {

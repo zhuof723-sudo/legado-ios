@@ -114,6 +114,7 @@ public struct TocRule: Codable, Equatable {
     public var chapterName: String?
     public var chapterUrl: String?
     public var formatJs: String?
+    public var wordCount: String?
     public var isVolume: String?
     public var isVip: String?
     public var isPay: String?
@@ -122,13 +123,14 @@ public struct TocRule: Codable, Equatable {
 
     public init(
         preUpdateJs: String? = nil, chapterList: String? = nil, chapterName: String? = nil,
-        chapterUrl: String? = nil, formatJs: String? = nil, isVolume: String? = nil,
+        chapterUrl: String? = nil, formatJs: String? = nil, wordCount: String? = nil,
+        isVolume: String? = nil,
         isVip: String? = nil, isPay: String? = nil, updateTime: String? = nil,
         nextTocUrl: String? = nil
     ) {
         self.preUpdateJs = preUpdateJs; self.chapterList = chapterList; self.chapterName = chapterName
-        self.chapterUrl = chapterUrl; self.formatJs = formatJs; self.isVolume = isVolume
-        self.isVip = isVip; self.isPay = isPay; self.updateTime = updateTime
+        self.chapterUrl = chapterUrl; self.formatJs = formatJs; self.wordCount = wordCount
+        self.isVolume = isVolume; self.isVip = isVip; self.isPay = isPay; self.updateTime = updateTime
         self.nextTocUrl = nextTocUrl
     }
 }
