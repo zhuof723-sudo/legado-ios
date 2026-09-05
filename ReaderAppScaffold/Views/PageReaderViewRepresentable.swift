@@ -65,6 +65,7 @@ protocol PageReaderContainer: AnyObject {
     var currentIndex: Int { get set }
     var onPageChanged: ((Int) -> Void)? { get set }
     func goToPage(_ index: Int, animated: Bool)
+    func updatePages(_ newPages: [String], keepIndex: Int)
 }
 
 // MARK: - UIPageViewController 基类（滑动/仿真/覆盖/无动画）
