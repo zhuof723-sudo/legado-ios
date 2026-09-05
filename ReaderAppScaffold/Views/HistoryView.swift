@@ -82,7 +82,7 @@ struct HistoryView: View {
             Image(systemName: "ellipsis")
                 .font(.system(size: 17, weight: .semibold))
                 .frame(width: 34, height: 34)
-                .background(Circle().fill(Color.white))
+                .glassCircle()
         }
         .padding(.top, 6)
     }
@@ -94,7 +94,7 @@ struct HistoryView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
-        .background(Capsule().fill(Color.white))
+        .glassCard(Capsule(), interactive: true)
         .overlay(Capsule().stroke(Theme.hairline, lineWidth: 0.5))
     }
 
@@ -169,7 +169,7 @@ struct HistoryView: View {
         guard let record = allSources.first(where: { $0.bookSourceUrl == book.sourceUrl }),
               let source = record.decodeSource() else { return }
         openBook = book
-        let vm = ReaderViewModel(source: source)
+        let vm = ReaderViewModel(source: source, persistentBookURL: book.bookUrl)
         readerVM = vm
         Task {
             await vm.loadToc(bookUrl: book.bookUrl)

@@ -147,7 +147,7 @@ struct InAppBrowserView: View {
                     .font(.system(size: 18, weight: .medium))
                     .padding(.horizontal, 24)
                     .frame(height: 48)
-                    .background(.regularMaterial)
+                    .glassCard(RoundedRectangle(cornerRadius: 14), interactive: true)
                 }
         }
     }

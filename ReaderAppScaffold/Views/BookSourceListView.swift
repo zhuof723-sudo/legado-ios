@@ -257,7 +257,7 @@ struct BookSourceListView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(.regularMaterial)
+        .glassCard(RoundedRectangle(cornerRadius: 16))
         .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 0.5) }
     }
 

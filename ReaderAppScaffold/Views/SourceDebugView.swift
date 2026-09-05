@@ -263,7 +263,7 @@ struct SourceDebugView: View {
                     .textFieldStyle(.plain)
                     .padding(.horizontal, 14)
                     .frame(height: 50)
-                    .background(Color.white.opacity(0.45), in: RoundedRectangle(cornerRadius: 14))
+                    .glassCard(RoundedRectangle(cornerRadius: 14), interactive: true)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
                     .onSubmit { Task { await run() } }
@@ -271,7 +271,7 @@ struct SourceDebugView: View {
                     .font(.headline)
                     .foregroundStyle(.blue)
                     .frame(width: 88, height: 50)
-                    .background(Color.blue.opacity(0.14), in: RoundedRectangle(cornerRadius: 14))
+                    .glassCard(RoundedRectangle(cornerRadius: 14), interactive: true)
                     .disabled(running)
             }
 

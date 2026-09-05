@@ -96,7 +96,6 @@ struct LocalReaderView: View {
             }
         }
         .statusBarHidden(!showControls)
-        .readerActive()
         .toolbar(.hidden, for: .tabBar)
         .sheet(isPresented: $showSettings) {
             ReaderSettingsPanel().presentationDetents([.medium, .large])
@@ -162,7 +161,7 @@ struct LocalReaderView: View {
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.primary)
                     .frame(width: 36, height: 36)
-                    .background(Circle().fill(Color.white.opacity(0.7)))
+                    .glassCircle()
             }
             Text(viewModel.currentTitle ?? bookName)
                 .font(.subheadline.bold())

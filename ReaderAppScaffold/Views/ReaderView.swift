@@ -32,7 +32,6 @@ struct ReaderView: View {
     @State private var showSettings = false
     @State private var showToc = false
     @State private var showChapterSearch = false
-    @State private var pageSizeState: CGSize = .zero
 
     private let hPadding: CGFloat = 20
     private let tPadding: CGFloat = 56
@@ -85,9 +84,7 @@ struct ReaderView: View {
                 chrome
                     .zIndex(20)
             }
-            .onAppear { pageSizeState = pageSize }
             .task(id: paginationKey) {
-                pageSizeState = pageSize
                 await repaginate(content: viewModel.currentContent, pageSize: pageSize, key: paginationKey)
             }
             .task(id: autoRead) {
@@ -101,7 +98,6 @@ struct ReaderView: View {
         }
         .statusBarHidden(false)
         .preferredColorScheme(nightMode ? .dark : .light)
-        .readerActive()
         .toolbar(.hidden, for: .tabBar)
         .onAppear {
             if !immersiveDarkInitialized {
@@ -222,7 +218,8 @@ struct ReaderView: View {
                     .font(.system(size: 25, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 52, height: 52)
-                    .background(Color.black.opacity(0.42), in: Circle())
+                    .background(Color.black.opacity(0.32), in: Circle())
+                    .glassCard(Circle(), interactive: true)
                     .overlay(Circle().stroke(Color.white.opacity(0.12), lineWidth: 0.8))
             }
             Spacer(minLength: 0)
@@ -237,7 +234,8 @@ struct ReaderView: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 20)
             .frame(height: 52)
-            .background(Color.black.opacity(0.46), in: Capsule())
+            .background(Color.black.opacity(0.32), in: Capsule())
+            .glassCard(Capsule(), interactive: true)
             .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.8))
             Spacer(minLength: 0)
             SmartCover(url: coverURL, title: bookName)
@@ -293,8 +291,9 @@ struct ReaderView: View {
         .foregroundStyle(.white)
         .padding(.horizontal, 20)
         .padding(.vertical, 18)
-        .background(Color.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 26))
-        .overlay(RoundedRectangle(cornerRadius: 26).stroke(Color.white.opacity(0.12), lineWidth: 0.8))
+        .background(Color.black.opacity(0.48), in: RoundedRectangle(cornerRadius: 22))
+        .glassCard(RoundedRectangle(cornerRadius: 22), interactive: true)
+        .overlay(RoundedRectangle(cornerRadius: 22).stroke(Color.white.opacity(0.12), lineWidth: 0.8))
         .shadow(color: .black.opacity(0.34), radius: 22, y: 9)
         .environment(\.colorScheme, .dark)
     }

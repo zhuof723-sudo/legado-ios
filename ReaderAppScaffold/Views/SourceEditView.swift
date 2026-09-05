@@ -268,314 +268,6 @@ private final class SourceEditorDraft {
 }
 
 @MainActor
-private struct LegacySourceEditView: View {
-    let record: BookSourceRecord
-    @Environment(\.modelContext) private var context
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var draft: SourceEditorDraft
-    @State private var selectedTab: SourceEditTab = .basic
-    @State private var showDebug = false
-    @State private var showRawJSON = false
-    @State private var rawJSONText = ""
-    @State private var notice: String?
-    @State private var errorMessage: String?
-
-    init(record: BookSourceRecord) {
-        self.record = record
-        self._draft = State(initialValue: SourceEditorDraft(rawJSON: record.rawJSON))
-    }
-
-    var body: some View {
-        ZStack(alignment: .bottom) {
-            Color(.systemGroupedBackground).ignoresSafeArea()
-            VStack(spacing: 0) {
-                editHeader
-                typeAndFlags
-                tabBar
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(SourceEditSchema.fields(for: selectedTab)) { field in
-                            editField(field)
-                        }
-                        if let errorMessage {
-                            Text(errorMessage)
-                                .font(.footnote)
-                                .foregroundStyle(.red)
-                                .padding(16)
-                        }
-                    }
-                    .padding(.bottom, 60)
-                }
-                .scrollDismissesKeyboard(.interactively)
-            }
-
-            if let notice {
-                Text(notice)
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(Color.black.opacity(0.78), in: Capsule())
-                    .padding(.bottom, 24)
-                    .transition(.opacity)
-            }
-        }
-        .animation(.easeInOut(duration: 0.18), value: notice)
-        .toolbar(.hidden, for: .navigationBar)
-        .sheet(isPresented: $showDebug) { SourceDebugView(record: record) }
-        .sheet(isPresented: $showRawJSON) {
-            RawSourceJSONEditor(text: $rawJSONText) {
-                applyRawJSON()
-            }
-        }
-    }
-
-    private var editHeader: some View {
-        HStack(spacing: 14) {
-            Button { dismiss() } label: {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 24, weight: .medium))
-                    .foregroundStyle(.primary)
-                    .frame(width: 54, height: 54)
-                    .background(Color.white, in: Circle())
-            }
-            Spacer()
-            Text("编辑书源")
-                .font(.title2.bold())
-            Spacer()
-            Button { save(showDebugAfter: true) } label: {
-                Image(systemName: "ladybug")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .frame(width: 54, height: 54)
-                    .background(Color.white, in: Circle())
-            }
-            Menu {
-                Button("保存配置", systemImage: "checkmark.circle") { save() }
-                Button("查看原始 JSON", systemImage: "curlybraces") {
-                    rawJSONText = draft.rawPreview()
-                    showRawJSON = true
-                }
-                Button("复制 JSON", systemImage: "doc.on.doc") {
-                    UIPasteboard.general.string = draft.rawPreview()
-                    showNotice("已复制书源 JSON")
-                }
-                Button("恢复已保存内容", systemImage: "arrow.counterclockwise") {
-                    draft = SourceEditorDraft(rawJSON: record.rawJSON)
-                    showNotice("已恢复")
-                }
-            } label: {
-                Image(systemName: "ellipsis.vertical")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(.primary)
-                    .frame(width: 54, height: 54)
-                    .background(Color.white, in: Circle())
-            }
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
-        .background(Color(.secondarySystemGroupedBackground))
-    }
-
-    private var typeAndFlags: some View {
-        VStack(spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 16) {
-                    Text("类型：").font(.headline)
-                    Menu {
-                        Picker("类型", selection: $draft.sourceType) {
-                            Text("小说").tag(0)
-                            Text("音频").tag(1)
-                            Text("图片").tag(2)
-                            Text("文件").tag(3)
-                            Text("视频").tag(4)
-                        }
-                    } label: {
-                        HStack(spacing: 7) {
-                            Text(typeName)
-                            Image(systemName: "chevron.down")
-                        }
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                        .padding(.horizontal, 16)
-                        .frame(height: 48)
-                        .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 9))
-                    }
-                    checkbox("启用", isOn: $draft.enabled)
-                    checkbox("发现", isOn: $draft.enabledExplore)
-                    checkbox("CookieJar", isOn: $draft.enabledCookieJar)
-                }
-                .padding(.horizontal, 20)
-            }
-            .frame(minHeight: 70)
-
-            Divider()
-            HStack(spacing: 28) {
-                checkbox("事件监听", isOn: $draft.eventListener)
-                checkbox("定制按钮", isOn: $draft.customButton)
-                Spacer()
-            }
-            .padding(.horizontal, 28)
-            .frame(minHeight: 66)
-        }
-        .background(Color(.systemBackground))
-    }
-
-    private var tabBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 30) {
-                ForEach(SourceEditTab.allCases) { tab in
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.18)) { selectedTab = tab }
-                    } label: {
-                        VStack(spacing: 8) {
-                            Text(tab.rawValue)
-                                .font(.headline)
-                                .foregroundStyle(selectedTab == tab ? Theme.accent : .primary)
-                            Capsule()
-                                .fill(selectedTab == tab ? Theme.accent : Color.clear)
-                                .frame(height: 4)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 22)
-        }
-        .frame(height: 60)
-        .background(Color(.systemBackground))
-        .overlay(alignment: .bottom) { Divider() }
-    }
-
-    private func checkbox(_ title: String, isOn: Binding<Bool>) -> some View {
-        Button { isOn.wrappedValue.toggle() } label: {
-            HStack(spacing: 7) {
-                Image(systemName: isOn.wrappedValue ? "checkmark.square.fill" : "square")
-                    .font(.title3)
-                    .foregroundStyle(isOn.wrappedValue ? Theme.accent : .secondary)
-                Text(title).font(.headline).foregroundStyle(.primary)
-            }
-        }
-        .buttonStyle(.plain)
-    }
-
-    @ViewBuilder
-    private func editField(_ field: SourceEditField) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("\(field.title) (\(field.key))")
-                .font(.headline)
-                .foregroundStyle(Theme.accent)
-
-            if field.minHeight > 80 {
-                ZStack(alignment: .topLeading) {
-                    TextEditor(text: binding(for: field.path))
-                        .font(field.code ? .system(.body, design: .monospaced) : .body)
-                        .scrollContentBackground(.hidden)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                    if draft.value(field.path).isEmpty {
-                        Text(field.placeholder)
-                            .font(.body)
-                            .foregroundStyle(.tertiary)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 17)
-                            .allowsHitTesting(false)
-                    }
-                }
-                .frame(minHeight: field.minHeight)
-                .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.black.opacity(0.10), lineWidth: 0.7))
-            } else {
-                TextField(field.placeholder, text: binding(for: field.path), axis: .vertical)
-                    .font(field.code ? .system(.body, design: .monospaced) : .body)
-                    .lineLimit(1...5)
-                    .padding(.horizontal, 16)
-                    .frame(minHeight: field.minHeight)
-                    .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 10))
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.black.opacity(0.10), lineWidth: 0.7))
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-            }
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 20)
-        .overlay(alignment: .bottom) { Divider() }
-    }
-
-    private func binding(for path: String) -> Binding<String> {
-        Binding(
-            get: { draft.value(path) },
-            set: { draft.setValue($0, path: path) }
-        )
-    }
-
-    private var typeName: String {
-        switch draft.sourceType {
-        case 1: return "音频"
-        case 2: return "图片"
-        case 3: return "文件"
-        case 4: return "视频"
-        default: return "小说"
-        }
-    }
-
-    private func save(showDebugAfter: Bool = false) {
-        do {
-            let json = try draft.encodedJSON()
-            guard let source = try BookSourceImporter.parse(json).first,
-                  !source.bookSourceUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  !source.bookSourceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw NSError(domain: "SourceEditor", code: 2,
-                              userInfo: [NSLocalizedDescriptionKey: "源 URL 和源名称不能为空"])
-            }
-            let oldJSON = record.rawJSON
-            let oldURL = record.bookSourceUrl
-            let oldName = record.bookSourceName
-            let oldGroup = record.bookSourceGroup
-            let oldEnabled = record.enabled
-            record.rawJSON = json
-            record.bookSourceUrl = source.bookSourceUrl
-            record.bookSourceName = source.bookSourceName
-            record.bookSourceGroup = source.bookSourceGroup
-            record.enabled = source.enabled
-            do {
-                try context.save()
-                errorMessage = nil
-                showNotice("书源已保存")
-                if showDebugAfter { showDebug = true }
-            } catch {
-                record.rawJSON = oldJSON
-                record.bookSourceUrl = oldURL
-                record.bookSourceName = oldName
-                record.bookSourceGroup = oldGroup
-                record.enabled = oldEnabled
-                throw error
-            }
-        } catch {
-            errorMessage = "保存失败：\(error.localizedDescription)"
-        }
-    }
-
-    private func applyRawJSON() {
-        guard (try? BookSourceImporter.parse(rawJSONText).first) != nil else {
-            errorMessage = "原始 JSON 无法解析"
-            return
-        }
-        draft = SourceEditorDraft(rawJSON: rawJSONText)
-        showRawJSON = false
-        errorMessage = nil
-        showNotice("已应用原始 JSON")
-    }
-
-    private func showNotice(_ text: String) {
-        notice = text
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            if notice == text { notice = nil }
-        }
-    }
-}
-
 private struct RawSourceJSONEditor: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var text: String
@@ -588,6 +280,7 @@ private struct RawSourceJSONEditor: View {
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
                 .padding(12)
+                .background(Theme.bg.ignoresSafeArea())
                 .navigationTitle("原始 JSON")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -624,7 +317,7 @@ struct SourceEditView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            Color(red: 0.82, green: 0.88, blue: 0.98).ignoresSafeArea()
+            Theme.bg.ignoresSafeArea()
             VStack(spacing: 0) {
                 header
                 tabPicker
@@ -688,10 +381,10 @@ struct SourceEditView: View {
             Button { dismiss() } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 22, weight: .medium))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(Theme.accent)
                     .frame(width: 58, height: 58)
-                    .background(Color.white.opacity(0.86), in: Circle())
             }
+            .glassCircle()
             .accessibilityLabel("关闭")
 
             Spacer(minLength: 4)
@@ -707,7 +400,7 @@ struct SourceEditView: View {
                 } label: {
                     Image(systemName: "checkmark")
                         .font(.system(size: 25, weight: .medium))
-                        .foregroundStyle(canSave ? .blue : .secondary)
+                        .foregroundStyle(canSave ? Theme.accent : Color.secondary)
                         .frame(width: 58, height: 58)
                 }
                 .disabled(!canSave)
@@ -732,16 +425,16 @@ struct SourceEditView: View {
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 22, weight: .bold))
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(Theme.accent)
                         .frame(width: 54, height: 58)
                 }
             }
-            .background(Color.white.opacity(0.86), in: Capsule())
+            .glassCard(Capsule(), interactive: true)
         }
         .padding(.horizontal, 18)
         .padding(.top, 12)
         .padding(.bottom, 14)
-        .background(Color.white.opacity(0.30))
+        .background(.ultraThinMaterial)
     }
 
     private var tabPicker: some View {
@@ -756,7 +449,7 @@ struct SourceEditView: View {
                         .frame(maxWidth: .infinity, minHeight: 48)
                         .background(
                             selectedTab == tab
-                                ? Color.white.opacity(0.95)
+                                ? Theme.cardBg.opacity(0.78)
                                 : Color.clear,
                             in: Capsule()
                         )
@@ -765,7 +458,7 @@ struct SourceEditView: View {
             }
         }
         .padding(4)
-        .background(Color.black.opacity(0.06), in: Capsule())
+        .glassCard(Capsule(), interactive: true)
         .padding(.horizontal, 16)
         .padding(.bottom, 12)
     }
@@ -781,20 +474,20 @@ struct SourceEditView: View {
                     }
                 } label: {
                     HStack(spacing: 5) {
-                        Text(typeName).foregroundStyle(.blue)
+                        Text(typeName).foregroundStyle(Theme.accent)
                         Image(systemName: "chevron.up.chevron.down")
                             .font(.caption)
                     }
                 }
             }
             settingRow("启用", subtitle: "允许此书源参与搜索和阅读") {
-                Toggle("", isOn: $draft.enabled).labelsHidden().tint(.blue)
+                Toggle("", isOn: $draft.enabled).labelsHidden().tint(Theme.accent)
             }
             settingRow("发现", subtitle: "在浏览页显示该书源的发现内容") {
-                Toggle("", isOn: $draft.enabledExplore).labelsHidden().tint(.blue)
+                Toggle("", isOn: $draft.enabledExplore).labelsHidden().tint(Theme.accent)
             }
             settingRow("提供设备标识码", subtitle: "默认开启，书源需要设备码时才会拿到。只有在某个书源不能被当成 Android 时才关闭。") {
-                Toggle("", isOn: $draft.presentsAndroidIdentity).labelsHidden().tint(.blue)
+                Toggle("", isOn: $draft.presentsAndroidIdentity).labelsHidden().tint(Theme.accent)
             }
         }
         .editorCard()
@@ -803,13 +496,13 @@ struct SourceEditView: View {
     private var advancedSettingsCard: some View {
         VStack(spacing: 0) {
             settingRow("CookieJar", subtitle: "保存网站 Cookie") {
-                Toggle("", isOn: $draft.enabledCookieJar).labelsHidden().tint(.blue)
+                Toggle("", isOn: $draft.enabledCookieJar).labelsHidden().tint(Theme.accent)
             }
             settingRow("事件监听", subtitle: "启用书源事件回调") {
-                Toggle("", isOn: $draft.eventListener).labelsHidden().tint(.blue)
+                Toggle("", isOn: $draft.eventListener).labelsHidden().tint(Theme.accent)
             }
             settingRow("定制按钮", subtitle: "启用书源自定义按钮") {
-                Toggle("", isOn: $draft.customButton).labelsHidden().tint(.blue)
+                Toggle("", isOn: $draft.customButton).labelsHidden().tint(Theme.accent)
             }
         }
         .editorCard()
@@ -1054,10 +747,10 @@ private struct SourceFieldEditor: View {
                     .font(field.code ? .system(.body, design: .monospaced) : .body)
                     .scrollContentBackground(.hidden)
                     .padding(10)
-                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(.separator, lineWidth: 0.7))
+                    .glassCard(RoundedRectangle(cornerRadius: 12), interactive: true)
             }
             .padding(16)
+            .background(Theme.bg.ignoresSafeArea())
             .navigationTitle("编辑字段")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1077,7 +770,6 @@ private struct SourceFieldEditor: View {
 
 private extension View {
     func editorCard() -> some View {
-        background(Color(red: 0.91, green: 0.96, blue: 1.0), in: RoundedRectangle(cornerRadius: 24))
-            .overlay(RoundedRectangle(cornerRadius: 24).stroke(Color.white.opacity(0.72), lineWidth: 0.8))
+        glassCard(RoundedRectangle(cornerRadius: 18), interactive: true)
     }
 }

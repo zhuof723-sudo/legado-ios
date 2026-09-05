@@ -63,7 +63,6 @@ public final class BookSourceRuntime {
     public var sourceContext: SourceJSContext?
     public var toastHandler: ((_ msg: String) -> Void)?
     public var browserOpener: ((_ url: String, _ title: String?) -> Void)?
-    public var browserOpenerAdvanced: ((_ url: String, _ title: String?, _ injectJs: String?, _ optsJson: String?) -> Void)?
     public var refreshExploreHandler: (() -> Void)?
     public var searchBookHandler: ((_ keyword: String, _ sourceFilter: String?) -> Void)?
     /// 书源级 KV（cache.put / cache.get / java.put / java.get 的数据后端）

@@ -13,9 +13,20 @@ public final class ReaderViewModel {
 
     private let runtime: BookSourceRuntime
     private var contentCache: [Int: String] = [:]
+    private var persistentBookURL: String?
 
-    public init(source: BookSource) {
+    public init(source: BookSource, persistentBookURL: String? = nil) {
         self.runtime = BookSourceRuntime(source)
+        self.persistentBookURL = persistentBookURL
+    }
+
+    public func enablePersistentCache(bookURL: String) {
+        persistentBookURL = bookURL
+        guard !currentContent.isEmpty,
+              currentIndex >= 0, currentIndex < chapters.count else { return }
+        let chapterURL = chapters[currentIndex].url
+        let text = currentContent
+        Task { await ChapterContentCache.shared.save(text, bookURL: bookURL, chapterURL: chapterURL) }
     }
 
     public var currentChapterTitle: String? {
@@ -75,6 +86,14 @@ public final class ReaderViewModel {
             prefetchNext()
             return
         }
+        let chapterURL = chapters[currentIndex].url
+        if let bookURL = persistentBookURL,
+           let cached = await ChapterContentCache.shared.load(bookURL: bookURL, chapterURL: chapterURL) {
+            contentCache[currentIndex] = cached
+            currentContent = cached
+            prefetchNext()
+            return
+        }
         isLoadingContent = true
         errorMessage = nil
         defer { isLoadingContent = false }
@@ -86,6 +105,9 @@ public final class ReaderViewModel {
             }
             contentCache[currentIndex] = text
             currentContent = text
+            if let bookURL = persistentBookURL {
+                await ChapterContentCache.shared.save(text, bookURL: bookURL, chapterURL: chapters[currentIndex].url)
+            }
             prefetchNext()
         } catch {
             engineLog("获取正文失败: \(error.localizedDescription)", tag: "reader", level: .error)
@@ -100,6 +122,9 @@ public final class ReaderViewModel {
         Task {
             if let text = try? await runtime.getContent(chapterUrl: chapters[next].url) {
                 contentCache[next] = text
+                if let bookURL = persistentBookURL {
+                    await ChapterContentCache.shared.save(text, bookURL: bookURL, chapterURL: chapters[next].url)
+                }
             }
         }
     }

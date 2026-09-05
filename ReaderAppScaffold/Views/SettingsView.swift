@@ -28,6 +28,7 @@ struct SettingsView: View {
                         navRow("主题模式", icon: "circle.lefthalf.filled", destination: AppearancePage())
                         navRow("隐私设置", icon: "hand.raised", destination: PrivacyStubPage())
                         navRow("通知设置", icon: "bell", destination: NotificationStubPage())
+                        navRow("清除缓存", icon: "trash", destination: ClearCacheView())
                     }
 
                     Text("关于").font(.footnote.bold()).foregroundStyle(.secondary)

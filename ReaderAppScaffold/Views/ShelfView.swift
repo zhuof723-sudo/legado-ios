@@ -97,7 +97,7 @@ struct ShelfView: View {
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.primary)
                     .frame(width: 34, height: 34)
-                    .background(Circle().fill(Color.white))
+                    .glassCircle()
             }
         }
         .padding(.top, 6)
@@ -114,7 +114,7 @@ struct ShelfView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
-        .background(Capsule().fill(Color.white))
+        .glassCard(Capsule(), interactive: true)
         .overlay(Capsule().stroke(Theme.hairline, lineWidth: 0.5))
     }
 
@@ -125,7 +125,7 @@ struct ShelfView: View {
                 .font(.system(size: 52, weight: .light))
                 .foregroundStyle(Theme.accent.opacity(0.85))
                 .frame(width: 110, height: 110)
-                .background(RoundedRectangle(cornerRadius: 28).fill(Color.white))
+                .glassCard(RoundedRectangle(cornerRadius: 28))
             Text("书架为空").font(.title3.bold())
             Text("从浏览页找书，或先导入一个书源").font(.footnote).foregroundStyle(.secondary)
             HStack(spacing: 12) {
@@ -269,7 +269,7 @@ struct ShelfView: View {
         guard let record = allSources.first(where: { $0.bookSourceUrl == book.sourceUrl }),
               let source = record.decodeSource() else { return }
         openBook = book
-        let vm = ReaderViewModel(source: source)
+        let vm = ReaderViewModel(source: source, persistentBookURL: book.bookUrl)
         readerVM = vm
         Task {
             await vm.loadToc(bookUrl: book.bookUrl)

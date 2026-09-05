@@ -59,7 +59,7 @@ struct TocSheet: View {
                 TextField("搜索章节", text: $tocSearch)
             }
             .padding(.horizontal, 14).padding(.vertical, 10)
-            .background(Capsule().fill(Color.white))
+            .glassCard(Capsule(), interactive: true)
             .overlay(Capsule().stroke(Theme.hairline, lineWidth: 0.5))
             .padding(.horizontal, 16)
             .padding(.vertical, 8)

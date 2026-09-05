@@ -3,17 +3,6 @@ import SwiftData
 import LegadoRuleEngine
 import UniformTypeIdentifiers
 
-// MARK: - 登录
-
-/// 保留旧类型名给现有导航兼容，统一复用动态登录面板和 App 内浏览器。
-struct SourceLoginView: View {
-    let record: BookSourceRecord
-
-    var body: some View {
-        SourceLoginPanel(record: record)
-    }
-}
-
 // MARK: - 从网络导入
 
 struct UrlImportView: View {

@@ -86,7 +86,7 @@ struct SourceLoginPanel: View {
 
     var body: some View {
         ZStack {
-            Color(.systemGroupedBackground).ignoresSafeArea()
+            Theme.bg.ignoresSafeArea()
             Rectangle()
                 .fill(.ultraThinMaterial)
                 .ignoresSafeArea()
@@ -125,7 +125,7 @@ struct SourceLoginPanel: View {
                                 .foregroundStyle(.green)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(14)
-                                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
+                                .glassCard(RoundedRectangle(cornerRadius: 16), interactive: true)
                         }
 
                         if let message {
@@ -202,7 +202,7 @@ struct SourceLoginPanel: View {
                 .foregroundStyle(.primary)
                 .padding(.horizontal, 18)
                 .frame(height: 52)
-                .background(.thinMaterial, in: Capsule())
+                .glassCard(Capsule(), interactive: true)
 
             Text("登录 - \(record.bookSourceName)")
                 .font(.title3.bold())
@@ -228,7 +228,7 @@ struct SourceLoginPanel: View {
             }
             .foregroundStyle(.primary)
             .padding(.horizontal, 10)
-            .background(.thinMaterial, in: Capsule())
+            .glassCard(Capsule(), interactive: true)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -252,7 +252,7 @@ struct SourceLoginPanel: View {
         .font(.body)
         .padding(.horizontal, 16)
         .frame(height: 58)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .glassCard(RoundedRectangle(cornerRadius: 16), interactive: true)
     }
 
     private func actionButton(_ item: LoginUIItem) -> some View {
@@ -268,9 +268,9 @@ struct SourceLoginPanel: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
             }
-            .foregroundStyle(Color.blue)
+            .foregroundStyle(Theme.accent)
             .frame(maxWidth: .infinity, minHeight: 58)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20))
+            .glassCard(RoundedRectangle(cornerRadius: 20), interactive: true)
             .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.white.opacity(0.7), lineWidth: 0.7))
         }
         .buttonStyle(.plain)

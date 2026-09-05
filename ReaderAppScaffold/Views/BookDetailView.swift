@@ -69,7 +69,9 @@ struct BookDetailView: View {
             .background(Theme.bg.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
             .onAppear {
-                if readerVM == nil { readerVM = ReaderViewModel(source: source) }
+                if readerVM == nil {
+                    readerVM = ReaderViewModel(source: source, persistentBookURL: shelfBook?.bookUrl)
+                }
             }
             .fullScreenCover(isPresented: $openReader) {
                 if let vm = readerVM {
@@ -92,13 +94,13 @@ struct BookDetailView: View {
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.primary)
                     .frame(width: 36, height: 36)
-                    .background(Circle().fill(Color.white))
+                    .glassCircle()
             }
             Spacer()
             Image(systemName: "ellipsis")
                 .font(.system(size: 17, weight: .semibold))
                 .frame(width: 36, height: 36)
-                .background(Circle().fill(Color.white))
+                .glassCircle()
         }
         .padding(.top, 4)
     }
@@ -245,7 +247,8 @@ struct BookDetailView: View {
     @MainActor
     private func addToShelf() {
         do {
-            _ = try ensureShelfBook()
+            let book = try ensureShelfBook()
+            readerVM?.enablePersistentCache(bookURL: book.bookUrl)
             startError = nil
         } catch {
             startError = "加入书架失败：\(error.localizedDescription)"
@@ -260,8 +263,9 @@ struct BookDetailView: View {
         defer { isStartingReading = false }
 
         let existingBook = shelfBook
-        let vm = readerVM ?? ReaderViewModel(source: source)
+        let vm = readerVM ?? ReaderViewModel(source: source, persistentBookURL: existingBook?.bookUrl)
         readerVM = vm
+        if let existingBook { vm.enablePersistentCache(bookURL: existingBook.bookUrl) }
         CrashReporter.shared.breadcrumb(
             level: "info",
             tag: "book-detail",
