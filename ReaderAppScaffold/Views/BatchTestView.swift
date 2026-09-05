@@ -8,15 +8,14 @@ private enum BatchTestKind: String, CaseIterable, Identifiable {
 }
 
 @MainActor
-@Observable
-private final class BatchTestStage: Identifiable {
+private final class BatchTestStage: ObservableObject, Identifiable {
     enum Kind: String, CaseIterable {
         case search = "搜索"
         case detail = "详情"
         case toc = "目录"
         case content = "正文"
     }
-    enum Status: Equatable {
+    enum StageStatus: Equatable {
         case pending, running, passed, failed, skipped
         var color: Color {
             switch self {
@@ -38,96 +37,99 @@ private final class BatchTestStage: Identifiable {
     }
 
     let kind: Kind
-    var status: Status = .pending
-    var detail = "尚未执行"
+    let id: String
+    @Published var status: StageStatus = .pending
+    @Published var detail = "尚未执行"
     var firstBook: SearchResult?
     var chapters: [ChapterInfo]?
-    var id: String { kind.rawValue }
 
-    init(kind: Kind) { self.kind = kind }
+    init(kind: Kind) {
+        self.kind = kind
+        self.id = kind.rawValue
+    }
 }
 
 @MainActor
-@Observable
-private final class BatchTestRunner {
-    struct SourceResult: Identifiable {
-        let id = UUID()
-        let record: BookSourceRecord
-        let url: String
-        var overall: BatchTestStage.Status = .pending
-        var search = BatchTestStage(kind: .search)
-        var detail = BatchTestStage(kind: .detail)
-        var toc = BatchTestStage(kind: .toc)
-        var content = BatchTestStage(kind: .content)
-        var errorMessage: String?
-        var elapsed: TimeInterval = 0
-        var startedAt: Date?
+private final class BatchTestSourceResult: ObservableObject, Identifiable {
+    let id = UUID()
+    let record: BookSourceRecord
+    let url: String
+    @Published var overall: BatchTestStage.StageStatus = .pending
+    let search = BatchTestStage(kind: .search)
+    let detail = BatchTestStage(kind: .detail)
+    let toc = BatchTestStage(kind: .toc)
+    let content = BatchTestStage(kind: .content)
+    @Published var errorMessage: String?
+    @Published var elapsed: TimeInterval = 0
 
-        var stages: [BatchTestStage] { [search, detail, toc, content] }
-        var passedCount: Int { stages.filter { $0.status == .passed }.count }
-        var failedCount: Int { stages.filter { $0.status == .failed }.count }
+    var stages: [BatchTestStage] { [search, detail, toc, content] }
+    var passedCount: Int { stages.filter { $0.status == .passed }.count }
+    var failedCount: Int { stages.filter { $0.status == .failed }.count }
+
+    init(record: BookSourceRecord, url: String) {
+        self.record = record
+        self.url = url
     }
+}
 
-    var results: [SourceResult] = []
-    var isRunning = false
-    var progress: (done: Int, total: Int) = (0, 0)
+@MainActor
+private final class BatchTestRunner: ObservableObject {
+    @Published var results: [BatchTestSourceResult] = []
+    @Published var isRunning = false
+    @Published var progress: (done: Int, total: Int) = (0, 0)
 
     func run(records: [BookSourceRecord], keyword: String) async {
         isRunning = true
         progress = (0, records.count)
-        results = records.map { SourceResult(record: $0, url: $0.bookSourceUrl) }
+        results = records.map { BatchTestSourceResult(record: $0, url: $0.bookSourceUrl) }
         let raw = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        let startedAt = Date()
 
-        for index in results.indices {
-            var result = results[index]
-            result.startedAt = Date()
+        for index in 0..<results.count {
+            let result = results[index]
             guard let source = result.record.decodeSource() else {
                 result.overall = .failed
                 result.errorMessage = "书源解析失败"
-                skipPendingStages(in: result, reason: "书源解析失败")
-                results[index] = result
+                skipPending(in: result, reason: "书源解析失败")
+                result.elapsed = Date().timeIntervalSince(startedAt)
                 progress = (index + 1, records.count)
                 continue
             }
             let runtime = BookSourceRuntime(source)
             var didFail = false
 
-            // 搜索
-            do {
-                try await runSearch(&result, runtime: runtime, source: source,
-                                    keyword: raw.isEmpty ? suggestedKeyword(source) : raw)
-            } catch {
-                result.search.status = .failed
-                result.search.detail = error.localizedDescription
-                didFail = true
+            if !didFail {
+                do {
+                    try await runSearch(result, runtime: runtime, source: source,
+                                        keyword: raw.isEmpty ? suggestedKeyword(source) : raw)
+                } catch {
+                    result.search.status = .failed
+                    result.search.detail = error.localizedDescription
+                    didFail = true
+                }
             }
-
-            // 详情
             if !didFail, let book = result.search.firstBook {
                 do {
-                    try await runDetail(&result, runtime: runtime, book: book)
+                    try await runDetail(result, runtime: runtime, book: book)
                 } catch {
                     result.detail.status = .failed
                     result.detail.detail = error.localizedDescription
                     didFail = true
                 }
             }
-
-            // 目录
             if !didFail, result.detail.status == .passed, let book = result.search.firstBook {
                 do {
-                    try await runToc(&result, runtime: runtime, book: book)
+                    try await runToc(result, runtime: runtime, book: book)
                 } catch {
                     result.toc.status = .failed
                     result.toc.detail = error.localizedDescription
                     didFail = true
                 }
             }
-
-            // 正文
-            if !didFail, result.toc.status == .passed, let chapters = result.toc.chapters, let first = chapters.first {
+            if !didFail, result.toc.status == .passed,
+               let chapters = result.toc.chapters, let first = chapters.first {
                 do {
-                    try await runContent(&result, runtime: runtime, url: first.url)
+                    try await runContent(result, runtime: runtime, url: first.url)
                 } catch {
                     result.content.status = .failed
                     result.content.detail = error.localizedDescription
@@ -135,7 +137,7 @@ private final class BatchTestRunner {
                 }
             }
 
-            result.elapsed = result.startedAt.map { Date().timeIntervalSince($0) } ?? 0
+            result.elapsed = Date().timeIntervalSince(startedAt)
             if result.passedCount == 4 {
                 result.overall = .passed
             } else if result.failedCount > 0 {
@@ -143,20 +145,20 @@ private final class BatchTestRunner {
             } else {
                 result.overall = .skipped
             }
-            results[index] = result
             progress = (index + 1, records.count)
         }
         isRunning = false
     }
 
-    private func skipPendingStages(in result: SourceResult, reason: String) {
+    private func skipPending(in result: BatchTestSourceResult, reason: String) {
         for stage in result.stages where stage.status == .pending {
             stage.status = .skipped
             stage.detail = reason
         }
     }
 
-    private func runSearch(_ result: inout SourceResult, runtime: BookSourceRuntime, source: BookSource, keyword: String) async throws {
+    private func runSearch(_ result: BatchTestSourceResult, runtime: BookSourceRuntime,
+                           source: BookSource, keyword: String) async throws {
         result.search.status = .running
         guard source.searchUrl?.isEmpty == false, source.ruleSearch?.bookList?.isEmpty == false else {
             result.search.status = .failed
@@ -174,14 +176,16 @@ private final class BatchTestRunner {
         result.search.firstBook = first
     }
 
-    private func runDetail(_ result: inout SourceResult, runtime: BookSourceRuntime, book: SearchResult) async throws {
+    private func runDetail(_ result: BatchTestSourceResult, runtime: BookSourceRuntime,
+                           book: SearchResult) async throws {
         result.detail.status = .running
         let info = try await runtime.getBookInfo(bookUrl: book.bookUrl)
         result.detail.status = .passed
         result.detail.detail = info.name.isEmpty ? "解析完成" : info.name
     }
 
-    private func runToc(_ result: inout SourceResult, runtime: BookSourceRuntime, book: SearchResult) async throws {
+    private func runToc(_ result: BatchTestSourceResult, runtime: BookSourceRuntime,
+                        book: SearchResult) async throws {
         result.toc.status = .running
         let chapters = try await runtime.getToc(bookUrl: book.bookUrl, resolvedTocUrl: book.bookUrl)
         guard !chapters.isEmpty else {
@@ -194,7 +198,8 @@ private final class BatchTestRunner {
         result.toc.chapters = chapters
     }
 
-    private func runContent(_ result: inout SourceResult, runtime: BookSourceRuntime, url: String) async throws {
+    private func runContent(_ result: BatchTestSourceResult, runtime: BookSourceRuntime,
+                            url: String) async throws {
         result.content.status = .running
         let text = try await runtime.getContent(chapterUrl: url)
         if text.isEmpty {
@@ -219,7 +224,7 @@ private final class BatchTestRunner {
 struct BatchTestView: View {
     @Environment(\.dismiss) private var dismiss
     let records: [BookSourceRecord]
-    @State private var runner = BatchTestRunner()
+    @StateObject private var runner = BatchTestRunner()
     @State private var keyword = ""
     @State private var selectedKind: BatchTestKind = .enabled
     @State private var showResult = false
@@ -337,7 +342,7 @@ struct BatchTestView: View {
                 }
 
                 ForEach(runner.results) { result in
-                    resultCard(result)
+                    BatchTestResultCard(result: result)
                 }
             }
             .padding(16)
@@ -345,7 +350,18 @@ struct BatchTestView: View {
         }
     }
 
-    private func resultCard(_ result: BatchTestRunner.SourceResult) -> some View {
+    private func startTest() {
+        showResult = true
+        Task {
+            await runner.run(records: targets, keyword: keyword)
+        }
+    }
+}
+
+private struct BatchTestResultCard: View {
+    @ObservedObject var result: BatchTestSourceResult
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 Image(systemName: result.overall.icon)
@@ -385,12 +401,5 @@ struct BatchTestView: View {
         }
         .padding(14)
         .glassCard(RoundedRectangle(cornerRadius: 14))
-    }
-
-    private func startTest() {
-        showResult = true
-        Task {
-            await runner.run(records: targets, keyword: keyword)
-        }
     }
 }
