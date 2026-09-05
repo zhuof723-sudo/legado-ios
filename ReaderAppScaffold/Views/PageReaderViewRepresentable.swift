@@ -65,7 +65,7 @@ protocol PageReaderContainer: AnyObject {
 
 // MARK: - 水平滑动翻页（UIScrollView + pagingEnabled，最流畅）
 
-final class HorizontalSlideReader: UIView, PageReaderContainer, UIScrollViewDelegate {
+final class HorizontalSlideReader: UIViewController, PageReaderContainer, UIScrollViewDelegate {
     var pages: [String] = []
     let config: ReaderConfig
     var currentIndex: Int = 0
@@ -80,16 +80,20 @@ final class HorizontalSlideReader: UIView, PageReaderContainer, UIScrollViewDele
         self.pages = pages
         self.config = config
         self.currentIndex = initialIndex
-        super.init(frame: .zero)
-        setupScrollView()
-        reloadPages()
+        super.init(nibName: nil, bundle: nil)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        // 布局完成后，确保当前页位置正确
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .clear
+        setupScrollView()
+        reloadPages()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
         if !isProgrammaticScroll {
             let targetX = CGFloat(currentIndex) * scrollView.bounds.width
             if abs(scrollView.contentOffset.x - targetX) > 1 {
@@ -99,8 +103,6 @@ final class HorizontalSlideReader: UIView, PageReaderContainer, UIScrollViewDele
     }
 
     private func setupScrollView() {
-        backgroundColor = .clear
-
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.delegate = self
         scrollView.isPagingEnabled = true
@@ -117,14 +119,14 @@ final class HorizontalSlideReader: UIView, PageReaderContainer, UIScrollViewDele
         stackView.alignment = .fill
         stackView.distribution = .fillEqually
 
-        addSubview(scrollView)
+        view.addSubview(scrollView)
         scrollView.addSubview(stackView)
 
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: topAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            scrollView.topAnchor.constraint(equalTo: view.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             stackView.topAnchor.constraint(equalTo: scrollView.topAnchor),
             stackView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
             stackView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
@@ -145,11 +147,9 @@ final class HorizontalSlideReader: UIView, PageReaderContainer, UIScrollViewDele
             pageViews.append(pageView)
         }
 
-        // 确保 contentSize 正确
-        setNeedsLayout()
-        layoutIfNeeded()
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
 
-        // 跳转到初始页
         let safeIndex = min(max(currentIndex, 0), max(pages.count - 1, 0))
         currentIndex = safeIndex
         isProgrammaticScroll = true
@@ -288,9 +288,6 @@ final class CurlPageReader: UIPageViewController, PageReaderContainer, UIPageVie
 
     func pageViewController(_ pageViewController: UIPageViewController, didFinishAnimating finished: Bool, previousViewControllers: [UIViewController], transitionCompleted completed: Bool) {
         guard completed else { return }
-        // pageCurl 模式下通过子视图查找当前页比较复杂，这里用简单的方式：
-        // 由于我们只在 goToPage 和手势翻页时更新，手势翻页由 UIPageViewController 自动处理
-        // 我们需要在动画完成后更新 currentIndex
         if let vc = pageViewController.viewControllers?.first,
            let pageView = vc.view.subviews.first as? PageContentView,
            let index = pages.firstIndex(of: pageView.text) {
@@ -302,7 +299,7 @@ final class CurlPageReader: UIPageViewController, PageReaderContainer, UIPageVie
 
 // MARK: - 垂直滚动翻页
 
-final class VerticalScrollReader: UIView, PageReaderContainer, UIScrollViewDelegate {
+final class VerticalScrollReader: UIViewController, PageReaderContainer, UIScrollViewDelegate {
     var pages: [String] = []
     let config: ReaderConfig
     var currentIndex: Int = 0
@@ -316,16 +313,19 @@ final class VerticalScrollReader: UIView, PageReaderContainer, UIScrollViewDeleg
         self.pages = pages
         self.config = config
         self.currentIndex = initialIndex
-        super.init(frame: .zero)
-        setupScrollView()
-        reloadPages()
+        super.init(nibName: nil, bundle: nil)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    private func setupScrollView() {
-        backgroundColor = .clear
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .clear
+        setupScrollView()
+        reloadPages()
+    }
 
+    private func setupScrollView() {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.delegate = self
         scrollView.showsVerticalScrollIndicator = false
@@ -339,14 +339,14 @@ final class VerticalScrollReader: UIView, PageReaderContainer, UIScrollViewDeleg
         stackView.alignment = .fill
         stackView.distribution = .fillEqually
 
-        addSubview(scrollView)
+        view.addSubview(scrollView)
         scrollView.addSubview(stackView)
 
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: topAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            scrollView.topAnchor.constraint(equalTo: view.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             stackView.topAnchor.constraint(equalTo: scrollView.topAnchor),
             stackView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
             stackView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
@@ -367,8 +367,8 @@ final class VerticalScrollReader: UIView, PageReaderContainer, UIScrollViewDeleg
             pageViews.append(pageView)
         }
 
-        setNeedsLayout()
-        layoutIfNeeded()
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
 
         let safeIndex = min(max(currentIndex, 0), max(pages.count - 1, 0))
         currentIndex = safeIndex
@@ -404,7 +404,7 @@ final class VerticalScrollReader: UIView, PageReaderContainer, UIScrollViewDeleg
 
 // MARK: - 无动画翻页
 
-final class NonePageReader: UIView, PageReaderContainer {
+final class NonePageReader: UIViewController, PageReaderContainer {
     var pages: [String] = []
     let config: ReaderConfig
     var currentIndex: Int = 0
@@ -416,26 +416,30 @@ final class NonePageReader: UIView, PageReaderContainer {
         self.pages = pages
         self.config = config
         self.currentIndex = initialIndex
-        super.init(frame: .zero)
-        backgroundColor = .clear
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .clear
         if !pages.isEmpty {
             showPage(at: min(currentIndex, pages.count - 1))
         }
     }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     private func showPage(at index: Int) {
         currentPageView?.removeFromSuperview()
 
         let pageView = PageContentView(text: pages[safe: index] ?? "", config: config)
         pageView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(pageView)
+        view.addSubview(pageView)
         NSLayoutConstraint.activate([
-            pageView.topAnchor.constraint(equalTo: topAnchor),
-            pageView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            pageView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            pageView.bottomAnchor.constraint(equalTo: bottomAnchor)
+            pageView.topAnchor.constraint(equalTo: view.topAnchor),
+            pageView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            pageView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            pageView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
         currentPageView = pageView
         currentIndex = index
@@ -454,15 +458,15 @@ final class NonePageReader: UIView, PageReaderContainer {
     }
 }
 
-// MARK: - SwiftUI 包装
+// MARK: - SwiftUI 包装（UIViewControllerRepresentable）
 
-struct PageReaderViewRepresentable: UIViewRepresentable {
+struct PageReaderViewRepresentable: UIViewControllerRepresentable {
     let pages: [String]
     let config: ReaderConfig
     @Binding var currentIndex: Int
     var onPageChanged: ((Int) -> Void)?
 
-    func makeUIView(context: Context) -> UIView {
+    func makeUIViewController(context: Context) -> UIViewController {
         let reader = makeReader(for: config.currentPageAnim)
         reader.onPageChanged = { index in
             DispatchQueue.main.async {
@@ -470,11 +474,11 @@ struct PageReaderViewRepresentable: UIViewRepresentable {
                 onPageChanged?(index)
             }
         }
-        return reader as! UIView
+        return reader as! UIViewController
     }
 
-    func updateUIView(_ uiView: UIView, context: Context) {
-        guard let reader = uiView as? PageReaderContainer else { return }
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
+        guard let reader = uiViewController as? PageReaderContainer else { return }
         if reader.pages != pages {
             reader.updatePages(pages, keepIndex: currentIndex)
         }
