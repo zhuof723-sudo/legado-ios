@@ -11,7 +11,7 @@ public enum TextPaginator {
         font: UIFont,
         lineSpacing: CGFloat,
         paragraphSpacing: CGFloat = 0,
-        paragraphIndent: String = "",
+        firstLineIndent: CGFloat = 0,
         alignment: NSTextAlignment = .justified,
         pageSize: CGSize
     ) -> [String] {
@@ -19,19 +19,14 @@ public enum TextPaginator {
             return text.isEmpty ? [] : [text]
         }
 
-        // 按段落分割，应用段落缩进和段落间距
-        let paragraphs = text.components(separatedBy: .newlines)
-        let processedText = paragraphs
-            .map { paragraphIndent + $0 }
-            .joined(separator: "\n")
-
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = lineSpacing
         paragraphStyle.paragraphSpacing = paragraphSpacing
         paragraphStyle.lineBreakMode = .byWordWrapping
         paragraphStyle.alignment = alignment
+        paragraphStyle.firstLineHeadIndent = firstLineIndent
 
-        let attributed = NSAttributedString(string: processedText, attributes: [
+        let attributed = NSAttributedString(string: text, attributes: [
             .font: font,
             .paragraphStyle: paragraphStyle
         ])
@@ -42,7 +37,7 @@ public enum TextPaginator {
 
         var pages: [String] = []
         var location = 0
-        let ns = processedText as NSString
+        let ns = text as NSString
 
         while location < fullLength {
             let frame = CTFramesetterCreateFrame(framesetter, CFRange(location: location, length: 0), path, nil)

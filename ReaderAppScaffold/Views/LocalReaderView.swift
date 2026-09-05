@@ -1,8 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// 本地 TXT 阅读器（与在线书源阅读器共用同一套 UI：
-/// 5种翻页动画 / 丰富排版 / 中间点击显示工具栏 / 控制栏）
+/// 本地 TXT 阅读器（与在线书源阅读器共用同一套 UI 和翻页引擎）
 struct LocalReaderView: View {
     @Environment(\.dismiss) private var dismiss
     let bookName: String
@@ -29,33 +28,30 @@ struct LocalReaderView: View {
     var body: some View {
         GeometryReader { geo in
             let pageSize = CGSize(
-                width: max(geo.size.width - config.paddingLeft - config.paddingRight, 1),
+                width: max(geo.size.width - config.paddingH * 2, 1),
                 height: max(geo.size.height - config.paddingTop - config.paddingBottom, 1)
             )
-            let key = "\(viewModel.currentContent.hashValue)|\(Int(config.fontSize))|\(config.lineSpacing)|\(config.fontName)|\(config.bold)|\(config.paragraphSpacing)|\(config.paragraphIndent)|\(config.textAlignment)|"
+            let key = "\(viewModel.currentContent.hashValue)|\(Int(config.fontSize))|\(config.lineSpacing)|\(config.fontName)|\(config.bold)|\(config.paragraphSpacing)|\(config.paragraphIndent)|"
                 + "\(Int(pageSize.width))x\(Int(pageSize.height))|\(viewModel.currentIndex)"
 
             ZStack {
                 bgColor.ignoresSafeArea()
 
-                if paginatedForKey == key, pageIndex < pages.count {
-                    PageReaderView(
+                if paginatedForKey == key, !pages.isEmpty {
+                    PageReaderViewRepresentable(
                         pages: pages,
-                        pageIndex: $pageIndex,
-                        pageSize: pageSize,
                         config: config,
-                        onPageChange: { _ in }
+                        currentIndex: $pageIndex
                     )
+                    .padding(.horizontal, config.paddingH)
+                    .padding(.top, config.paddingTop)
+                    .padding(.bottom, config.paddingBottom)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        withAnimation(.easeInOut(duration: 0.2)) { showControls.toggle() }
+                    }
                 } else {
                     ProgressView()
-                }
-
-                if config.eyeCare {
-                    Color.yellow.opacity(0.07).ignoresSafeArea().allowsHitTesting(false)
-                }
-
-                if config.currentPageAnim != .slide && config.currentPageAnim != .scroll {
-                    readerTapOverlay
                 }
 
                 chrome
@@ -83,26 +79,6 @@ struct LocalReaderView: View {
             tocSheet
                 .presentationDetents([.large])
         }
-    }
-
-    // MARK: - 点击区域
-
-    private var readerTapOverlay: some View {
-        GeometryReader { proxy in
-            HStack(spacing: 0) {
-                Rectangle().fill(.clear)
-                    .contentShape(Rectangle())
-                    .onTapGesture { goPrevPage() }
-                Rectangle().fill(.clear)
-                    .contentShape(Rectangle())
-                    .onTapGesture { withAnimation(.easeInOut(duration: 0.2)) { showControls.toggle() } }
-                Rectangle().fill(.clear)
-                    .contentShape(Rectangle())
-                    .onTapGesture { goNextPage() }
-            }
-            .frame(width: proxy.size.width, height: proxy.size.height)
-        }
-        .zIndex(10)
     }
 
     // MARK: - 控制层
@@ -245,14 +221,14 @@ struct LocalReaderView: View {
         let font = config.uiFont
         let lSpacing = config.lineSpacing
         let pSpacing = config.paragraphSpacing
-        let indent = config.indentPrefix
+        let indent = config.indentPixels
         let result = await Task.detached(priority: .userInitiated) {
             TextPaginator.paginate(
                 text: viewModel.currentContent,
                 font: font,
                 lineSpacing: lSpacing,
                 paragraphSpacing: pSpacing,
-                paragraphIndent: indent,
+                firstLineIndent: indent,
                 alignment: config.coreTextAlignment,
                 pageSize: pageSize
             )

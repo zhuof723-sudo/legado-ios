@@ -1,12 +1,13 @@
 import SwiftUI
 
-/// 阅读设置面板（对齐 legado-E：翻页动画 / 主题 / 字体 / 排版 / 边距）
+/// 阅读设置面板（翻页动画 / 主题 / 字体 / 排版 / 边距）
 struct ReaderSettingsPanel: View {
     @StateObject private var config = ReaderConfig.shared
+    @AppStorage("reader.autoRead") private var autoRead = false
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 22) {
                 Text("排版设置").font(.title3.bold())
 
                 // MARK: - 翻页动画
@@ -70,36 +71,25 @@ struct ReaderSettingsPanel: View {
                     VStack(spacing: 12) {
                         sliderRow("行距", value: $config.lineSpacing, range: 0...24, step: 1, unit: "pt")
                         sliderRow("段距", value: $config.paragraphSpacing, range: 0...32, step: 1, unit: "pt")
-                        sliderRow("字间距", value: $config.letterSpacing, range: 0...4, step: 0.5, unit: "pt")
                     }
                 }
 
-                // MARK: - 段落缩进 / 对齐
+                // MARK: - 段落缩进
                 Group {
-                    sectionLabel("段落缩进 / 对齐")
+                    sectionLabel("段落缩进")
                     HStack(spacing: 10) {
                         indentOption(0, label: "不缩进")
                         indentOption(1, label: "1字符")
                         indentOption(2, label: "2字符")
                         Spacer()
                     }
-                    Picker("", selection: $config.textAlignment) {
-                        Text("两端对齐").tag(0)
-                        Text("左对齐").tag(1)
-                        Text("居中").tag(2)
-                    }
-                    .pickerStyle(.segmented)
-                    .tint(Theme.accent)
                 }
 
                 // MARK: - 边距
                 Group {
                     sectionLabel("页面边距")
                     VStack(spacing: 12) {
-                        sliderRow("左右边距", value: Binding(
-                            get: { config.paddingLeft },
-                            set: { config.paddingLeft = $0; config.paddingRight = $0 }
-                        ), range: 8...40, step: 1, unit: "pt")
+                        sliderRow("左右边距", value: $config.paddingH, range: 8...40, step: 1, unit: "pt")
                         sliderRow("上边距", value: $config.paddingTop, range: 20...80, step: 1, unit: "pt")
                         sliderRow("下边距", value: $config.paddingBottom, range: 20...80, step: 1, unit: "pt")
                     }
@@ -110,11 +100,7 @@ struct ReaderSettingsPanel: View {
                     sectionLabel("更多设置")
                     toggleRow("加粗字体", icon: "bold", isOn: $config.bold)
                     toggleRow("夜间模式", icon: "moon", isOn: $config.nightMode)
-                    toggleRow("护眼模式", icon: "eye", isOn: $config.eyeCare)
-                    toggleRow("自动阅读", icon: "play.circle", isOn: Binding(
-                        get: { UserDefaults.standard.bool(forKey: "reader.autoRead") },
-                        set: { UserDefaults.standard.set($0, forKey: "reader.autoRead") }
-                    ))
+                    toggleRow("自动阅读", icon: "play.circle", isOn: $autoRead)
                 }
             }
             .padding(20)
@@ -221,7 +207,7 @@ struct ReaderSettingsPanel: View {
     }
 }
 
-/// 阅读设置独立页（设置 → 阅读设置 复用同一份控件）
+/// 阅读设置独立页
 struct ReaderSettingsPage: View {
     var body: some View {
         ReaderSettingsPanel()

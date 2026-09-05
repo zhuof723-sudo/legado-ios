@@ -2,9 +2,8 @@ import SwiftUI
 import SwiftData
 import UIKit
 import AVFoundation
-import Combine
 
-/// 阅读器：CoreText 精确分页 + 5种翻页动画 + 丰富排版 + 液态玻璃控制层（对齐 legado-E）
+/// 阅读器：UIPageViewController 稳定翻页 + CoreText 分页 + 液态玻璃控制层
 struct ReaderView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
@@ -16,6 +15,7 @@ struct ReaderView: View {
 
     @StateObject private var config = ReaderConfig.shared
     @StateObject private var speech = ReaderSpeechController()
+    @AppStorage("reader.autoRead") private var autoRead = false
 
     @State private var pages: [String] = []
     @State private var paginatedForKey = ""
@@ -25,8 +25,6 @@ struct ReaderView: View {
     @State private var showSettings = false
     @State private var showToc = false
     @State private var showChapterSearch = false
-    @AppStorage("reader.autoRead") private var autoRead = false
-    @AppStorage("reader.immersiveDarkInitialized") private var immersiveDarkInitialized = false
 
     init(
         viewModel: ReaderViewModel,
@@ -48,25 +46,36 @@ struct ReaderView: View {
     var body: some View {
         GeometryReader { geo in
             let pageSize = CGSize(
-                width: max(geo.size.width - config.paddingLeft - config.paddingRight, 1),
+                width: max(geo.size.width - config.paddingH * 2, 1),
                 height: max(geo.size.height - config.paddingTop - config.paddingBottom, 1)
             )
-            let paginationKey = "\(viewModel.currentContent.hashValue)|\(Int(config.fontSize))|\(config.lineSpacing)|\(config.fontName)|\(config.bold)|\(config.paragraphSpacing)|\(config.paragraphIndent)|\(config.textAlignment)|"
+            let paginationKey = "\(viewModel.currentContent.hashValue)|\(Int(config.fontSize))|\(config.lineSpacing)|\(config.fontName)|\(config.bold)|\(config.paragraphSpacing)|\(config.paragraphIndent)|"
                 + "\(Int(pageSize.width))x\(Int(pageSize.height))|\(viewModel.currentIndex)"
 
             ZStack {
                 bgColor.ignoresSafeArea()
-                content(pageSize: pageSize, key: paginationKey)
+
+                if paginatedForKey == paginationKey, !pages.isEmpty {
+                    PageReaderViewRepresentable(
+                        pages: pages,
+                        config: config,
+                        currentIndex: $pageIndex
+                    )
+                    .padding(.horizontal, config.paddingH)
+                    .padding(.top, config.paddingTop)
+                    .padding(.bottom, config.paddingBottom)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         withAnimation(.easeInOut(duration: 0.2)) { showControls.toggle() }
                     }
-                if config.eyeCare {
-                    Color.yellow.opacity(0.07).ignoresSafeArea().allowsHitTesting(false)
+                } else if viewModel.isLoadingContent || viewModel.isLoadingToc {
+                    ProgressView()
+                } else if let err = viewModel.errorMessage {
+                    Text(err).foregroundStyle(.red).multilineTextAlignment(.center).padding()
+                } else {
+                    ProgressView()
                 }
-                if config.currentPageAnim != .slide && config.currentPageAnim != .scroll {
-                    readerTapOverlay
-                }
+
                 chrome
                     .zIndex(20)
             }
@@ -85,12 +94,6 @@ struct ReaderView: View {
         .statusBarHidden(false)
         .preferredColorScheme(config.nightMode ? .dark : .light)
         .toolbar(.hidden, for: .tabBar)
-        .onAppear {
-            if !immersiveDarkInitialized {
-                config.nightMode = true
-                immersiveDarkInitialized = true
-            }
-        }
         .onDisappear { speech.stop() }
         .sheet(isPresented: $showSettings) {
             ReaderSettingsPanel().presentationDetents([.medium, .large])
@@ -109,47 +112,6 @@ struct ReaderView: View {
         .onChange(of: pageIndex) {
             if speech.isSpeaking, pageIndex < pages.count { speech.speak(pages[pageIndex]) }
         }
-    }
-
-    // MARK: - 正文
-
-    @ViewBuilder
-    private func content(pageSize: CGSize, key: String) -> some View {
-        if paginatedForKey == key, pageIndex < pages.count {
-            PageReaderView(
-                pages: pages,
-                pageIndex: $pageIndex,
-                pageSize: pageSize,
-                config: config,
-                onPageChange: { _ in }
-            )
-        } else if viewModel.isLoadingContent || viewModel.isLoadingToc {
-            ProgressView()
-        } else if let err = viewModel.errorMessage {
-            Text(err).foregroundStyle(.red).multilineTextAlignment(.center).padding()
-        } else {
-            ProgressView()
-        }
-    }
-
-    // 独立控制层点击区域：非滑动/滚动模式下点击左右翻页
-    private var readerTapOverlay: some View {
-        GeometryReader { proxy in
-            HStack(spacing: 0) {
-                Rectangle().fill(.clear)
-                    .contentShape(Rectangle())
-                    .onTapGesture { goPrevPage() }
-                Rectangle().fill(.clear)
-                    .contentShape(Rectangle())
-                    .onTapGesture { withAnimation(.easeInOut(duration: 0.2)) { showControls.toggle() } }
-                Rectangle().fill(.clear)
-                    .contentShape(Rectangle())
-                    .onTapGesture { goNextPage() }
-            }
-            .frame(width: proxy.size.width, height: proxy.size.height)
-        }
-        .zIndex(10)
-        .allowsHitTesting(true)
     }
 
     // MARK: - 沉浸式控制层
@@ -301,11 +263,10 @@ struct ReaderView: View {
             paginatedForKey = key
             return
         }
-        let fSize = config.fontSize
+        let font = config.uiFont
         let lSpacing = config.lineSpacing
         let pSpacing = config.paragraphSpacing
-        let indent = config.indentPrefix
-        let font = config.uiFont
+        let indent = config.indentPixels
 
         let result = await Task.detached(priority: .userInitiated) {
             TextPaginator.paginate(
@@ -313,7 +274,7 @@ struct ReaderView: View {
                 font: font,
                 lineSpacing: lSpacing,
                 paragraphSpacing: pSpacing,
-                paragraphIndent: indent,
+                firstLineIndent: indent,
                 alignment: config.coreTextAlignment,
                 pageSize: pageSize
             )
