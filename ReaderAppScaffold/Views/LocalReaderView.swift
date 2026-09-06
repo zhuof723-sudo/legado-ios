@@ -1,21 +1,25 @@
 import SwiftUI
 import UIKit
+import AVFoundation
 
-/// 本地 TXT 阅读器（与在线书源阅读器共用同一套 UI 和翻页引擎）
+/// 本地 TXT 阅读器（与在线书源阅读器完全同一套 UI：深色液态玻璃控制层）
 struct LocalReaderView: View {
     @Environment(\.dismiss) private var dismiss
     let bookName: String
     @Bindable var viewModel: TxtReaderViewModel
 
     @StateObject private var config = ReaderConfig.shared
+    @StateObject private var speech = ReaderSpeechController()
     @AppStorage("reader.autoRead") private var autoRead = false
 
     @State private var pages: [String] = []
     @State private var paginatedForKey = ""
     @State private var pageIndex = 0
+    @State private var pendingJumpToLastPage = false
     @State private var showControls = false
     @State private var showSettings = false
     @State private var showToc = false
+    @State private var showChapterSearch = false
 
     init(book: LocalBook) {
         self.bookName = book.name
@@ -69,9 +73,10 @@ struct LocalReaderView: View {
                 }
             }
         }
-        .statusBarHidden(!showControls)
+        .statusBarHidden(false)
         .preferredColorScheme(config.nightMode ? .dark : .light)
         .toolbar(.hidden, for: .tabBar)
+        .onDisappear { speech.stop() }
         .sheet(isPresented: $showSettings) {
             ReaderSettingsPanel().presentationDetents([.medium, .large])
         }
@@ -79,14 +84,21 @@ struct LocalReaderView: View {
             tocSheet
                 .presentationDetents([.large])
         }
+        .sheet(isPresented: $showChapterSearch) {
+            ReaderChapterSearchView(text: viewModel.currentContent)
+                .presentationDetents([.medium, .large])
+        }
+        .onChange(of: pageIndex) {
+            if speech.isSpeaking, pageIndex < pages.count { speech.speak(pages[pageIndex]) }
+        }
     }
 
-    // MARK: - 控制层
+    // MARK: - 沉浸式控制层（与在线阅读完全一致）
 
     private var chrome: some View {
         VStack(spacing: 0) {
             if showControls {
-                topBar
+                immersiveHeader
                     .transition(.asymmetric(
                         insertion: .move(edge: .top).combined(with: .opacity),
                         removal: .move(edge: .top).combined(with: .opacity)
@@ -94,78 +106,120 @@ struct LocalReaderView: View {
             }
             Spacer(minLength: 0)
             if showControls {
-                bottomBar
+                immersiveBottomPanel
                     .transition(.asymmetric(
                         insertion: .move(edge: .bottom).combined(with: .opacity),
                         removal: .move(edge: .bottom).combined(with: .opacity)
                     ))
             } else if !pages.isEmpty {
-                Text("\(pageIndex + 1) / \(pages.count)")
-                    .font(.caption2)
-                    .foregroundStyle(textColor.opacity(0.55))
-                    .padding(.bottom, 10)
-                    .transition(.opacity)
+                HStack {
+                    Text("\(pageIndex + 1)/\(pages.count)")
+                    Spacer()
+                    Text(viewModel.currentTitle ?? "")
+                        .lineLimit(1)
+                }
+                .font(.caption2)
+                .foregroundStyle(textColor.opacity(0.55))
+                .padding(.horizontal, 18)
+                .padding(.bottom, 8)
+                .transition(.opacity)
             }
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 12)
         .animation(.spring(response: 0.35, dampingFraction: 0.85, blendDuration: 0.1), value: showControls)
     }
 
-    private var topBar: some View {
-        HStack(spacing: 12) {
+    private var immersiveHeader: some View {
+        HStack(spacing: 10) {
             Button { dismiss() } label: {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(.white)
                     .frame(width: 36, height: 36)
                     .glassCircle()
             }
-            Text(viewModel.currentTitle ?? bookName)
+            Spacer(minLength: 0)
+            Text(bookName)
                 .font(.subheadline.bold())
+                .foregroundStyle(.white)
                 .lineLimit(1)
-            Spacer()
+                .padding(.horizontal, 14)
+                .frame(height: 36)
+                .background(Color.black.opacity(0.22), in: Capsule())
+                .glassCard(Capsule(), interactive: true)
+            Spacer(minLength: 0)
+            Circle()
+                .fill(Color.white.opacity(0.15))
+                .frame(width: 36, height: 36)
+                .overlay(
+                    Image(systemName: "book")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.white.opacity(0.7))
+                )
         }
-        .padding(10)
-        .glassCard(RoundedRectangle(cornerRadius: 16))
+        .environment(\.colorScheme, .dark)
     }
 
-    private var bottomBar: some View {
+    private var immersiveBottomPanel: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(viewModel.currentTitle ?? bookName)
-                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            Slider(
-                value: Binding(
-                    get: { Double(min(pageIndex, max(pages.count - 1, 0))) },
-                    set: { pageIndex = Int($0) }
-                ),
-                in: 0...Double(max(pages.count - 1, 1))
-            )
-            .tint(Theme.accent)
             HStack {
-                toolButton("list.bullet", "目录") { showToc = true }
-                toolButton(config.nightMode ? "sun.max" : "moon", config.nightMode ? "日间" : "夜间") {
-                    config.nightMode.toggle()
-                }
-                toolButton(autoRead ? "pause.circle" : "play.circle", "自动") {
-                    autoRead.toggle()
-                }
-                toolButton("textformat.size", "排版") { showSettings = true }
+                Text(viewModel.currentTitle ?? bookName)
+                    .font(.caption).foregroundStyle(.white).lineLimit(1)
                 Spacer()
-                Text("\(pageIndex + 1)/\(pages.count)").font(.caption2).foregroundStyle(.secondary)
+                Text("\(pageIndex + 1) / \(max(pages.count, 1))")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.7))
+            }
+            HStack(spacing: 8) {
+                Button { goPrevPage() } label: {
+                    Image(systemName: "chevron.left").frame(width: 28, height: 28)
+                }
+                .tint(.white.opacity(0.9))
+                Slider(
+                    value: Binding(
+                        get: { Double(min(pageIndex, max(pages.count - 1, 0))) },
+                        set: { pageIndex = Int($0.rounded()) }
+                    ),
+                    in: 0...Double(max(pages.count - 1, 1))
+                )
+                .tint(Theme.accent)
+                Button { goNextPage() } label: {
+                    Image(systemName: "chevron.right").frame(width: 28, height: 28)
+                }
+                .tint(.white.opacity(0.9))
+            }
+            HStack {
+                immersiveToolButton("list.bullet", "目录") { showToc = true }
+                Spacer()
+                immersiveToolButton(speech.isSpeaking ? "speaker.wave.2.fill" : "speaker.wave.2", "听书") {
+                    guard pageIndex < pages.count else { return }
+                    speech.toggle(pages[pageIndex])
+                }
+                Spacer()
+                immersiveToolButton("magnifyingglass", "搜索") { showChapterSearch = true }
+                Spacer()
+                immersiveToolButton("textformat.size", "排版") { showSettings = true }
             }
         }
-        .padding(12)
-        .glassCard(RoundedRectangle(cornerRadius: 16))
+        .foregroundStyle(.white)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color.black.opacity(0.36), in: RoundedRectangle(cornerRadius: 18))
+        .glassCard(RoundedRectangle(cornerRadius: 18), interactive: true)
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.1), lineWidth: 0.6))
+        .shadow(color: .black.opacity(0.3), radius: 14, y: 6)
+        .environment(\.colorScheme, .dark)
     }
 
-    private func toolButton(_ icon: String, _ label: String, action: @escaping () -> Void) -> some View {
+    private func immersiveToolButton(_ icon: String, _ label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 3) {
                 Image(systemName: icon).font(.system(size: 16, weight: .medium))
                 Text(label).font(.caption2)
             }
-            .foregroundStyle(.primary.opacity(0.8))
-            .frame(width: 44, height: 40)
+            .frame(minWidth: 40, minHeight: 40)
         }
         .buttonStyle(.plain)
     }
@@ -215,10 +269,12 @@ struct LocalReaderView: View {
             viewModel.nextChapter()
         }
     }
+
     private func goPrevPage() {
         if pageIndex > 0 {
             pageIndex -= 1
         } else {
+            pendingJumpToLastPage = true
             viewModel.prevChapter()
         }
     }
@@ -245,7 +301,12 @@ struct LocalReaderView: View {
             )
         }.value
         pages = result
-        if pageIndex >= result.count { pageIndex = 0 }
+        if pendingJumpToLastPage {
+            pageIndex = max(0, result.count - 1)
+            pendingJumpToLastPage = false
+        } else if pageIndex >= result.count {
+            pageIndex = 0
+        }
         paginatedForKey = key
     }
 }
