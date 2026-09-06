@@ -8,7 +8,7 @@ struct LocalReaderView: View {
     let bookName: String
     @Bindable var viewModel: TxtReaderViewModel
 
-    @StateObject private var config = ReaderConfig.shared
+    @ObservedObject private var config = ReaderConfig.shared
     @StateObject private var speech = ReaderSpeechController()
     @AppStorage("reader.autoRead") private var autoRead = false
 
@@ -67,9 +67,12 @@ struct LocalReaderView: View {
             }
             .task(id: autoRead) {
                 guard autoRead else { return }
-                while !Task.isCancelled {
+                // 使用更安全的循环模式，避免无限递归更新
+                for _ in 0..<1000 {
+                    guard !Task.isCancelled else { break }
                     try? await Task.sleep(nanoseconds: UInt64(config.autoReadSpeed * 1_000_000_000))
-                    if Task.isCancelled { break }
+                    guard !Task.isCancelled else { break }
+                    guard autoRead else { break }
                     goNextPage()
                 }
             }
@@ -89,7 +92,7 @@ struct LocalReaderView: View {
             ReaderChapterSearchView(text: viewModel.currentContent)
                 .presentationDetents([.medium, .large])
         }
-        .onChange(of: pageIndex) {
+        .onChange(of: pageIndex) { _, _ in
             if speech.isSpeaking, pageIndex < pages.count { speech.speak(pages[pageIndex]) }
         }
     }
@@ -288,6 +291,8 @@ struct LocalReaderView: View {
         let indent = config.indentPixels
         let content = viewModel.currentContent
         let alignment = config.coreTextAlignment
+
+        // 使用 detached 任务避免阻塞主线程，但需检查取消状态
         let result = await Task.detached(priority: .userInitiated) {
             TextPaginator.paginate(
                 text: content,
@@ -299,6 +304,10 @@ struct LocalReaderView: View {
                 pageSize: pageSize
             )
         }.value
+
+        // 检查任务是否已取消，避免设置过期的状态
+        guard !Task.isCancelled else { return }
+
         pages = result
         if pendingJumpToLastPage {
             pageIndex = max(0, result.count - 1)
