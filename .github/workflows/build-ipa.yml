@@ -1,0 +1,166 @@
+name: Build IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      BUNDLE_ID: com.BYEh.eNbcVl2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        shell: bash
+        run: brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
+
+      - name: Select available Xcode
+        shell: bash
+        run: |
+          set -euo pipefail
+          XCODE=$(ls -1d /Applications/Xcode*.app 2>/dev/null | tail -1 || true)
+          if [ -z "$XCODE" ]; then
+            echo "No Xcode installation was found" >&2
+            exit 1
+          fi
+          echo "Selecting $XCODE"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+          xcodebuild -showsdks | grep -i iphoneos
+
+      - name: Generate Xcode project
+        shell: bash
+        run: xcodegen generate
+
+      - name: Detect signing credentials
+        id: signing
+        shell: bash
+        env:
+          P12_BASE64: ${{ secrets.P12_BASE64 }}
+          PROVISION_BASE64: ${{ secrets.PROVISION_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$P12_BASE64" && -n "$PROVISION_BASE64" && -n "$KEYCHAIN_PASSWORD" && -n "$P12_PASSWORD" ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "Apple signing secrets detected; producing a signed ad-hoc IPA."
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "Apple signing secrets are not configured; producing an unsigned IPA."
+          fi
+
+      - name: Import signing certificate and profile
+        if: steps.signing.outputs.available == 'true'
+        shell: bash
+        env:
+          P12_BASE64: ${{ secrets.P12_BASE64 }}
+          PROVISION_BASE64: ${{ secrets.PROVISION_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$P12_BASE64" | base64 --decode > signing.p12
+          printf '%s' "$PROVISION_BASE64" | base64 --decode > signing.mobileprovision
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import signing.p12 -k build.keychain -P "$P12_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          security cms -D -i signing.mobileprovision -o profile.plist
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print:UUID' profile.plist)
+          TEAM_ID=$(/usr/libexec/PlistBuddy -c 'Print:TeamIdentifier:0' profile.plist)
+          SIGNING_IDENTITY=$(security find-identity -v -p codesigning build.keychain \
+            | awk -F '"' 'NR == 2 { print $2 }')
+          test -n "$PROFILE_UUID"
+          test -n "$TEAM_ID"
+          test -n "$SIGNING_IDENTITY"
+          cp signing.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+          {
+            echo "PROFILE_UUID=$PROFILE_UUID"
+            echo "TEAM_ID=$TEAM_ID"
+            echo "SIGNING_IDENTITY=$SIGNING_IDENTITY"
+          } >> "$GITHUB_ENV"
+          security find-identity -v -p codesigning build.keychain
+
+      - name: Build signed archive
+        if: steps.signing.outputs.available == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild archive \
+            -project Legado.xcodeproj \
+            -scheme Legado \
+            -archivePath build/Legado.xcarchive \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_IDENTITY="$SIGNING_IDENTITY" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" \
+            CODE_SIGNING_REQUIRED=YES
+
+      - name: Export signed IPA
+        if: steps.signing.outputs.available == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/export
+          cp ExportOptions.plist build/ExportOptions.plist
+          /usr/libexec/PlistBuddy -c "Set :teamID $TEAM_ID" build/ExportOptions.plist
+          /usr/libexec/PlistBuddy -c "Set :signingCertificate $SIGNING_IDENTITY" build/ExportOptions.plist
+          /usr/libexec/PlistBuddy -c "Set :provisioningProfiles:$BUNDLE_ID $PROFILE_UUID" build/ExportOptions.plist
+          xcodebuild -exportArchive \
+            -archivePath build/Legado.xcarchive \
+            -exportPath build/export \
+            -exportOptionsPlist build/ExportOptions.plist
+
+      - name: Build unsigned app
+        if: steps.signing.outputs.available != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild build \
+            -project Legado.xcodeproj \
+            -scheme Legado \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            DEVELOPMENT_TEAM='' \
+            PROVISIONING_PROFILE_SPECIFIER=''
+          APP_PATH=$(find build/DerivedData/Build/Products -type d -name '*.app' -print | head -1)
+          test -n "$APP_PATH"
+          rm -rf build/Payload build/Legado-unsigned.ipa
+          mkdir -p build/Payload
+          cp -R "$APP_PATH" build/Payload/
+          (cd build && /usr/bin/zip -qry Legado-unsigned.ipa Payload)
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Legado-ipa
+          path: build/**/*.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Clean signing material
+        if: always() && steps.signing.outputs.available == 'true'
+        shell: bash
+        run: |
+          rm -f signing.p12 signing.mobileprovision profile.plist
+          security delete-keychain build.keychain 2>/dev/null || true

@@ -1,0 +1,804 @@
+import SwiftUI
+import SwiftData
+import Observation
+import LegadoRuleEngine
+
+private struct BrowseBook: Identifiable {
+    let sourceURL: String
+    let sourceName: String
+    let name: String
+    let author: String
+    let intro: String
+    let kind: String
+    let lastChapter: String
+    let bookURL: String
+    let coverURL: String
+
+    var id: String { sourceURL + "|" + bookURL + "|" + name + "|" + author }
+}
+
+private enum BrowseBoardPhase: Equatable {
+    case idle, loading, loaded, failed
+}
+
+private struct BrowseBoard: Identifiable {
+    let kind: ExploreKindInfo
+    var books: [BrowseBook] = []
+    var phase: BrowseBoardPhase = .idle
+    var errorMessage: String?
+    var id: String { kind.id }
+}
+
+private struct BrowseSelection: Identifiable {
+    let book: BrowseBook
+    let source: BookSource
+    var id: String { book.id }
+}
+
+@MainActor
+@Observable
+private final class BrowseExploreModel {
+    var boards: [BrowseBoard] = []
+    var isLoading = false
+    var errorMessage: String?
+
+    private var selectedSource: BookSource?
+    private var allKinds: [ExploreKindInfo] = []
+    private var generation = UUID()
+    private var queue: [String] = []
+    private var isPumping = false
+    private var activeTask: Task<Void, Never>?
+    private var cacheTTL: TimeInterval = 1800
+    private var forceRefresh = false
+
+    func load(
+        source: BookSource,
+        boardLimit: Int,
+        cacheTTL: TimeInterval,
+        forceRefresh: Bool
+    ) async {
+        generation = UUID()
+        activeTask?.cancel()
+        activeTask = nil
+        selectedSource = source
+        self.cacheTTL = cacheTTL
+        self.forceRefresh = forceRefresh
+        queue.removeAll()
+        isPumping = false
+        isLoading = true
+        errorMessage = nil
+        boards = []
+        allKinds = []
+        defer { isLoading = false }
+
+        let runtime = BookSourceRuntime(source)
+        let cachedKinds = await runtime.exploreKindsCached(cacheTTL: cacheTTL, forceRefresh: forceRefresh)
+        let rawKinds = cachedKinds.filter {
+            $0.type.lowercased() == "url" && !$0.url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        var seenKinds = Set<String>()
+        let uniqueKinds = rawKinds.filter { seenKinds.insert($0.id).inserted }
+        guard !uniqueKinds.isEmpty else {
+            errorMessage = source.exploreUrl?.isEmpty == false
+                ? "该书源的发现分类未能解析，请在测试配置中检查 exploreUrl。"
+                : "该书源没有配置发现地址。"
+            return
+        }
+
+        // 分类顺序严格遵循书源 exploreUrl；先建立少量分类，向下滚动再分批追加。
+        allKinds = uniqueKinds
+        appendMoreSections(batchSize: min(max(boardLimit, 2), 6))
+    }
+
+    var hasMoreSections: Bool { boards.count < allKinds.count }
+
+    func appendMoreSections(batchSize: Int = 4) {
+        guard hasMoreSections else { return }
+        let start = boards.count
+        let end = min(allKinds.count, start + max(1, batchSize))
+        boards.append(contentsOf: allKinds[start..<end].map { BrowseBoard(kind: $0) })
+    }
+
+    func loadSection(_ id: String) {
+        guard let targetIndex = boards.firstIndex(where: { $0.id == id }) else { return }
+        guard boards[targetIndex].phase == .idle || boards[targetIndex].phase == .failed else { return }
+        if boards[targetIndex].phase == .failed {
+            boards[targetIndex].phase = .idle
+            boards[targetIndex].errorMessage = nil
+        }
+
+        // 即使多个视图同帧出现，也始终把此前尚未加载的分类按书源顺序排进队列。
+        for index in 0...targetIndex where boards[index].phase == .idle {
+            let candidateID = boards[index].id
+            if !queue.contains(candidateID) { queue.append(candidateID) }
+        }
+        pumpQueue()
+    }
+
+    func retrySection(_ id: String) {
+        guard let index = boards.firstIndex(where: { $0.id == id }) else { return }
+        boards[index].phase = .idle
+        boards[index].errorMessage = nil
+        loadSection(id)
+    }
+
+    private func pumpQueue() {
+        guard !isPumping, let id = queue.first,
+              let source = selectedSource,
+              let index = boards.firstIndex(where: { $0.id == id }) else { return }
+        isPumping = true
+        boards[index].phase = .loading
+        let kind = boards[index].kind
+        let token = generation
+
+        activeTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let runtime = BookSourceRuntime(source)
+                let values = try await runtime.explore(
+                    kind,
+                    resultLimit: 24,
+                    cacheTTL: self.cacheTTL,
+                    forceRefresh: self.forceRefresh
+                )
+                guard !Task.isCancelled, self.generation == token, self.queue.first == id else { return }
+                let books = values.map {
+                    BrowseBook(
+                        sourceURL: source.bookSourceUrl,
+                        sourceName: source.bookSourceName,
+                        name: $0.name,
+                        author: $0.author,
+                        intro: $0.intro,
+                        kind: $0.kind,
+                        lastChapter: $0.lastChapter,
+                        bookURL: $0.bookUrl,
+                        coverURL: $0.coverUrl
+                    )
+                }
+                self.finish(id: id, books: books, error: nil)
+            } catch {
+                guard self.generation == token, self.queue.first == id else { return }
+                self.finish(id: id, books: [], error: error.localizedDescription)
+            }
+        }
+    }
+
+    private func finish(id: String, books: [BrowseBook], error: String?) {
+        if queue.first == id { queue.removeFirst() }
+        if let index = boards.firstIndex(where: { $0.id == id }) {
+            boards[index].books = books
+            boards[index].phase = error == nil ? .loaded : .failed
+            boards[index].errorMessage = error
+        }
+        isPumping = false
+        activeTask = nil
+        pumpQueue()
+    }
+
+}
+
+struct BrowseView: View {
+    @Query(sort: [SortDescriptor(\BookSourceRecord.bookSourceName)])
+    private var allSources: [BookSourceRecord]
+
+    @State private var model = BrowseExploreModel()
+    @State private var showSearch = false
+    @State private var showSourcePicker = false
+    @State private var selectedBook: BrowseSelection?
+    @State private var selectedBoard: BrowseBoard?
+    @State private var refreshSeed = Int(Date().timeIntervalSince1970)
+    @State private var refreshNotice = false
+    @State private var forceRefreshRequested = false
+
+    @AppStorage("browse.sourceURL") private var selectedSourceURL = ""
+    @AppStorage("browse.rankLayout.v2") private var rankLayout = 2
+    @AppStorage("browse.rankVerticalCount") private var verticalCount = 4
+    @AppStorage("browse.rankHorizontalCount") private var horizontalCount = 4
+    @AppStorage("browse.cacheTTLMinutes") private var cacheTTLMinutes = 30
+
+    private var enabledSources: [BookSourceRecord] { allSources.filter(\.enabled) }
+    private var activeRecord: BookSourceRecord? {
+        enabledSources.first(where: { $0.bookSourceUrl == selectedSourceURL })
+    }
+    private var activeSource: BookSource? { activeRecord?.decodeSource() }
+    private var selectedSourceName: String { activeRecord?.bookSourceName ?? "切换书源" }
+    private var layoutLabel: String {
+        switch rankLayout {
+        case 0: return "横向"
+        case 1: return "竖向"
+        default: return "随机交替"
+        }
+    }
+
+    private var alternatingStartsHorizontal: Bool { refreshSeed % 2 == 0 }
+
+    private func isHorizontal(index: Int) -> Bool {
+        switch rankLayout {
+        case 0: return true
+        case 1: return false
+        default: return index % 2 == 0 ? alternatingStartsHorizontal : !alternatingStartsHorizontal
+        }
+    }
+
+    private var taskKey: String {
+        "\(selectedSourceURL)|\(refreshSeed)|\(cacheTTLMinutes)"
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack(alignment: .bottom) {
+                Color(.systemGroupedBackground).ignoresSafeArea()
+                Rectangle().fill(.ultraThinMaterial).ignoresSafeArea()
+
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 26) {
+                        topControls
+                        searchEntry
+                        if model.isLoading && model.boards.isEmpty {
+                            loadingView
+                        } else if let error = model.errorMessage, model.boards.isEmpty {
+                            errorView(error)
+                        } else {
+                            ForEach(Array(model.boards.enumerated()), id: \.element.id) { index, board in
+                                if isHorizontal(index: index) {
+                                    featuredSection(board)
+                                } else {
+                                    boardView(board)
+                                }
+                            }
+                            if model.hasMoreSections {
+                                HStack(spacing: 10) {
+                                    ProgressView().controlSize(.small)
+                                    Text("继续加载发现分类…")
+                                        .font(.footnote).foregroundStyle(.secondary)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 24)
+                                .onAppear { model.appendMoreSections() }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 10)
+                    .padding(.bottom, 110)
+                }
+                .refreshable { refreshBrowse() }
+
+                if refreshNotice {
+                    Text("正在刷新书源发现")
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(Color.black.opacity(0.76), in: Capsule())
+                        .padding(.bottom, 82)
+                        .transition(.opacity)
+                }
+            }
+            .toolbar(.hidden, for: .navigationBar)
+            .task(id: taskKey) { await loadExplore() }
+            .fullScreenCover(isPresented: $showSearch) {
+                SearchView(sourceURLFilter: selectedSourceURL.isEmpty ? nil : selectedSourceURL)
+            }
+            .sheet(isPresented: $showSourcePicker) {
+                BrowseSourcePicker(sources: enabledSources, selection: $selectedSourceURL)
+                    .presentationDetents([.medium, .large])
+            }
+            .sheet(item: $selectedBook) { selection in
+                BookDetailView(
+                    source: selection.source,
+                    bookUrl: selection.book.bookURL,
+                    name: selection.book.name,
+                    author: selection.book.author,
+                    intro: selection.book.intro,
+                    coverUrl: selection.book.coverURL
+                )
+            }
+            .sheet(item: $selectedBoard) { board in
+                BrowseBoardSheet(board: board, source: activeSource, onSelect: openBook)
+            }
+            .onAppear { ensureSourceSelection() }
+        }
+    }
+
+    private var topControls: some View {
+        HStack(spacing: 10) {
+            Button { showSourcePicker = true } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "books.vertical")
+                    Text(selectedSourceName).lineLimit(1)
+                    Image(systemName: "chevron.down").font(.caption2)
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 14)
+                .frame(height: 46)
+                .background(.thinMaterial, in: Capsule())
+            }
+            .buttonStyle(.plain)
+
+            Button { refreshBrowse() } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.blue)
+                    .frame(width: 46, height: 46)
+                    .background(.thinMaterial, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(activeSource == nil)
+            .accessibilityLabel("刷新发现")
+
+            Spacer(minLength: 4)
+
+            Menu {
+                Picker("榜单排列方式", selection: $rankLayout) {
+                    Label("全部横向", systemImage: "rectangle.3.group").tag(0)
+                    Label("全部竖向", systemImage: "list.bullet.rectangle").tag(1)
+                    Label("随机横竖交替", systemImage: "shuffle").tag(2)
+                }
+                Picker("竖向展示数", selection: $verticalCount) {
+                    ForEach(2...10, id: \.self) { Text("\($0) 本").tag($0) }
+                }
+                Picker("横向展示数", selection: $horizontalCount) {
+                    ForEach(2...10, id: \.self) { Text("\($0) 本").tag($0) }
+                }
+                Picker("缓存有效期", selection: $cacheTTLMinutes) {
+                    Text("不缓存").tag(0)
+                    Text("5 分钟").tag(5)
+                    Text("15 分钟").tag(15)
+                    Text("30 分钟").tag(30)
+                    Text("1 小时").tag(60)
+                    Text("6 小时").tag(360)
+                    Text("24 小时").tag(1_440)
+                }
+                Divider()
+                Button("重新随机起始方向", systemImage: "shuffle") { refreshBrowse() }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundStyle(.blue)
+                    .frame(width: 52, height: 52)
+                    .background(.thinMaterial, in: Circle())
+            }
+            .accessibilityLabel("榜单布局：\(layoutLabel)")
+        }
+    }
+
+    private var searchEntry: some View {
+        Button { showSearch = true } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(.primary)
+                Text("搜索书名、作者、网址或关键字")
+                    .font(.body).foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, 18)
+            .frame(height: 58)
+            .background(.thinMaterial, in: Capsule())
+            .overlay(Capsule().stroke(Color.white.opacity(0.7), lineWidth: 0.6))
+            .shadow(color: .black.opacity(0.08), radius: 10, y: 5)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var loadingView: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+            Text("正在加载 \(selectedSourceName) 的发现榜单…")
+                .font(.footnote).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 70)
+    }
+
+    private func errorView(_ message: String) -> some View {
+        ContentUnavailableView {
+            Label("发现页暂无内容", systemImage: "safari")
+        } description: {
+            Text(message)
+        } actions: {
+            HStack {
+                Button("切换书源") { showSourcePicker = true }
+                Button("重新加载") { refreshBrowse() }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 30)
+    }
+
+    private func featuredSection(_ board: BrowseBoard) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            sectionTitle(board.kind.title, trailing: board.books.isEmpty ? "" : "查看全部") {
+                if !board.books.isEmpty { selectedBoard = board }
+            }
+            Group {
+                switch board.phase {
+                case .loaded where !board.books.isEmpty:
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        LazyHStack(alignment: .top, spacing: 14) {
+                            ForEach(board.books.prefix(min(max(horizontalCount, 2), 10))) { book in
+                                Button { openBook(book) } label: {
+                                    VStack(alignment: .leading, spacing: 7) {
+                                        SmartCover(url: book.coverURL, title: book.name, headers: coverHeaders)
+                                            .frame(width: 128, height: 172)
+                                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                                            .shadow(color: .black.opacity(0.12), radius: 7, y: 4)
+                                        Text(book.name)
+                                            .font(.subheadline.weight(.semibold))
+                                            .foregroundStyle(.primary).lineLimit(1)
+                                        Text(book.kind.isEmpty ? book.author : book.kind)
+                                            .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                                    }
+                                    .frame(width: 128, alignment: .leading)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 1)
+                        .padding(.bottom, 4)
+                    }
+                case .failed:
+                    sectionFailure(board)
+                case .loaded:
+                    sectionEmpty
+                case .idle, .loading:
+                    featuredLoading
+                }
+            }
+        }
+        .task { model.loadSection(board.id) }
+    }
+
+    private func boardView(_ board: BrowseBoard) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(board.kind.title).font(.title3.bold()).lineLimit(1)
+                Spacer()
+                if !board.books.isEmpty {
+                    Button("查看全部") { selectedBoard = board }
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.bottom, 10)
+
+            switch board.phase {
+            case .loaded where !board.books.isEmpty:
+                loadedRankRows(board)
+            case .failed:
+                sectionFailure(board)
+            case .loaded:
+                sectionEmpty
+            case .idle, .loading:
+                rankedLoading
+            }
+        }
+        .padding(16)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.65), lineWidth: 0.6))
+        .task { model.loadSection(board.id) }
+    }
+
+    private func loadedRankRows(_ board: BrowseBoard) -> some View {
+        let visible = Array(board.books.prefix(min(max(verticalCount, 2), 10)))
+        return VStack(spacing: 0) {
+            ForEach(Array(visible.enumerated()), id: \.element.id) { index, book in
+                Button { openBook(book) } label: {
+                    HStack(spacing: 12) {
+                        Text("\(index + 1)")
+                            .font(.headline.bold()).foregroundStyle(.white)
+                            .frame(width: 30, height: 30)
+                            .background(rankColor(index), in: RoundedRectangle(cornerRadius: 7))
+                        SmartCover(url: book.coverURL, title: book.name, headers: coverHeaders)
+                            .frame(width: 48, height: 64)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(book.name).font(.headline).foregroundStyle(.primary).lineLimit(1)
+                            Text(book.author).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                            if !book.intro.isEmpty {
+                                Text(book.intro).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                            }
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, 9)
+                }
+                .buttonStyle(.plain)
+                if index < visible.count - 1 { Divider().padding(.leading, 42) }
+            }
+        }
+    }
+
+    private var featuredLoading: some View {
+        HStack(spacing: 14) {
+            ForEach(0..<3, id: \.self) { _ in
+                VStack(alignment: .leading, spacing: 8) {
+                    RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.12)).frame(width: 128, height: 172)
+                    RoundedRectangle(cornerRadius: 4).fill(Color.secondary.opacity(0.12)).frame(width: 100, height: 14)
+                }
+            }
+        }
+        .redacted(reason: .placeholder)
+        .overlay { ProgressView() }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .clipped()
+    }
+
+    private var rankedLoading: some View {
+        VStack(spacing: 12) {
+            ForEach(0..<min(max(verticalCount, 2), 4), id: \.self) { _ in
+                HStack(spacing: 12) {
+                    RoundedRectangle(cornerRadius: 7).fill(Color.secondary.opacity(0.12)).frame(width: 30, height: 30)
+                    RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.12)).frame(width: 48, height: 64)
+                    VStack(alignment: .leading, spacing: 8) {
+                        RoundedRectangle(cornerRadius: 4).fill(Color.secondary.opacity(0.12)).frame(height: 14)
+                        RoundedRectangle(cornerRadius: 4).fill(Color.secondary.opacity(0.10)).frame(width: 100, height: 11)
+                    }
+                }
+            }
+        }
+        .redacted(reason: .placeholder)
+        .overlay { ProgressView() }
+    }
+
+    private var sectionEmpty: some View {
+        Text("该分类暂无书籍")
+            .font(.footnote).foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 28)
+    }
+
+    private func sectionFailure(_ board: BrowseBoard) -> some View {
+        VStack(spacing: 8) {
+            Text(board.errorMessage ?? "加载失败")
+                .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            Button("重试") { model.retrySection(board.id) }
+                .font(.footnote.weight(.semibold))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 20)
+    }
+
+    private func sectionTitle(_ title: String, trailing: String, action: @escaping () -> Void) -> some View {
+        HStack {
+            Text(title).font(.title3.bold())
+            Spacer()
+            if !trailing.isEmpty {
+                Button(action: action) {
+                    HStack(spacing: 4) {
+                        Text(trailing)
+                        Image(systemName: "chevron.right")
+                    }
+                    .font(.subheadline).foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var coverHeaders: [String: String] {
+        activeSource?.parsedHeaderMap() ?? [:]
+    }
+
+    private func ensureSourceSelection() {
+        verticalCount = min(max(verticalCount, 2), 10)
+        horizontalCount = min(max(horizontalCount, 2), 10)
+        if !selectedSourceURL.isEmpty, activeSource?.exploreUrl?.isEmpty == false { return }
+        if let firstExplore = enabledSources.first(where: { $0.decodeSource()?.exploreUrl?.isEmpty == false }) {
+            selectedSourceURL = firstExplore.bookSourceUrl
+        } else {
+            selectedSourceURL = enabledSources.first?.bookSourceUrl ?? ""
+        }
+    }
+
+    private func loadExplore() async {
+        ensureSourceSelection()
+        guard let source = activeSource else {
+            model.boards = []
+            model.errorMessage = "请先启用并选择一个书源。"
+            return
+        }
+        let forceRefresh = forceRefreshRequested
+        forceRefreshRequested = false
+        await model.load(
+            source: source,
+            boardLimit: 12,
+            cacheTTL: TimeInterval(max(0, cacheTTLMinutes) * 60),
+            forceRefresh: forceRefresh
+        )
+    }
+
+    private func refreshBrowse() {
+        forceRefreshRequested = true
+        refreshSeed = Int.random(in: 1...Int.max / 4)
+        refreshNotice = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { refreshNotice = false }
+    }
+
+    private func openBook(_ book: BrowseBook) {
+        guard let source = activeSource else { return }
+        CrashReporter.shared.breadcrumb(
+            level: "info",
+            tag: "browse-explore",
+            message: "点击发现书籍：\(book.name) · \(book.sourceName) · \(String(book.bookURL.prefix(500)))"
+        )
+        selectedBook = BrowseSelection(book: book, source: source)
+    }
+
+    private func rankColor(_ index: Int) -> Color {
+        switch index {
+        case 0: return .red
+        case 1: return .orange
+        case 2: return Color(red: 0.98, green: 0.72, blue: 0.08)
+        default: return .gray.opacity(0.72)
+        }
+    }
+}
+
+private struct BrowseSourcePicker: View {
+    @Environment(\.dismiss) private var dismiss
+    let sources: [BookSourceRecord]
+    @Binding var selection: String
+    @State private var query = ""
+
+    private var filtered: [BookSourceRecord] {
+        sources.filter {
+            let source = $0.decodeSource()
+            let hasExplore = source?.exploreUrl?.isEmpty == false
+            let matches = query.isEmpty || $0.bookSourceName.localizedCaseInsensitiveContains(query)
+                || $0.bookSourceUrl.localizedCaseInsensitiveContains(query)
+            return hasExplore && matches
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(filtered) { source in
+                Button {
+                    selection = source.bookSourceUrl
+                    dismiss()
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: selection == source.bookSourceUrl ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(selection == source.bookSourceUrl ? .blue : .secondary)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(source.bookSourceName).foregroundStyle(.primary)
+                            Text(source.bookSourceUrl)
+                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                    }
+                }
+            }
+            .overlay {
+                if filtered.isEmpty {
+                    ContentUnavailableView(
+                        "没有发现书源",
+                        systemImage: "safari",
+                        description: Text("只有配置 exploreUrl 且已启用的书源会显示在这里。")
+                    )
+                }
+            }
+            .listStyle(.plain)
+            .searchable(text: $query, prompt: "搜索发现书源")
+            .navigationTitle("切换书源")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+private struct BrowseBoardSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let board: BrowseBoard
+    let source: BookSource?
+    let onSelect: (BrowseBook) -> Void
+
+    @State private var books: [BrowseBook]
+    @State private var currentPage = 1
+    @State private var isLoadingMore = false
+    @State private var reachedEnd = false
+    @State private var loadError: String?
+    @AppStorage("browse.cacheTTLMinutes") private var cacheTTLMinutes = 30
+
+    init(board: BrowseBoard, source: BookSource?, onSelect: @escaping (BrowseBook) -> Void) {
+        self.board = board
+        self.source = source
+        self.onSelect = onSelect
+        self._books = State(initialValue: board.books)
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(Array(books.enumerated()), id: \.element.id) { index, book in
+                    Button {
+                        dismiss()
+                        DispatchQueue.main.async { onSelect(book) }
+                    } label: {
+                        HStack(spacing: 12) {
+                            SmartCover(url: book.coverURL, title: book.name, headers: source?.parsedHeaderMap() ?? [:])
+                                .frame(width: 48, height: 66)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(book.name).font(.headline).foregroundStyle(.primary).lineLimit(1)
+                                Text(book.author).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                                if !book.intro.isEmpty {
+                                    Text(book.intro).font(.caption2).foregroundStyle(.tertiary).lineLimit(2)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .buttonStyle(.plain)
+                    .onAppear {
+                        if index >= books.count - 2 { Task { await loadMore() } }
+                    }
+                }
+
+                if isLoadingMore {
+                    HStack { Spacer(); ProgressView("加载下一页…"); Spacer() }
+                } else if let loadError {
+                    Button("加载失败，点击重试：\(loadError)") {
+                        Task { await loadMore() }
+                    }
+                    .font(.footnote).foregroundStyle(.red)
+                } else if reachedEnd {
+                    Text("已加载全部 \(books.count) 本")
+                        .font(.footnote).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .listStyle(.plain)
+            .navigationTitle(board.kind.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { dismiss() }
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func loadMore() async {
+        guard !isLoadingMore, !reachedEnd, let source else { return }
+        isLoadingMore = true
+        loadError = nil
+        defer { isLoadingMore = false }
+        let nextPage = currentPage + 1
+        do {
+            let values = try await BookSourceRuntime(source).explore(
+                board.kind,
+                page: nextPage,
+                resultLimit: 24,
+                cacheTTL: TimeInterval(max(0, cacheTTLMinutes) * 60)
+            )
+            var known = Set(books.map(\.id))
+            let newBooks = values.map {
+                BrowseBook(
+                    sourceURL: source.bookSourceUrl,
+                    sourceName: source.bookSourceName,
+                    name: $0.name,
+                    author: $0.author,
+                    intro: $0.intro,
+                    kind: $0.kind,
+                    lastChapter: $0.lastChapter,
+                    bookURL: $0.bookUrl,
+                    coverURL: $0.coverUrl
+                )
+            }.filter { known.insert($0.id).inserted }
+            if newBooks.isEmpty {
+                reachedEnd = true
+            } else {
+                books.append(contentsOf: newBooks)
+                currentPage = nextPage
+            }
+        } catch {
+            loadError = error.localizedDescription
+        }
+    }
+}
