@@ -97,6 +97,11 @@ final class ReaderConfig: ObservableObject {
         return ReaderTheme.themes.first { $0.id == themeId } ?? ReaderTheme.themes[0]
     }
 
+    /// 当前主题的主色调
+    var currentAccent: Color {
+        nightMode ? Theme.accent.opacity(0.8) : Theme.accent
+    }
+
     var swiftUIFont: Font {
         .system(size: fontSize, weight: bold ? .bold : .regular)
     }

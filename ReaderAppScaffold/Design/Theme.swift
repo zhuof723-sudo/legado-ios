@@ -1,13 +1,13 @@
 import SwiftUI
 
-/// 全局视觉主题：奶油底色 + 珊瑚红点缀（对照设计稿）
+/// 全局视觉主题：柔粉底色 + 珊瑚粉点缀（对照设计稿）
 enum Theme {
-    static let accent = Color(red: 0.937, green: 0.325, blue: 0.310)      // #EF534F
-    static let accentDeep = Color(red: 0.85, green: 0.24, blue: 0.24)
-    static let bg = Color(red: 0.965, green: 0.953, blue: 0.933)          // #F6F3EE 奶油底
+    static let accent = Color(red: 0.910, green: 0.604, blue: 0.604)      // #E89A9A 珊瑚粉
+    static let accentDeep = Color(red: 0.820, green: 0.490, blue: 0.490)  // #D17D7D 深珊瑚
+    static let bg = Color(red: 0.965, green: 0.945, blue: 0.965)          // #F6F1F6 柔粉底
     static let cardBg = Color.white
-    static let hairline = Color.black.opacity(0.06)
-    static let shadow = Color.black.opacity(0.08)
+    static let hairline = Color(red: 0.910, green: 0.604, blue: 0.604).opacity(0.12)
+    static let shadow = Color(red: 0.910, green: 0.604, blue: 0.604).opacity(0.10)
 
     /// 阅读器可选背景色
     static let readerBackgrounds: [Color] = [
@@ -50,7 +50,7 @@ extension View {
     @ViewBuilder
     func glassCircle() -> some View {
         self.background(.ultraThinMaterial, in: Circle())
-            .shadow(color: Color.black.opacity(0.12), radius: 10, y: 4)
+            .shadow(color: Theme.shadow, radius: 10, y: 4)
     }
 
     /// 强调按钮（红色主按钮）
@@ -83,7 +83,7 @@ struct PlaceholderCover: View {
             [Color(red: 0.55, green: 0.75, blue: 0.95), Color(red: 0.35, green: 0.52, blue: 0.85)],
             [Color(red: 0.60, green: 0.85, blue: 0.70), Color(red: 0.28, green: 0.62, blue: 0.52)],
             [Color(red: 0.85, green: 0.62, blue: 0.90), Color(red: 0.55, green: 0.38, blue: 0.80)],
-            [Color(red: 0.95, green: 0.55, blue: 0.55), Color(red: 0.80, green: 0.25, blue: 0.35)],
+            [Theme.accent, Theme.accentDeep],
         ]
         let h = title.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
         return presets[h % presets.count]
@@ -122,7 +122,7 @@ struct SmartCover: View {
     }
 }
 
-// MARK: - 章节进度条（红色小进度条）
+// MARK: - 章节进度条（珊瑚粉小进度条）
 
 struct MiniProgressBar: View {
     let progress: Double    // 0...1
