@@ -7,6 +7,7 @@ enum Theme {
     static let bg = Color(red: 0.965, green: 0.953, blue: 0.933)          // #F6F3EE 奶油底
     static let cardBg = Color.white
     static let hairline = Color.black.opacity(0.06)
+    static let shadow = Color.black.opacity(0.08)
 
     /// 阅读器可选背景色
     static let readerBackgrounds: [Color] = [
@@ -25,9 +26,19 @@ enum Theme {
     ]
 }
 
-// MARK: - 玻璃风格兼容封装
+// MARK: - 卡片样式兼容封装
 
 extension View {
+    /// 标准卡片样式：白色背景 + 圆角 + 微阴影（对照设计稿）
+    @ViewBuilder
+    func cardStyle(cornerRadius: CGFloat = 14) -> some View {
+        self.background(
+            RoundedRectangle(cornerRadius: cornerRadius)
+                .fill(Theme.cardBg)
+                .shadow(color: Theme.shadow, radius: 6, y: 2)
+        )
+    }
+
     /// 卡片/面板玻璃：使用 iOS 17+ 可用的材质实现，兼容当前 GitHub macOS Runner SDK
     @ViewBuilder
     func glassCard<S: Shape>(_ shape: S, interactive: Bool = false) -> some View {
