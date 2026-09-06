@@ -1,21 +1,91 @@
 import SwiftUI
 
-/// 全局视觉主题：柔粉底色 + 珊瑚粉点缀（对照设计稿）
+// MARK: - 主题模式枚举
+
+enum AppThemeMode: String, CaseIterable, Identifiable {
+    case light = "light"
+    case dark = "dark"
+
+    var id: String { rawValue }
+
+    var name: String {
+        switch self {
+        case .light: return "浅色"
+        case .dark: return "深色"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .light: return "sun.max"
+        case .dark: return "moon"
+        }
+    }
+}
+
+// MARK: - 全局视觉主题
+
 enum Theme {
-    static let accent = Color(red: 0.910, green: 0.604, blue: 0.604)      // #E89A9A 珊瑚粉
-    static let accentDeep = Color(red: 0.820, green: 0.490, blue: 0.490)  // #D17D7D 深珊瑚
-    static let bg = Color(red: 0.965, green: 0.945, blue: 0.965)          // #F6F1F6 柔粉底
-    static let cardBg = Color.white
-    static let hairline = Color(red: 0.910, green: 0.604, blue: 0.604).opacity(0.12)
-    static let shadow = Color(red: 0.910, green: 0.604, blue: 0.604).opacity(0.10)
+    // 主色调：珊瑚粉
+    static let accent = Color(red: 0.910, green: 0.604, blue: 0.604)      // #E89A9A
+    static let accentDeep = Color(red: 0.820, green: 0.490, blue: 0.490)  // #D17D7D
+
+    // 根据模式动态返回颜色
+    static func bg(for mode: AppThemeMode) -> Color {
+        switch mode {
+        case .light: return Color(red: 0.965, green: 0.945, blue: 0.965)  // #F6F1F6 柔粉底
+        case .dark: return Color(red: 0.12, green: 0.12, blue: 0.14)      // 深灰底
+        }
+    }
+
+    static func cardBg(for mode: AppThemeMode) -> Color {
+        switch mode {
+        case .light: return Color.white
+        case .dark: return Color(red: 0.18, green: 0.18, blue: 0.20)
+        }
+    }
+
+    static func textPrimary(for mode: AppThemeMode) -> Color {
+        switch mode {
+        case .light: return Color(red: 0.13, green: 0.13, blue: 0.14)
+        case .dark: return Color(red: 0.92, green: 0.92, blue: 0.94)
+        }
+    }
+
+    static func textSecondary(for mode: AppThemeMode) -> Color {
+        switch mode {
+        case .light: return Color(red: 0.50, green: 0.50, blue: 0.52)
+        case .dark: return Color(red: 0.65, green: 0.65, blue: 0.68)
+        }
+    }
+
+    static func hairline(for mode: AppThemeMode) -> Color {
+        switch mode {
+        case .light: return Color(red: 0.910, green: 0.604, blue: 0.604).opacity(0.12)
+        case .dark: return Color.white.opacity(0.08)
+        }
+    }
+
+    static func shadow(for mode: AppThemeMode) -> Color {
+        switch mode {
+        case .light: return Color(red: 0.910, green: 0.604, blue: 0.604).opacity(0.10)
+        case .dark: return Color.black.opacity(0.30)
+        }
+    }
+
+    // 默认浅色主题的颜色（向后兼容）
+    static let bg = bg(for: .light)
+    static let cardBg = cardBg(for: .light)
+    static let hairline = hairline(for: .light)
+    static let shadow = shadow(for: .light)
 
     /// 阅读器可选背景色
     static let readerBackgrounds: [Color] = [
-        Color(red: 0.99, green: 0.99, blue: 0.98),                        // 纸白
-        Color(red: 0.96, green: 0.93, blue: 0.86),                        // 米黄
-        Color(red: 0.90, green: 0.94, blue: 0.88),                        // 浅绿
-        Color(red: 0.92, green: 0.92, blue: 0.92),                        // 浅灰
-        Color(red: 0.10, green: 0.10, blue: 0.11),                        // 夜间
+        Color(red: 0.99, green: 0.99, blue: 0.98),
+        Color(red: 0.96, green: 0.93, blue: 0.86),
+        Color(red: 0.90, green: 0.94, blue: 0.88),
+        Color(red: 0.92, green: 0.92, blue: 0.92),
+        Color(red: 0.10, green: 0.10, blue: 0.11),
     ]
     static let readerTextColors: [Color] = [
         Color(red: 0.13, green: 0.13, blue: 0.14),
@@ -29,28 +99,28 @@ enum Theme {
 // MARK: - 卡片样式兼容封装
 
 extension View {
-    /// 标准卡片样式：白色背景 + 圆角 + 微阴影（对照设计稿）
+    /// 标准卡片样式
     @ViewBuilder
-    func cardStyle(cornerRadius: CGFloat = 14) -> some View {
+    func cardStyle(cornerRadius: CGFloat = 14, mode: AppThemeMode = .light) -> some View {
         self.background(
             RoundedRectangle(cornerRadius: cornerRadius)
-                .fill(Theme.cardBg)
-                .shadow(color: Theme.shadow, radius: 6, y: 2)
+                .fill(Theme.cardBg(for: mode))
+                .shadow(color: Theme.shadow(for: mode), radius: 6, y: 2)
         )
     }
 
-    /// 卡片/面板玻璃：使用 iOS 17+ 可用的材质实现，兼容当前 GitHub macOS Runner SDK
+    /// 卡片/面板玻璃
     @ViewBuilder
-    func glassCard<S: Shape>(_ shape: S, interactive: Bool = false) -> some View {
+    func glassCard<S: Shape>(_ shape: S, interactive: Bool = false, mode: AppThemeMode = .light) -> some View {
         self.background(.ultraThinMaterial, in: shape)
-            .overlay(shape.stroke(Theme.hairline, lineWidth: 0.5))
+            .overlay(shape.stroke(Theme.hairline(for: mode), lineWidth: 0.5))
     }
 
     /// 圆形玻璃（悬浮搜索等）
     @ViewBuilder
-    func glassCircle() -> some View {
+    func glassCircle(mode: AppThemeMode = .light) -> some View {
         self.background(.ultraThinMaterial, in: Circle())
-            .shadow(color: Theme.shadow, radius: 10, y: 4)
+            .shadow(color: Theme.shadow(for: mode), radius: 10, y: 4)
     }
 
     /// 强调按钮（红色主按钮）
@@ -65,17 +135,18 @@ extension View {
         self.buttonStyle(.bordered)
     }
 
-    /// 底部标签栏随滚动收缩：保留兼容实现，不依赖 iOS 26 SDK API
+    /// 底部标签栏随滚动收缩
     @ViewBuilder
     func minimizeTabBarOnScroll() -> some View {
         self
     }
 }
 
-// MARK: - 占位封面（推荐位无网络图时用，颜色由书名稳定哈希决定）
+// MARK: - 占位封面
 
 struct PlaceholderCover: View {
     let title: String
+    var mode: AppThemeMode = .light
 
     private var palette: [Color] {
         let presets: [[Color]] = [
@@ -104,16 +175,17 @@ struct PlaceholderCover: View {
     }
 }
 
-/// 封面视图：有 url 走网络加载，否则用占位
+/// 封面视图
 struct SmartCover: View {
     let url: String
     let title: String
     var headers: [String: String] = [:]
+    var mode: AppThemeMode = .light
 
     var body: some View {
         Group {
             if url.isEmpty {
-                PlaceholderCover(title: title)
+                PlaceholderCover(title: title, mode: mode)
             } else {
                 CoverImageView(url: url, headers: headers)
             }
@@ -122,10 +194,10 @@ struct SmartCover: View {
     }
 }
 
-// MARK: - 章节进度条（珊瑚粉小进度条）
+// MARK: - 章节进度条
 
 struct MiniProgressBar: View {
-    let progress: Double    // 0...1
+    let progress: Double
 
     var body: some View {
         GeometryReader { geo in

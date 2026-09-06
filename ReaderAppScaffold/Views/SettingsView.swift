@@ -148,21 +148,25 @@ struct DownloadStubPage: View {
 }
 
 struct AppearancePage: View {
-    @AppStorage("app.appearance") private var appearance = 0   // 0跟随系统 1浅色 2深色
+    @AppStorage("app.themeMode") private var themeMode: String = AppThemeMode.light.rawValue
+
+    var currentMode: AppThemeMode {
+        AppThemeMode(rawValue: themeMode) ?? .light
+    }
 
     var body: some View {
         List {
             Section("界面外观") {
-                Picker("主题模式", selection: $appearance) {
-                    Text("跟随系统").tag(0)
-                    Text("浅色").tag(1)
-                    Text("深色").tag(2)
+                Picker("主题模式", selection: $themeMode) {
+                    ForEach(AppThemeMode.allCases) { mode in
+                        Label(mode.name, systemImage: mode.icon).tag(mode.rawValue)
+                    }
                 }
                 .pickerStyle(.inline)
                 .tint(Theme.accent)
             }
             Section {
-                Text("阅读器背景不受主题模式影响，可在阅读时单独设置。")
+                Text("选择浅色或深色模式来匹配你的阅读环境。")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }

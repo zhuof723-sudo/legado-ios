@@ -5,6 +5,12 @@ import LegadoRuleEngine
 
 @main
 struct ReaderApp: App {
+    @AppStorage("app.themeMode") private var themeMode: String = AppThemeMode.light.rawValue
+
+    var currentThemeMode: AppThemeMode {
+        AppThemeMode(rawValue: themeMode) ?? .light
+    }
+
     init() {
         // 只使用系统提供的 identifierForVendor；获取不到时保持空，不伪造设备码。
         JSCommonMethods.deviceIdentifier = UIDevice.current.identifierForVendor?.uuidString ?? ""
@@ -39,6 +45,7 @@ struct ReaderApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                .preferredColorScheme(currentThemeMode == .dark ? .dark : .light)
         }
         .modelContainer(for: [BookSourceRecord.self, ShelfBook.self, LocalBook.self])
     }
@@ -47,15 +54,6 @@ struct ReaderApp: App {
 /// 根视图：四个标签 + 悬浮玻璃搜索按钮（对照设计稿的底部导航）
 struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
-    @AppStorage("app.appearance") private var appearance = 0
-
-    private var scheme: ColorScheme? {
-        switch appearance {
-        case 1: return .light
-        case 2: return .dark
-        default: return nil
-        }
-    }
 
     var body: some View {
         TabView {
@@ -72,12 +70,11 @@ struct RootView: View {
         }
         .tint(Theme.accent)
         .minimizeTabBarOnScroll()
-        .preferredColorScheme(scheme)
         .onAppear {
             CrashReporter.shared.markSessionActive(true)
             CrashLogStore.shared.reload()
         }
-        .onChange(of: scenePhase) {
+        .onChange(of: scenePhase) { _, _ in
             switch scenePhase {
             case .active:
                 CrashReporter.shared.markSessionActive(true)
