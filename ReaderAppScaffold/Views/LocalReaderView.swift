@@ -286,14 +286,16 @@ struct LocalReaderView: View {
         let lSpacing = config.lineSpacing
         let pSpacing = config.paragraphSpacing
         let indent = config.indentPixels
+        let content = viewModel.currentContent
+        let alignment = config.coreTextAlignment
         let result = await Task.detached(priority: .userInitiated) {
             TextPaginator.paginate(
-                text: viewModel.currentContent,
+                text: content,
                 font: font,
                 lineSpacing: lSpacing,
                 paragraphSpacing: pSpacing,
                 firstLineIndent: indent,
-                alignment: config.coreTextAlignment,
+                alignment: alignment,
                 pageSize: pageSize
             )
         }.value

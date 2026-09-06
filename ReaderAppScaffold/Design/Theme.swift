@@ -25,63 +25,39 @@ enum Theme {
     ]
 }
 
-// MARK: - 液态玻璃（iOS 26）兼容封装
+// MARK: - 玻璃风格兼容封装
 
 extension View {
-    /// 卡片/面板玻璃：iOS 26 用 Liquid Glass，低版本退化为材质
+    /// 卡片/面板玻璃：使用 iOS 17+ 可用的材质实现，兼容当前 GitHub macOS Runner SDK
     @ViewBuilder
     func glassCard<S: Shape>(_ shape: S, interactive: Bool = false) -> some View {
-        if #available(iOS 26.0, *) {
-            if interactive {
-                self.glassEffect(.regular.interactive(), in: shape)
-            } else {
-                self.glassEffect(.regular, in: shape)
-            }
-        } else {
-            self.background(.ultraThinMaterial, in: shape)
-                .overlay(shape.stroke(Theme.hairline, lineWidth: 0.5))
-        }
+        self.background(.ultraThinMaterial, in: shape)
+            .overlay(shape.stroke(Theme.hairline, lineWidth: 0.5))
     }
 
     /// 圆形玻璃（悬浮搜索等）
     @ViewBuilder
     func glassCircle() -> some View {
-        if #available(iOS 26.0, *) {
-            self.glassEffect(.regular.interactive(), in: .circle)
-        } else {
-            self.background(.ultraThinMaterial, in: Circle())
-                .shadow(color: Color.black.opacity(0.12), radius: 10, y: 4)
-        }
+        self.background(.ultraThinMaterial, in: Circle())
+            .shadow(color: Color.black.opacity(0.12), radius: 10, y: 4)
     }
 
     /// 强调按钮（红色主按钮）
     @ViewBuilder
     func prominentGlassButton() -> some View {
-        if #available(iOS 26.0, *) {
-            self.buttonStyle(.glassProminent)
-        } else {
-            self.buttonStyle(.borderedProminent)
-        }
+        self.buttonStyle(.borderedProminent)
     }
 
     /// 普通玻璃按钮
     @ViewBuilder
     func plainGlassButton() -> some View {
-        if #available(iOS 26.0, *) {
-            self.buttonStyle(.glass)
-        } else {
-            self.buttonStyle(.bordered)
-        }
+        self.buttonStyle(.bordered)
     }
 
-    /// 底部标签栏随滚动收缩（iOS 26）
+    /// 底部标签栏随滚动收缩：保留兼容实现，不依赖 iOS 26 SDK API
     @ViewBuilder
     func minimizeTabBarOnScroll() -> some View {
-        if #available(iOS 26.0, *) {
-            self.tabBarMinimizeBehavior(.onScrollDown)
-        } else {
-            self
-        }
+        self
     }
 }
 
