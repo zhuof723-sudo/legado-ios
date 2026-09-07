@@ -316,7 +316,7 @@ final class HorizontalSlideReader: UIViewController, PageReaderContainer, UIScro
 
 // MARK: - 覆盖翻页（新页面从边缘覆盖旧页面）
 
-final class CoverPageReader: UIViewController, PageReaderContainer {
+final class CoverPageReader: UIViewController, PageReaderContainer, UIGestureRecognizerDelegate {
     var pages: [String] = []
     let config: ReaderConfig
     var currentIndex: Int = 0
@@ -327,6 +327,9 @@ final class CoverPageReader: UIViewController, PageReaderContainer {
 
     private var currentPageView: PageContentView?
     private var isTransitioning = false
+    private var interactiveOldPage: PageContentView?
+    private var interactiveNextPage: PageContentView?
+    private var interactiveDirection = 0
 
     init(pages: [String], config: ReaderConfig, initialIndex: Int) {
         self.pages = pages
@@ -340,7 +343,7 @@ final class CoverPageReader: UIViewController, PageReaderContainer {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
-        installSwipeGestures()
+        installPanGesture()
         if !pages.isEmpty {
             showPage(at: min(max(currentIndex, 0), pages.count - 1), animated: false, direction: 1)
         }
@@ -353,24 +356,98 @@ final class CoverPageReader: UIViewController, PageReaderContainer {
         }
     }
 
-    private func installSwipeGestures() {
-        let left = UISwipeGestureRecognizer(target: self, action: #selector(handleSwipe(_:)))
-        left.direction = .left
-        left.cancelsTouchesInView = false
-        view.addGestureRecognizer(left)
-
-        let right = UISwipeGestureRecognizer(target: self, action: #selector(handleSwipe(_:)))
-        right.direction = .right
-        right.cancelsTouchesInView = false
-        view.addGestureRecognizer(right)
+    private func installPanGesture() {
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        pan.maximumNumberOfTouches = 1
+        pan.cancelsTouchesInView = false
+        pan.delegate = self
+        view.addGestureRecognizer(pan)
     }
 
-    @objc private func handleSwipe(_ gesture: UISwipeGestureRecognizer) {
-        guard !isTransitioning else { return }
-        let direction = gesture.direction == .left ? 1 : -1
-        let target = currentIndex + direction
-        guard target >= 0, target < pages.count else { return }
-        showPage(at: target, animated: true, direction: direction)
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
+        let velocity = pan.velocity(in: view)
+        // 只把明显的左右手势当作翻页，避免上下滚动/拖动文字时触发覆盖动画。
+        return abs(velocity.x) > abs(velocity.y) * 1.15
+    }
+
+    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        let translation = gesture.translation(in: view)
+        let width = max(view.bounds.width, 1)
+
+        switch gesture.state {
+        case .began:
+            guard !isTransitioning else { return }
+            let velocity = gesture.velocity(in: view).x
+            let translationX = gesture.translation(in: view).x
+            let direction = (velocity != 0 ? velocity : translationX) < 0 ? 1 : -1
+            let target = currentIndex + direction
+            guard target >= 0, target < pages.count else {
+                gesture.isEnabled = false
+                gesture.isEnabled = true
+                return
+            }
+            let next = makePage(at: target)
+            let old = currentPageView
+            interactiveOldPage = old
+            interactiveNextPage = next
+            interactiveDirection = direction
+            isTransitioning = true
+            // 下一页先铺在底层，当前页向左右滑走，形成截图中的“左右覆盖”效果。
+            next.frame = view.bounds
+            if let old {
+                old.layer.shadowColor = UIColor.black.cgColor
+                old.layer.shadowOpacity = 0.22
+                old.layer.shadowRadius = 14
+                old.layer.shadowOffset = CGSize(width: 0, height: 0)
+                view.insertSubview(next, belowSubview: old)
+            } else {
+                view.addSubview(next)
+            }
+
+        case .changed:
+            guard let old = interactiveOldPage, interactiveNextPage != nil else { return }
+            let offset = translation.x
+            old.frame = view.bounds.offsetBy(dx: offset, dy: 0)
+            old.layer.shadowOpacity = 0.22
+
+        case .ended, .cancelled, .failed:
+            guard let old = interactiveOldPage, let next = interactiveNextPage else {
+                isTransitioning = false
+                return
+            }
+            let progress = min(max((interactiveDirection > 0 ? -translation.x : translation.x) / width, 0), 1)
+            let finish = progress > 0.28 || abs(gesture.velocity(in: view).x) > 650
+            let direction = interactiveDirection
+            let target = currentIndex + direction
+            // 下一页已经在旧页下面；左右滑走的是当前页。
+            let finalX = finish ? (direction > 0 ? -width : width) : 0
+            UIView.animate(withDuration: 0.22, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
+                old.frame = self.view.bounds.offsetBy(dx: finalX, dy: 0)
+                old.layer.shadowOpacity = finish ? 0 : 0.22
+            } completion: { [weak self, weak old, weak next] _ in
+                guard let self else { return }
+                if finish {
+                    old?.removeFromSuperview()
+                    next?.frame = self.view.bounds
+                    self.currentPageView = next
+                    self.currentIndex = target
+                    self.onPageChanged?(target)
+                } else {
+                    next?.removeFromSuperview()
+                    old?.frame = self.view.bounds
+                    old?.layer.shadowOpacity = 0
+                    self.currentPageView = old
+                }
+                self.interactiveOldPage = nil
+                self.interactiveNextPage = nil
+                self.interactiveDirection = 0
+                self.isTransitioning = false
+            }
+
+        default:
+            break
+        }
     }
 
     private func makePage(at index: Int) -> PageContentView {
@@ -400,23 +477,36 @@ final class CoverPageReader: UIViewController, PageReaderContainer {
         }
 
         isTransitioning = true
-        // direction 1：下一页从右侧覆盖；direction -1：上一页从左侧覆盖
-        next.frame = view.bounds.offsetBy(dx: direction > 0 ? width : -width, dy: 0)
-        view.addSubview(next)
+        // 非交互式覆盖：下一页铺在底层，当前页向左右滑出，
+        // 与手势拖拽及参考图中的左右覆盖效果保持一致。
+        next.frame = view.bounds
+        if let old {
+            old.layer.shadowColor = UIColor.black.cgColor
+            old.layer.shadowOpacity = 0.22
+            old.layer.shadowRadius = 14
+            old.layer.shadowOffset = .zero
+            view.insertSubview(next, belowSubview: old)
+        } else {
+            view.addSubview(next)
+        }
         UIView.animate(
             withDuration: 0.30,
             delay: 0,
             options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
         ) {
-            next.frame = self.view.bounds
+            old?.frame = self.view.bounds.offsetBy(dx: direction > 0 ? -width : width, dy: 0)
+            old?.layer.shadowOpacity = 0
         } completion: { [weak self, weak old, weak next] finished in
             guard let self, let next else { return }
             guard finished else {
                 next.removeFromSuperview()
+                old?.frame = self.view.bounds
+                old?.layer.shadowOpacity = 0
                 self.isTransitioning = false
                 return
             }
             old?.removeFromSuperview()
+            next.frame = self.view.bounds
             self.currentPageView = next
             self.currentIndex = index
             self.isTransitioning = false
@@ -493,6 +583,7 @@ final class CurlPageReader: UIPageViewController, PageReaderContainer, UIPageVie
         super.viewDidLoad()
         dataSource = self
         delegate = self
+        isDoubleSided = false
         view.backgroundColor = .clear
         if !pages.isEmpty {
             let initial = min(currentIndex, pages.count - 1)
@@ -588,8 +679,11 @@ final class VerticalScrollReader: UIViewController, PageReaderContainer, UIScrol
         scrollView.decelerationRate = .fast
         scrollView.showsVerticalScrollIndicator = false
         scrollView.showsHorizontalScrollIndicator = false
-        scrollView.alwaysBounceVertical = true
+        scrollView.bounces = false
+        scrollView.alwaysBounceVertical = false
+        scrollView.alwaysBounceHorizontal = false
         scrollView.scrollsToTop = false
+        scrollView.contentInset = .zero
         scrollView.contentInsetAdjustmentBehavior = .never
 
         stackView.translatesAutoresizingMaskIntoConstraints = false
@@ -700,7 +794,7 @@ final class VerticalScrollReader: UIViewController, PageReaderContainer, UIScrol
 
 // MARK: - 无动画翻页
 
-final class NonePageReader: UIViewController, PageReaderContainer {
+final class NonePageReader: UIViewController, PageReaderContainer, UIGestureRecognizerDelegate {
     var pages: [String] = []
     let config: ReaderConfig
     var currentIndex: Int = 0
@@ -723,8 +817,34 @@ final class NonePageReader: UIViewController, PageReaderContainer {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
+        installNoAnimationGestures()
         if !pages.isEmpty {
             showPage(at: min(currentIndex, pages.count - 1))
+        }
+    }
+
+    private func installNoAnimationGestures() {
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handleNoAnimationPan(_:)))
+        pan.delegate = self
+        pan.cancelsTouchesInView = false
+        view.addGestureRecognizer(pan)
+    }
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
+        let velocity = pan.velocity(in: view)
+        return abs(velocity.x) > abs(velocity.y) * 1.15
+    }
+
+    @objc private func handleNoAnimationPan(_ gesture: UIPanGestureRecognizer) {
+        guard gesture.state == .ended else { return }
+        let velocity = gesture.velocity(in: view).x
+        let translation = gesture.translation(in: view).x
+        guard abs(velocity) > 250 || abs(translation) > 50 else { return }
+        if velocity < 0 || translation < 0 {
+            goToPage(currentIndex + 1, animated: false)
+        } else {
+            goToPage(currentIndex - 1, animated: false)
         }
     }
 

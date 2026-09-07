@@ -73,7 +73,7 @@ struct LocalReaderView: View {
                     try? await Task.sleep(nanoseconds: UInt64(config.autoReadSpeed * 1_000_000_000))
                     guard !Task.isCancelled else { break }
                     guard autoRead else { break }
-                    goNextPage()
+                    guard advancePage(allowNextChapter: false) else { break }
                 }
             }
         }
@@ -187,7 +187,7 @@ struct LocalReaderView: View {
                     in: 0...Double(max(pages.count - 1, 1))
                 )
                 .tint(Theme.accent)
-                Button { goNextPage() } label: {
+                Button { advancePage(allowNextChapter: true) } label: {
                     Image(systemName: "chevron.right").frame(width: 28, height: 28)
                 }
                 .tint(.white.opacity(0.9))
@@ -261,13 +261,17 @@ struct LocalReaderView: View {
 
     // MARK: - 翻页
 
-    private func goNextPage() {
-        guard !pages.isEmpty else { return }
+    @discardableResult
+    private func advancePage(allowNextChapter: Bool) -> Bool {
+        guard !pages.isEmpty else { return false }
         if pageIndex + 1 < pages.count {
             pageIndex += 1
-        } else {
-            viewModel.nextChapter()
+            return true
         }
+        guard allowNextChapter else { return false }
+        pageIndex = 0
+        viewModel.nextChapter()
+        return true
     }
 
     private func goPrevPage() {
