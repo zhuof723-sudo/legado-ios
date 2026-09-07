@@ -66,27 +66,54 @@ struct ReaderTheme: Identifiable, Equatable {
 final class ReaderConfig: ObservableObject {
     static let shared = ReaderConfig()
 
-    // 翻页动画
-    @AppStorage("reader.pageAnim") var pageAnim: Int = PageAnimationType.slide.rawValue
+    private let defaults: UserDefaults
 
-    // 字体排版
-    @AppStorage("reader.fontSize") var fontSize: Double = 18
-    @AppStorage("reader.bold") var bold: Bool = false
-    @AppStorage("reader.lineSpacing") var lineSpacing: Double = 6
-    @AppStorage("reader.paragraphSpacing") var paragraphSpacing: Double = 10
-    @AppStorage("reader.paragraphIndent") var paragraphIndent: Int = 2
+    // 用 @Published 替代直接放在 ObservableObject 里的 @AppStorage。
+    // 后者不会稳定地向依赖 config 的阅读器视图发送 objectWillChange，
+    // 导致改字号、边距或主题后分页和页面样式不刷新。
+    @Published var pageAnim: Int { didSet { defaults.set(pageAnim, forKey: Keys.pageAnim) } }
+    @Published var fontSize: Double { didSet { defaults.set(fontSize, forKey: Keys.fontSize) } }
+    @Published var bold: Bool { didSet { defaults.set(bold, forKey: Keys.bold) } }
+    @Published var lineSpacing: Double { didSet { defaults.set(lineSpacing, forKey: Keys.lineSpacing) } }
+    @Published var paragraphSpacing: Double { didSet { defaults.set(paragraphSpacing, forKey: Keys.paragraphSpacing) } }
+    @Published var paragraphIndent: Int { didSet { defaults.set(paragraphIndent, forKey: Keys.paragraphIndent) } }
+    @Published var paddingH: Double { didSet { defaults.set(paddingH, forKey: Keys.paddingH) } }
+    @Published var paddingTop: Double { didSet { defaults.set(paddingTop, forKey: Keys.paddingTop) } }
+    @Published var paddingBottom: Double { didSet { defaults.set(paddingBottom, forKey: Keys.paddingBottom) } }
+    @Published var themeId: String { didSet { defaults.set(themeId, forKey: Keys.themeId) } }
+    @Published var nightMode: Bool { didSet { defaults.set(nightMode, forKey: Keys.nightMode) } }
+    @Published var autoReadSpeed: Double { didSet { defaults.set(autoReadSpeed, forKey: Keys.autoReadSpeed) } }
 
-    // 边距
-    @AppStorage("reader.paddingH") var paddingH: Double = 20
-    @AppStorage("reader.paddingTop") var paddingTop: Double = 50
-    @AppStorage("reader.paddingBottom") var paddingBottom: Double = 40
+    private enum Keys {
+        static let pageAnim = "reader.pageAnim"
+        static let fontSize = "reader.fontSize"
+        static let bold = "reader.bold"
+        static let lineSpacing = "reader.lineSpacing"
+        static let paragraphSpacing = "reader.paragraphSpacing"
+        static let paragraphIndent = "reader.paragraphIndent"
+        static let paddingH = "reader.paddingH"
+        static let paddingTop = "reader.paddingTop"
+        static let paddingBottom = "reader.paddingBottom"
+        static let themeId = "reader.themeId"
+        static let nightMode = "reader.nightMode"
+        static let autoReadSpeed = "reader.autoReadSpeed"
+    }
 
-    // 主题
-    @AppStorage("reader.themeId") var themeId: String = "beige"
-    @AppStorage("reader.nightMode") var nightMode: Bool = false
-
-    // 其他
-    @AppStorage("reader.autoReadSpeed") var autoReadSpeed: Double = 3.5
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        self.pageAnim = defaults.object(forKey: Keys.pageAnim) as? Int ?? PageAnimationType.slide.rawValue
+        self.fontSize = defaults.object(forKey: Keys.fontSize) as? Double ?? 18
+        self.bold = defaults.object(forKey: Keys.bold) as? Bool ?? false
+        self.lineSpacing = defaults.object(forKey: Keys.lineSpacing) as? Double ?? 6
+        self.paragraphSpacing = defaults.object(forKey: Keys.paragraphSpacing) as? Double ?? 10
+        self.paragraphIndent = defaults.object(forKey: Keys.paragraphIndent) as? Int ?? 2
+        self.paddingH = defaults.object(forKey: Keys.paddingH) as? Double ?? 20
+        self.paddingTop = defaults.object(forKey: Keys.paddingTop) as? Double ?? 50
+        self.paddingBottom = defaults.object(forKey: Keys.paddingBottom) as? Double ?? 40
+        self.themeId = defaults.object(forKey: Keys.themeId) as? String ?? "beige"
+        self.nightMode = defaults.object(forKey: Keys.nightMode) as? Bool ?? false
+        self.autoReadSpeed = defaults.object(forKey: Keys.autoReadSpeed) as? Double ?? 3.5
+    }
 
     var currentPageAnim: PageAnimationType { PageAnimationType(rawValue: pageAnim) ?? .slide }
 

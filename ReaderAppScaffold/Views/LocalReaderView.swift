@@ -92,6 +92,10 @@ struct LocalReaderView: View {
             ReaderChapterSearchView(text: viewModel.currentContent)
                 .presentationDetents([.medium, .large])
         }
+        .onChange(of: viewModel.currentIndex) { _, _ in
+            if !pendingJumpToLastPage { pageIndex = 0 }
+            if speech.isSpeaking, pageIndex < pages.count { speech.speak(pages[pageIndex]) }
+        }
         .onChange(of: pageIndex) { _, _ in
             if speech.isSpeaking, pageIndex < pages.count { speech.speak(pages[pageIndex]) }
         }
@@ -279,7 +283,8 @@ struct LocalReaderView: View {
             pageIndex += 1
             return true
         }
-        guard allowNextChapter else { return false }
+        guard allowNextChapter, viewModel.hasNextChapter else { return false }
+        pendingJumpToLastPage = false
         pageIndex = 0
         viewModel.nextChapter()
         return true
@@ -288,9 +293,11 @@ struct LocalReaderView: View {
     private func goPrevPage() {
         if pageIndex > 0 {
             pageIndex -= 1
-        } else {
+        } else if viewModel.hasPreviousChapter {
             pendingJumpToLastPage = true
             viewModel.prevChapter()
+        } else {
+            pendingJumpToLastPage = false
         }
     }
 

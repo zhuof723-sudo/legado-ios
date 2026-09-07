@@ -23,6 +23,14 @@ final class TxtReaderViewModel: Identifiable {
         chapters.isEmpty ? bookName : chapters[min(currentIndex, chapters.count - 1)].title
     }
 
+    var hasNextChapter: Bool {
+        currentIndex + 1 < chapters.count
+    }
+
+    var hasPreviousChapter: Bool {
+        currentIndex > 0
+    }
+
     func openChapter(_ index: Int) {
         guard !chapters.isEmpty else { return }
         currentIndex = min(max(index, 0), chapters.count - 1)

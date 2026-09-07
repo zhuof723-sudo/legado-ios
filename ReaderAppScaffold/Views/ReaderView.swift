@@ -137,6 +137,9 @@ struct ReaderView: View {
             )
         }
         .onChange(of: viewModel.currentIndex) { _, _ in
+            // 切章后总是从新章第一页开始；只有向前切章时才由
+            // pendingJumpToLastPage 把页码恢复到上一章末页。
+            if !pendingJumpToLastPage { pageIndex = 0 }
             saveProgress()
             if speech.isSpeaking, pageIndex < pages.count { speech.speak(pages[pageIndex]) }
         }
@@ -293,7 +296,8 @@ struct ReaderView: View {
             pageIndex += 1
             return true
         }
-        guard allowNextChapter else { return false }
+        guard allowNextChapter, viewModel.hasNextChapter else { return false }
+        pendingJumpToLastPage = false
         pageIndex = 0
         Task { await viewModel.nextChapter() }
         return true
@@ -302,9 +306,12 @@ struct ReaderView: View {
     private func goPrevPage() {
         if pageIndex > 0 {
             pageIndex -= 1
-        } else {
+        } else if viewModel.hasPreviousChapter {
             pendingJumpToLastPage = true
             Task { await viewModel.prevChapter() }
+        } else {
+            // 已经是第一章第一页，不保留一个无效的“跳到末页”意图。
+            pendingJumpToLastPage = false
         }
     }
 
@@ -320,7 +327,6 @@ struct ReaderView: View {
         let lSpacing = config.lineSpacing
         let pSpacing = config.paragraphSpacing
         let indent = config.indentPixels
-        let content = viewModel.currentContent
         let alignment = config.coreTextAlignment
 
         let result = await Task.detached(priority: .userInitiated) {
