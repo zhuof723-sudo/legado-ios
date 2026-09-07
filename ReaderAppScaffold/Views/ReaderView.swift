@@ -13,7 +13,7 @@ struct ReaderView: View {
     let bookAuthor: String
     let coverURL: String
 
-    @StateObject private var config = ReaderConfig.shared
+    @ObservedObject private var config = ReaderConfig.shared
     @StateObject private var speech = ReaderSpeechController()
     @AppStorage("reader.autoRead") private var autoRead = false
 
@@ -103,9 +103,11 @@ struct ReaderView: View {
             }
             .task(id: autoRead) {
                 guard autoRead else { return }
-                while !Task.isCancelled {
+                for _ in 0..<1000 {
+                    guard !Task.isCancelled else { break }
                     try? await Task.sleep(nanoseconds: UInt64(config.autoReadSpeed * 1_000_000_000))
-                    if Task.isCancelled { break }
+                    guard !Task.isCancelled else { break }
+                    guard autoRead else { break }
                     goNextPage()
                 }
             }
@@ -134,11 +136,11 @@ struct ReaderView: View {
                 }
             )
         }
-        .onChange(of: viewModel.currentIndex) {
+        .onChange(of: viewModel.currentIndex) { _, _ in
             saveProgress()
             if speech.isSpeaking, pageIndex < pages.count { speech.speak(pages[pageIndex]) }
         }
-        .onChange(of: pageIndex) {
+        .onChange(of: pageIndex) { _, _ in
             if speech.isSpeaking, pageIndex < pages.count { speech.speak(pages[pageIndex]) }
         }
     }
@@ -318,6 +320,7 @@ struct ReaderView: View {
             )
         }.value
 
+        guard !Task.isCancelled else { return }
         guard content == viewModel.currentContent else { return }
         pages = result
         if pendingJumpToLastPage {

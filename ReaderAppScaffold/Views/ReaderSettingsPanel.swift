@@ -2,7 +2,7 @@ import SwiftUI
 
 /// 阅读设置面板（翻页动画 / 主题 / 排版 / 边距）
 struct ReaderSettingsPanel: View {
-    @StateObject private var config = ReaderConfig.shared
+    @ObservedObject private var config = ReaderConfig.shared
     @AppStorage("reader.autoRead") private var autoRead = false
 
     var body: some View {
