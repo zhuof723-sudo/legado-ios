@@ -16,7 +16,12 @@ final class PageContentView: UIView, UITextViewDelegate {
     var reviewCounts: [Int: Int] = [:] {
         didSet { updateAttributedText() }
     }
+    private let contentView = UIView()
     private let textView = UITextView()
+    private var contentTopConstraint: NSLayoutConstraint?
+    private var contentLeadingConstraint: NSLayoutConstraint?
+    private var contentTrailingConstraint: NSLayoutConstraint?
+    private var contentBottomConstraint: NSLayoutConstraint?
 
     init(text: String, config: ReaderConfig) {
         self.text = text
@@ -32,12 +37,17 @@ final class PageContentView: UIView, UITextViewDelegate {
         // 同一个会被翻页容器 transform 的视图上，不能依赖父容器背景。
         backgroundColor = UIColor(config.currentTheme.background)
         isOpaque = true
-        layoutMargins = UIEdgeInsets(
-            top: CGFloat(config.paddingTop),
-            left: CGFloat(config.paddingH),
-            bottom: CGFloat(config.paddingBottom),
-            right: CGFloat(config.paddingH)
-        )
+        // 页面背景层铺满，不设置外部 inset；只有内容层拥有阅读边距。
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.backgroundColor = .clear
+        addSubview(contentView)
+        NSLayoutConstraint.activate([
+            contentView.topAnchor.constraint(equalTo: topAnchor),
+            contentView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            contentView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+
         textView.translatesAutoresizingMaskIntoConstraints = false
         textView.backgroundColor = .clear
         textView.isEditable = false
@@ -53,12 +63,22 @@ final class PageContentView: UIView, UITextViewDelegate {
             .underlineColor: UIColor.clear
         ]
 
-        addSubview(textView)
+        contentView.addSubview(textView)
+        contentTopConstraint = textView.topAnchor.constraint(
+            equalTo: contentView.topAnchor, constant: CGFloat(config.paddingTop)
+        )
+        contentLeadingConstraint = textView.leadingAnchor.constraint(
+            equalTo: contentView.leadingAnchor, constant: CGFloat(config.paddingH)
+        )
+        contentTrailingConstraint = textView.trailingAnchor.constraint(
+            equalTo: contentView.trailingAnchor, constant: -CGFloat(config.paddingH)
+        )
+        contentBottomConstraint = textView.bottomAnchor.constraint(
+            equalTo: contentView.bottomAnchor, constant: -CGFloat(config.paddingBottom)
+        )
         NSLayoutConstraint.activate([
-            textView.topAnchor.constraint(equalTo: layoutMarginsGuide.topAnchor),
-            textView.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
-            textView.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
-            textView.bottomAnchor.constraint(equalTo: layoutMarginsGuide.bottomAnchor)
+            contentTopConstraint!, contentLeadingConstraint!,
+            contentTrailingConstraint!, contentBottomConstraint!
         ])
 
         updateAttributedText()
@@ -67,12 +87,10 @@ final class PageContentView: UIView, UITextViewDelegate {
     /// 更新页面背景和文字样式。
     func refreshAppearance() {
         backgroundColor = UIColor(config.currentTheme.background)
-        layoutMargins = UIEdgeInsets(
-            top: CGFloat(config.paddingTop),
-            left: CGFloat(config.paddingH),
-            bottom: CGFloat(config.paddingBottom),
-            right: CGFloat(config.paddingH)
-        )
+        contentTopConstraint?.constant = CGFloat(config.paddingTop)
+        contentLeadingConstraint?.constant = CGFloat(config.paddingH)
+        contentTrailingConstraint?.constant = -CGFloat(config.paddingH)
+        contentBottomConstraint?.constant = -CGFloat(config.paddingBottom)
         updateAttributedText()
     }
 
@@ -736,11 +754,10 @@ final class VerticalScrollReader: UIViewController, PageReaderContainer, UIScrol
     private func setupScrollView() {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.delegate = self
-        // 每个 PageContentView 占一屏，滚动只做确定性的整屏位移。
-        // bounces=false + 不在布局期间重置 offset，等价于网页端的
-        // overscroll-behavior-y: contain 和 overflow-anchor: none。
-        scrollView.isPagingEnabled = true
-        scrollView.decelerationRate = .fast
+        // 自由滚动：关闭分页吸附，松手后保留用户实际拖拽位置。
+        // bounces=false 防止滚动链和边界回弹把正文位置拉回。
+        scrollView.isPagingEnabled = false
+        scrollView.decelerationRate = .normal
         scrollView.isDirectionalLockEnabled = true
         scrollView.canCancelContentTouches = true
         scrollView.showsVerticalScrollIndicator = false
