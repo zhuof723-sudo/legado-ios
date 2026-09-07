@@ -28,7 +28,16 @@ final class PageContentView: UIView, UITextViewDelegate {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     private func setupTextView() {
-        backgroundColor = .clear
+        // 每个 PageContentView 是一个独立页面：背景必须和文字放在
+        // 同一个会被翻页容器 transform 的视图上，不能依赖父容器背景。
+        backgroundColor = UIColor(config.currentTheme.background)
+        isOpaque = true
+        layoutMargins = UIEdgeInsets(
+            top: CGFloat(config.paddingTop),
+            left: CGFloat(config.paddingH),
+            bottom: CGFloat(config.paddingBottom),
+            right: CGFloat(config.paddingH)
+        )
         textView.translatesAutoresizingMaskIntoConstraints = false
         textView.backgroundColor = .clear
         textView.isEditable = false
@@ -46,12 +55,24 @@ final class PageContentView: UIView, UITextViewDelegate {
 
         addSubview(textView)
         NSLayoutConstraint.activate([
-            textView.topAnchor.constraint(equalTo: topAnchor),
-            textView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            textView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            textView.bottomAnchor.constraint(equalTo: bottomAnchor)
+            textView.topAnchor.constraint(equalTo: layoutMarginsGuide.topAnchor),
+            textView.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
+            textView.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
+            textView.bottomAnchor.constraint(equalTo: layoutMarginsGuide.bottomAnchor)
         ])
 
+        updateAttributedText()
+    }
+
+    /// 更新页面背景和文字样式。
+    func refreshAppearance() {
+        backgroundColor = UIColor(config.currentTheme.background)
+        layoutMargins = UIEdgeInsets(
+            top: CGFloat(config.paddingTop),
+            left: CGFloat(config.paddingH),
+            bottom: CGFloat(config.paddingBottom),
+            right: CGFloat(config.paddingH)
+        )
         updateAttributedText()
     }
 
@@ -107,6 +128,8 @@ protocol PageReaderContainer: AnyObject {
     var onReviewTap: ((Int) -> Void)? { get set }
     /// 各段落的评论数
     var reviewCounts: [Int: Int] { get set }
+    /// 刷新每个独立页面的背景和文字样式。
+    func refreshAppearance()
     func goToPage(_ index: Int, animated: Bool)
     func updatePages(_ newPages: [String], keepIndex: Int)
 }
@@ -239,6 +262,10 @@ final class HorizontalSlideReader: UIViewController, PageReaderContainer, UIScro
             needsInitialOffset = false
             lastBoundsSize = scrollView.bounds.size
         }
+    }
+
+    func refreshAppearance() {
+        pageViews.forEach { $0.refreshAppearance() }
     }
 
     func updatePages(_ newPages: [String], keepIndex: Int) {
@@ -514,6 +541,12 @@ final class CoverPageReader: UIViewController, PageReaderContainer, UIGestureRec
         }
     }
 
+    func refreshAppearance() {
+        currentPageView?.refreshAppearance()
+        interactiveOldPage?.refreshAppearance()
+        interactiveNextPage?.refreshAppearance()
+    }
+
     func updatePages(_ newPages: [String], keepIndex: Int) {
         pages = newPages
         guard !newPages.isEmpty else {
@@ -549,7 +582,7 @@ private final class IndexedPageViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .clear
+        view.backgroundColor = UIColor(pageView.config.currentTheme.background)
         pageView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(pageView)
         NSLayoutConstraint.activate([
@@ -590,6 +623,11 @@ final class CurlPageReader: UIPageViewController, PageReaderContainer, UIPageVie
             setViewControllers([makeVC(at: initial)], direction: .forward, animated: false)
             currentIndex = initial
         }
+    }
+
+    func refreshAppearance() {
+        viewControllers?.compactMap { $0 as? IndexedPageViewController }
+            .forEach { $0.pageView.refreshAppearance() }
     }
 
     func updatePages(_ newPages: [String], keepIndex: Int) {
@@ -655,6 +693,10 @@ final class VerticalScrollReader: UIViewController, PageReaderContainer, UIScrol
     private let scrollView = UIScrollView()
     private let stackView = UIStackView()
     private var pageViews: [PageContentView] = []
+    private var needsInitialOffset = true
+    private var lastBoundsSize: CGSize = .zero
+    private var pendingAnimatedIndex: Int?
+    private let bottomContentPadding: CGFloat = 60
 
     init(pages: [String], config: ReaderConfig, initialIndex: Int) {
         self.pages = pages
@@ -672,18 +714,55 @@ final class VerticalScrollReader: UIViewController, PageReaderContainer, UIScrol
         reloadPages()
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        let size = scrollView.bounds.size
+        guard size.width > 0, size.height > 0, !pages.isEmpty else { return }
+
+        // 只在首次布局或屏幕尺寸变化时校准位置。不要在每次布局时
+        // 重置 contentOffset，否则滚动中的页面会被自动拉回，形成跳动。
+        if needsInitialOffset || lastBoundsSize != size {
+            let targetIndex = pendingAnimatedIndex ?? currentIndex
+            let safeIndex = min(max(targetIndex, 0), pages.count - 1)
+            scrollView.setContentOffset(
+                CGPoint(x: 0, y: pageOffset(for: safeIndex)),
+                animated: false
+            )
+            needsInitialOffset = false
+            lastBoundsSize = size
+        }
+    }
+
     private func setupScrollView() {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.delegate = self
+        // 每个 PageContentView 占一屏，滚动只做确定性的整屏位移。
+        // bounces=false + 不在布局期间重置 offset，等价于网页端的
+        // overscroll-behavior-y: contain 和 overflow-anchor: none。
         scrollView.isPagingEnabled = true
         scrollView.decelerationRate = .fast
+        scrollView.directionalLockEnabled = true
+        scrollView.canCancelContentTouches = true
         scrollView.showsVerticalScrollIndicator = false
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.bounces = false
         scrollView.alwaysBounceVertical = false
         scrollView.alwaysBounceHorizontal = false
         scrollView.scrollsToTop = false
-        scrollView.contentInset = .zero
+        // 对应网页阅读器的 overflow-anchor: none / overscroll-behavior-y: contain：
+        // 禁止滚动链和自动锚定把正文位置向上拉回。
+        scrollView.contentInset = UIEdgeInsets(
+            top: 0,
+            left: 0,
+            bottom: bottomContentPadding,
+            right: 0
+        )
+        scrollView.verticalScrollIndicatorInsets = UIEdgeInsets(
+            top: 0,
+            left: 0,
+            bottom: bottomContentPadding,
+            right: 0
+        )
         scrollView.contentInsetAdjustmentBehavior = .never
 
         stackView.translatesAutoresizingMaskIntoConstraints = false
@@ -732,12 +811,21 @@ final class VerticalScrollReader: UIViewController, PageReaderContainer, UIScrol
 
         let safeIndex = min(max(currentIndex, 0), max(pages.count - 1, 0))
         currentIndex = safeIndex
+        pendingAnimatedIndex = nil
+        needsInitialOffset = true
+        lastBoundsSize = .zero
         if scrollView.bounds.height > 0 {
             scrollView.setContentOffset(
-                CGPoint(x: 0, y: CGFloat(safeIndex) * scrollView.bounds.height),
+                CGPoint(x: 0, y: pageOffset(for: safeIndex)),
                 animated: false
             )
+            needsInitialOffset = false
+            lastBoundsSize = scrollView.bounds.size
         }
+    }
+
+    func refreshAppearance() {
+        pageViews.forEach { $0.refreshAppearance() }
     }
 
     func updatePages(_ newPages: [String], keepIndex: Int) {
@@ -753,10 +841,12 @@ final class VerticalScrollReader: UIViewController, PageReaderContainer, UIScrol
             currentIndex = index
             return
         }
-        guard index != currentIndex || abs(scrollView.contentOffset.y - CGFloat(index) * scrollView.bounds.height) > 1 else {
-            return
-        }
-        let targetY = CGFloat(index) * scrollView.bounds.height
+        let targetY = pageOffset(for: index)
+        guard abs(scrollView.contentOffset.y - targetY) > 1 else { return }
+
+        // 向下翻页始终增加 contentOffset.y；不用负方向或依赖锚点修正，
+        // 避免正文在动画过程中向上跳动。
+        pendingAnimatedIndex = animated ? index : nil
         scrollView.setContentOffset(CGPoint(x: 0, y: targetY), animated: animated)
         if !animated {
             currentIndex = index
@@ -780,11 +870,16 @@ final class VerticalScrollReader: UIViewController, PageReaderContainer, UIScrol
         // 只在自然滚动结束时通知外部，避免拖动过程中连续触发 SwiftUI 重绘。
     }
 
+    private func pageOffset(for index: Int) -> CGFloat {
+        CGFloat(index) * scrollView.bounds.height
+    }
+
     private func notifyCurrentPage() {
         let pageHeight = scrollView.bounds.height
         guard pageHeight > 0, !pages.isEmpty else { return }
         let approximateIndex = Int((scrollView.contentOffset.y + pageHeight / 2) / pageHeight)
         let clampedIndex = min(max(approximateIndex, 0), pages.count - 1)
+        pendingAnimatedIndex = nil
         if clampedIndex != currentIndex {
             currentIndex = clampedIndex
             onPageChanged?(currentIndex)
@@ -867,6 +962,10 @@ final class NonePageReader: UIViewController, PageReaderContainer, UIGestureReco
         currentIndex = index
     }
 
+    func refreshAppearance() {
+        currentPageView?.refreshAppearance()
+    }
+
     func updatePages(_ newPages: [String], keepIndex: Int) {
         pages = newPages
         let safeIndex = min(max(keepIndex, 0), max(newPages.count - 1, 0))
@@ -910,6 +1009,10 @@ struct PageReaderViewRepresentable: UIViewControllerRepresentable {
 
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
         guard let reader = uiViewController as? PageReaderContainer else { return }
+
+        // 每个页面自己持有背景；配置变化时同步刷新所有正在显示的页面，
+        // 保证覆盖/仿真翻页使用的 transform 层始终是完整的“背景+文字”页面。
+        reader.refreshAppearance()
 
         // 先更新回调和页面配置，再重载页面；否则 updatePages 期间发生的页码变化
         // 会丢失回调，导致 SwiftUI 的 pageIndex 与 UIKit 容器不同步。

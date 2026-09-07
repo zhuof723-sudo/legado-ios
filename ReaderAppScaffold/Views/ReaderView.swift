@@ -45,7 +45,6 @@ struct ReaderView: View {
         self.coverURL = coverURL
     }
 
-    private var bgColor: Color { config.currentTheme.background }
     private var textColor: Color { config.currentTheme.textColor }
 
     var body: some View {
@@ -58,7 +57,7 @@ struct ReaderView: View {
                 + "\(Int(pageSize.width))x\(Int(pageSize.height))|\(viewModel.currentIndex)"
 
             ZStack {
-                bgColor.ignoresSafeArea()
+                config.currentTheme.background.ignoresSafeArea()
 
                 if paginatedForKey == paginationKey, !pages.isEmpty {
                     PageReaderViewRepresentable(
@@ -80,9 +79,8 @@ struct ReaderView: View {
                         reviewCounts: reviewCounts
                     )
                     .id("\(config.pageAnim)_\(config.themeId)_\(config.nightMode)")
-                    .padding(.horizontal, config.paddingH)
-                    .padding(.top, config.paddingTop)
-                    .padding(.bottom, config.paddingBottom)
+                    // 页面边距由 PageContentView 内部承担；这样每个被翻页
+                    // transform 的页面包含完整背景和文字，不会留下固定的父背景。
                     .contentShape(Rectangle())
                     .onTapGesture(count: 1, coordinateSpace: .local) { location in
                         handlePageTap(location, width: geo.size.width)

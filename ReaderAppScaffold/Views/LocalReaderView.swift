@@ -48,9 +48,8 @@ struct LocalReaderView: View {
                         currentIndex: $pageIndex
                     )
                     .id("\(config.pageAnim)_\(config.themeId)_\(config.nightMode)")
-                    .padding(.horizontal, config.paddingH)
-                    .padding(.top, config.paddingTop)
-                    .padding(.bottom, config.paddingBottom)
+                    // 页面边距由 PageContentView 内部承担；每个页面因此是
+                    // 背景+文字的完整独立翻页层。
                     .contentShape(Rectangle())
                     .onTapGesture(count: 1, coordinateSpace: .local) { location in
                         handlePageTap(location, width: geo.size.width)
