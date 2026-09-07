@@ -194,7 +194,6 @@ struct BookDetailView: View {
             .disabled(isStartingReading)
             .buttonStyle(.borderedProminent)
             .tint(Theme.accent)
-            .buttonShape(.capsule)
 
             Button {
                 toggleShelf()
@@ -332,7 +331,7 @@ struct BookDetailView: View {
             // 加入书架
             do {
                 let _ = try ensureShelfBook()
-                readerVM?.enablePersistentCache(bookUrl: bookUrl)
+                readerVM?.enablePersistentCache(bookURL: bookUrl)
                 inShelf = true
                 startError = nil
             } catch {
