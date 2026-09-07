@@ -52,8 +52,8 @@ struct LocalReaderView: View {
                     .padding(.top, config.paddingTop)
                     .padding(.bottom, config.paddingBottom)
                     .contentShape(Rectangle())
-                    .onTapGesture {
-                        withAnimation(.easeInOut(duration: 0.2)) { showControls.toggle() }
+                    .onTapGesture(count: 1, coordinateSpace: .local) { location in
+                        handlePageTap(location, width: geo.size.width)
                     }
                 } else {
                     ProgressView()
@@ -94,6 +94,17 @@ struct LocalReaderView: View {
         }
         .onChange(of: pageIndex) { _, _ in
             if speech.isSpeaking, pageIndex < pages.count { speech.speak(pages[pageIndex]) }
+        }
+    }
+
+    private func handlePageTap(_ location: CGPoint, width: CGFloat) {
+        let edge = max(72, width * 0.24)
+        if location.x <= edge {
+            goPrevPage()
+        } else if location.x >= width - edge {
+            _ = advancePage(allowNextChapter: true)
+        } else {
+            withAnimation(.easeInOut(duration: 0.2)) { showControls.toggle() }
         }
     }
 
