@@ -741,7 +741,7 @@ final class VerticalScrollReader: UIViewController, PageReaderContainer, UIScrol
         // overscroll-behavior-y: contain 和 overflow-anchor: none。
         scrollView.isPagingEnabled = true
         scrollView.decelerationRate = .fast
-        scrollView.directionalLockEnabled = true
+        scrollView.isDirectionalLockEnabled = true
         scrollView.canCancelContentTouches = true
         scrollView.showsVerticalScrollIndicator = false
         scrollView.showsHorizontalScrollIndicator = false
