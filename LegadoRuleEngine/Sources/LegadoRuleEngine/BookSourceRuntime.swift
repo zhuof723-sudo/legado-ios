@@ -569,13 +569,18 @@ public final class BookSourceRuntime {
 
     // MARK: - 正文
 
-    public func getContent(chapterUrl: String, maxPages: Int = 20) async throws -> String {
+    /// 获取已格式化的正文，同时保留 Legado `style: "TEXT"` 段评图片。
+    /// Android 原版不会在此阶段删掉这类 `<img>`，而是在排版阶段把它转换为 `꧁` 占位；
+    /// iOS 使用私有占位字符保存同一份元数据，之后由 `UITextView` 渲染为可点击段评入口。
+    public func getChapterContent(chapterUrl: String, maxPages: Int = 20) async throws -> ReaderChapterContent {
         guard let rule = source.ruleContent, let contentRule = rule.content else {
             EngineLogger.log("书源缺少 ruleContent.content", tag: source.bookSourceName, level: .warn)
-            return ""
+            return ReaderChapterContent(text: "")
         }
 
         var pieces: [String] = []
+        var markers: [InlineReviewMarker] = []
+        var paragraphOffset = 0
         var visited: Set<String> = []
         var currentUrl: String? = chapterUrl
         var pageCount = 0
@@ -599,9 +604,45 @@ public final class BookSourceRuntime {
             analyzeRule.chapterUrl = url
             analyzeRule.setContent(body, baseUrl: baseUrl)
 
-            let text = analyzeRule.getString(contentRule)
-            let cleanedText = stripHTML(text)
-            if !cleanedText.isEmpty { pieces.append(cleanedText) }
+            // 不再用 stripHTML 直接删除全部 <img>；段评图需要跟随正文进入排版层。
+            // Android 还会从 ruleContent.title 中提取章节标题段评图；
+            // 标题文字由 iOS 目录/阅读器显示，因此这里只把 title 内的 TEXT marker 接入正文。
+            if let titleRule = rule.title, !titleRule.isEmpty {
+                let rawTitle = analyzeRule.getString(
+                    analyzeRule.splitSourceRule(titleRule),
+                    unescape: false
+                )
+                let titleFormatted = ReaderContentFormatter.format(
+                    rawTitle,
+                    baseURL: baseUrl,
+                    markerStart: markers.count,
+                    paragraphStart: paragraphOffset
+                )
+                let titleTokens = titleFormatted.inlineReviewMarkers.map(\.token).joined()
+                if !titleTokens.isEmpty {
+                    pieces.append(titleTokens)
+                    markers.append(contentsOf: titleFormatted.inlineReviewMarkers)
+                    paragraphOffset += 1
+                }
+            }
+
+            let rawContent = analyzeRule.getString(
+                analyzeRule.splitSourceRule(contentRule),
+                unescape: false
+            )
+            let formatted = ReaderContentFormatter.format(
+                rawContent,
+                baseURL: baseUrl,
+                markerStart: markers.count,
+                paragraphStart: paragraphOffset
+            )
+            if !formatted.text.isEmpty {
+                pieces.append(formatted.text)
+                markers.append(contentsOf: formatted.inlineReviewMarkers)
+                paragraphOffset += formatted.text.reduce(into: 0) { count, char in
+                    if char == "\n" { count += 1 }
+                } + 1
+            }
 
             if let nextRule = rule.nextContentUrl, !nextRule.isEmpty {
                 let next = analyzeRule.getString(nextRule, isUrl: true)
@@ -610,9 +651,46 @@ public final class BookSourceRuntime {
                 currentUrl = nil
             }
         }
-        let result = pieces.joined(separator: "\n")
-        EngineLogger.log("正文共 \(result.count) 字", tag: source.bookSourceName)
+        let result = ReaderChapterContent(
+            text: pieces.joined(separator: "\n"),
+            inlineReviewMarkers: markers
+        )
+        EngineLogger.log("正文共 \(result.text.count) 字，识别到 \(markers.count) 个段评图", tag: source.bookSourceName)
         return result
+    }
+
+    /// 兼容现有调用方；需要段评元数据的阅读器应改用 `getChapterContent`。
+    public func getContent(chapterUrl: String, maxPages: Int = 20) async throws -> String {
+        let document = try await getChapterContent(chapterUrl: chapterUrl, maxPages: maxPages)
+        return ReaderContentFormatter.removingMarkers(from: document.text)
+    }
+
+    /// 执行段评图 URL 选项里的 `click`/`js` 脚本。
+    /// 脚本内的 java.showBrowser/open 会通过传入的回调打开应用内浏览器。
+    public func executeInlineReviewAction(
+        _ action: String,
+        markerSource: String,
+        chapterUrl: String,
+        browserOpener: @escaping (_ url: String, _ title: String?) -> Void,
+        toastHandler: ((_ message: String) -> Void)? = nil
+    ) {
+        let trimmed = action.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
+            browserOpener(trimmed, nil)
+            return
+        }
+
+        let rule = makeAnalyzeRule()
+        rule.chapterUrl = chapterUrl
+        rule.setBaseUrl(chapterUrl)
+        rule.browserOpener = browserOpener
+        rule.toastHandler = toastHandler
+        _ = rule.evalJS(trimmed, result: markerSource)
+        if let error = rule.lastJSError {
+            EngineLogger.log("段评图点击脚本失败: \(error)", tag: source.bookSourceName, level: .error)
+            toastHandler?("段评操作失败：\(error)")
+        }
     }
 
     // MARK: - 段评获取（参考 legado-E ReviewRule）
@@ -625,12 +703,20 @@ public final class BookSourceRuntime {
     public func getReviews(
         chapterUrl: String,
         paragraphText: String,
-        page: Int = 1
+        page: Int = 1,
+        reviewURL overrideURL: String? = nil
     ) async throws -> [RawReview] {
-        guard let rule = source.ruleReview,
-              let reviewUrl = rule.reviewUrl,
-              !reviewUrl.isEmpty else {
-            return []
+        // 内嵌段评图可以自行提供 URL；传统书源仍从 ruleReview 取 URL 和解析规则。
+        let rule = source.ruleReview
+        let reviewUrl: String
+        if let overrideURL, !overrideURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            reviewUrl = overrideURL
+        } else {
+            guard let configuredURL = rule?.reviewUrl,
+                  !configuredURL.isEmpty else {
+                return []
+            }
+            reviewUrl = configuredURL
         }
 
         // 替换占位符
@@ -662,7 +748,7 @@ public final class BookSourceRuntime {
         // 也可以用 JSON 路径（返回 JSON 对象列表）
         var reviews: [RawReview] = []
 
-        if let contentRule = rule.contentRule, !contentRule.isEmpty {
+        if let contentRule = rule?.contentRule, !contentRule.isEmpty {
             // 用 getElements 获取评论列表元素
             let elements = analyzeRule.getElements(contentRule)
             for element in elements {
@@ -687,13 +773,13 @@ public final class BookSourceRuntime {
         // 用 avatarRule / postTimeRule 补充字段（如果配置了）
         if !reviews.isEmpty {
             for i in 0..<reviews.count {
-                if let avatarRule = rule.avatarRule, !avatarRule.isEmpty {
+                if let avatarRule = rule?.avatarRule, !avatarRule.isEmpty {
                     let avatar = analyzeRule.getString(avatarRule)
                     if !avatar.isEmpty {
                         reviews[i]["avatarUrl"] = avatar
                     }
                 }
-                if let postTimeRule = rule.postTimeRule, !postTimeRule.isEmpty {
+                if let postTimeRule = rule?.postTimeRule, !postTimeRule.isEmpty {
                     let time = analyzeRule.getString(postTimeRule)
                     if !time.isEmpty {
                         reviews[i]["postTime"] = time

@@ -133,7 +133,8 @@ jobs:
         if: steps.signing.outputs.available != 'true'
         shell: bash
         run: |
-          set -euo pipefail
+          set -o pipefail
+          mkdir -p build
           xcodebuild build \
             -project Legado.xcodeproj \
             -scheme Legado \
@@ -144,14 +145,28 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY='' \
             DEVELOPMENT_TEAM='' \
-            PROVISIONING_PROFILE_SPECIFIER=''
+            PROVISIONING_PROFILE_SPECIFIER='' 2>&1 | tee build/xcodebuild.log
+          rc=${PIPESTATUS[0]}
+          grep -E 'error:|fatal error|SwiftCompile' build/xcodebuild.log | tail -80 | while IFS= read -r line; do
+            echo "::error file=SwiftCompile::$line"
+          done
+          if [ "$rc" -ne 0 ]; then
+            exit "$rc"
+          fi
           APP_PATH=$(find build/DerivedData/Build/Products -type d -name '*.app' -print | head -1)
           test -n "$APP_PATH"
           rm -rf build/Payload build/Legado-unsigned.ipa
           mkdir -p build/Payload
           cp -R "$APP_PATH" build/Payload/
           (cd build && /usr/bin/zip -qry Legado-unsigned.ipa Payload)
-
+      - name: Upload build diagnostics
+        if: always() && steps.signing.outputs.available != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-diagnostics
+          path: build/**/*.log
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:

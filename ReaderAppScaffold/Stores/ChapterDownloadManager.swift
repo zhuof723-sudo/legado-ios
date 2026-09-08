@@ -62,26 +62,32 @@ public final class ChapterDownloadManager: @unchecked Sendable {
         Task { await startProcessIfNeeded() }
     }
 
-    /// 下载单个章节（阅读时即时加载）
+    /// 下载单个章节（阅读时即时加载），保留段评图元数据。
+    public func downloadChapterContent(
+        bookURL: String,
+        book: BookSource,
+        chapter: ChapterInfo
+    ) async throws -> ReaderChapterContent {
+        let runtime = BookSourceRuntime(book)
+        if let cached = await ChapterContentCache.shared.loadDocument(bookURL: bookURL, chapterURL: chapter.url) {
+            return cached
+        }
+        let document = try await withTimeout(downloadTimeout) {
+            try await runtime.getChapterContent(chapterUrl: chapter.url)
+        }
+        if !document.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            await ChapterContentCache.shared.saveDocument(document, bookURL: bookURL, chapterURL: chapter.url)
+        }
+        return document
+    }
+
+    /// 兼容旧调用方。
     public func downloadChapter(
         bookURL: String,
         book: BookSource,
         chapter: ChapterInfo
     ) async throws -> String {
-        let runtime = BookSourceRuntime(book)
-        // 先检查磁盘缓存
-        if let cached = await ChapterContentCache.shared.load(bookURL: bookURL, chapterURL: chapter.url) {
-            return cached
-        }
-        // 超时控制
-        let text = try await withTimeout(downloadTimeout) {
-            try await runtime.getContent(chapterUrl: chapter.url)
-        }
-        // 保存到磁盘缓存
-        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            await ChapterContentCache.shared.save(text, bookURL: bookURL, chapterURL: chapter.url)
-        }
-        return text
+        (try await downloadChapterContent(bookURL: bookURL, book: book, chapter: chapter)).text
     }
 
     /// 暂停所有下载（参考 legado-E CacheBook.setWorkingState(false)）

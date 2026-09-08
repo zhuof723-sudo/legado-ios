@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import LegadoRuleEngine
 
 /// 已入架书籍的正文磁盘缓存。只按明确传入的 shelf book URL 启用，不为临时阅读落盘。
 public actor ChapterContentCache {
@@ -20,18 +21,30 @@ public actor ChapterContentCache {
     }
 
     public func load(bookURL: String, chapterURL: String) -> String? {
+        loadDocument(bookURL: bookURL, chapterURL: chapterURL)?.text
+    }
+
+    /// 读取包含段评图元数据的正文；旧版纯文本缓存仍可正常读取。
+    public func loadDocument(bookURL: String, chapterURL: String) -> ReaderChapterContent? {
         let file = fileURL(bookURL: bookURL, chapterURL: chapterURL)
-        guard let data = try? Data(contentsOf: file),
-              let text = String(data: data, encoding: .utf8),
-              !text.isEmpty else { return nil }
-        return text
+        guard let data = try? Data(contentsOf: file), !data.isEmpty else { return nil }
+        if let document = try? JSONDecoder().decode(ReaderChapterContent.self, from: data) {
+            return document
+        }
+        guard let text = String(data: data, encoding: .utf8), !text.isEmpty else { return nil }
+        return ReaderChapterContent(text: text)
     }
 
     public func save(_ text: String, bookURL: String, chapterURL: String) {
-        guard !text.isEmpty else { return }
+        saveDocument(ReaderChapterContent(text: text), bookURL: bookURL, chapterURL: chapterURL)
+    }
+
+    public func saveDocument(_ document: ReaderChapterContent, bookURL: String, chapterURL: String) {
+        guard !document.text.isEmpty else { return }
         let folder = bookFolder(bookURL)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try? Data(text.utf8).write(to: fileURL(bookURL: bookURL, chapterURL: chapterURL), options: .atomic)
+        guard let data = try? JSONEncoder().encode(document) else { return }
+        try? data.write(to: fileURL(bookURL: bookURL, chapterURL: chapterURL), options: .atomic)
     }
 
     public func clear(bookURL: String) {

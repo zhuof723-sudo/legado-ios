@@ -7,13 +7,15 @@ public final class ReaderViewModel {
     public private(set) var chapters: [ChapterInfo] = []
     public private(set) var currentIndex: Int = 0
     public private(set) var currentContent: String = ""
+    /// 当前章节中由书源正文内嵌的 `style: "TEXT"` 图片生成的段评入口。
+    public private(set) var currentReviewMarkers: [InlineReviewMarker] = []
     public var isLoadingToc = false
     public var isLoadingContent = false
     public var errorMessage: String?
 
     private let source: BookSource
     private let runtime: BookSourceRuntime
-    private var contentCache: [Int: String] = [:]
+    private var contentCache: [Int: ReaderChapterContent] = [:]
     private var persistentBookURL: String?
     /// 标识当前正文请求，防止快速切章时旧请求覆盖新章节。
     private var contentRequestID = UUID()
@@ -34,6 +36,8 @@ public final class ReaderViewModel {
 
     /// 当前书源是否支持段评（即是否配置了 ruleReview.reviewUrl）
     public var reviewEnabled: Bool {
+        // ruleReview 是传统配置；正文内嵌 style:"TEXT" marker 不依赖 ruleReview。
+        if currentReviewMarkers.isEmpty == false { return true }
         if let ruleReview = source.ruleReview,
            let reviewUrl = ruleReview.reviewUrl,
            !reviewUrl.isEmpty {
@@ -42,20 +46,42 @@ public final class ReaderViewModel {
         return false
     }
 
+    /// 执行正文内嵌段评图的 click/js 选项。
+    public func executeInlineReviewAction(
+        markerID: Int,
+        browserOpener: @escaping (_ url: String, _ title: String?) -> Void
+    ) {
+        guard let marker = currentReviewMarkers.first(where: { $0.id == markerID }),
+              currentIndex >= 0, currentIndex < chapters.count,
+              let action = marker.action else { return }
+        let chapter = chapters[currentIndex]
+        runtime.executeInlineReviewAction(
+            action,
+            markerSource: marker.source,
+            chapterUrl: chapter.url,
+            browserOpener: browserOpener
+        )
+    }
+
     /// 获取某段落的评论列表
     /// - Parameters:
     ///   - paragraphIndex: 段落索引
     ///   - paragraphText: 段落文本
     /// - Returns: 评论列表
-    public func fetchReviews(paragraphIndex: Int, paragraphText: String) async -> [Review] {
-        guard reviewEnabled else { return [] }
+    public func fetchReviews(
+        paragraphIndex: Int,
+        paragraphText: String,
+        markerSource: String? = nil
+    ) async -> [Review] {
+        guard reviewEnabled || markerSource?.isEmpty == false else { return [] }
         guard currentIndex >= 0, currentIndex < chapters.count else { return [] }
 
         let chapterUrl = chapters[currentIndex].url
         do {
             let rawReviews = try await runtime.getReviews(
                 chapterUrl: chapterUrl,
-                paragraphText: paragraphText
+                paragraphText: paragraphText,
+                reviewURL: markerSource
             )
             // 转换原始数据为 Review 模型
             return rawReviews.map { raw in
@@ -79,8 +105,8 @@ public final class ReaderViewModel {
         guard !currentContent.isEmpty,
               currentIndex >= 0, currentIndex < chapters.count else { return }
         let chapterURL = chapters[currentIndex].url
-        let text = currentContent
-        Task { await ChapterContentCache.shared.save(text, bookURL: bookURL, chapterURL: chapterURL) }
+        let document = ReaderChapterContent(text: currentContent, inlineReviewMarkers: currentReviewMarkers)
+        Task { await ChapterContentCache.shared.saveDocument(document, bookURL: bookURL, chapterURL: chapterURL) }
     }
 
     public var currentChapterTitle: String? {
@@ -108,6 +134,7 @@ public final class ReaderViewModel {
         prefetchTasks.removeAll()
         currentIndex = 0
         currentContent = ""
+        currentReviewMarkers = []
         chapters = []
         defer {
             if requestID == tocRequestID { isLoadingToc = false }
@@ -138,6 +165,7 @@ public final class ReaderViewModel {
         currentIndex = index
         contentRequestID = UUID()
         currentContent = ""
+        currentReviewMarkers = []
         errorMessage = nil
         await loadCurrentContent()
     }
@@ -175,17 +203,17 @@ public final class ReaderViewModel {
         if let cached = contentCache[index] {
             guard requestID == contentRequestID, index == currentIndex else { return }
             isLoadingContent = false
-            currentContent = cached
+            apply(cached)
             prefetchAhead()
             return
         }
-        // 磁盘缓存
+        // 磁盘缓存；兼容旧版纯文本缓存。
         if let bookURL = persistentBookURL,
-           let cached = await ChapterContentCache.shared.load(bookURL: bookURL, chapterURL: chapter.url) {
+           let cached = await ChapterContentCache.shared.loadDocument(bookURL: bookURL, chapterURL: chapter.url) {
             guard requestID == contentRequestID, index == currentIndex else { return }
             isLoadingContent = false
             contentCache[index] = cached
-            currentContent = cached
+            apply(cached)
             prefetchAhead()
             return
         }
@@ -196,26 +224,26 @@ public final class ReaderViewModel {
             if requestID == contentRequestID { isLoadingContent = false }
         }
         do {
-            // 使用下载管理器（带超时控制）
-            let text: String
+            // 使用下载管理器（带超时控制），正文和段评图元数据一起缓存。
+            let document: ReaderChapterContent
             if let bookURL = persistentBookURL {
-                text = try await ChapterDownloadManager.shared.downloadChapter(
+                document = try await ChapterDownloadManager.shared.downloadChapterContent(
                     bookURL: bookURL,
                     book: source,
                     chapter: chapter
                 )
             } else {
-                text = try await runtime.getContent(chapterUrl: chapter.url)
+                document = try await runtime.getChapterContent(chapterUrl: chapter.url)
             }
             guard requestID == contentRequestID, index == currentIndex else { return }
-            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            guard !document.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 errorMessage = "正文为空：当前章节没有返回内容"
                 return
             }
-            contentCache[index] = text
-            currentContent = text
+            contentCache[index] = document
+            apply(document)
             if let bookURL = persistentBookURL {
-                await ChapterContentCache.shared.save(text, bookURL: bookURL, chapterURL: chapter.url)
+                await ChapterContentCache.shared.saveDocument(document, bookURL: bookURL, chapterURL: chapter.url)
             }
             prefetchAhead()
         } catch is TimeoutError {
@@ -227,6 +255,11 @@ public final class ReaderViewModel {
             engineLog("获取正文失败: \(error.localizedDescription)", tag: "reader", level: .error)
             errorMessage = "获取正文失败: \(error.localizedDescription)"
         }
+    }
+
+    private func apply(_ document: ReaderChapterContent) {
+        currentContent = document.text
+        currentReviewMarkers = document.inlineReviewMarkers
     }
 
     /// 预取后面的章节（参考 legado-E 预下载机制，并发预取多章）
@@ -246,17 +279,17 @@ public final class ReaderViewModel {
                 guard let self = self else { return }
 
                 do {
-                    let text: String
+                    let document: ReaderChapterContent
                     if let bookURL = self.persistentBookURL {
-                        text = try await ChapterDownloadManager.shared.downloadChapter(
+                        document = try await ChapterDownloadManager.shared.downloadChapterContent(
                             bookURL: bookURL,
                             book: self.source,
                             chapter: chapter
                         )
                     } else {
-                        text = try await self.runtime.getContent(chapterUrl: chapter.url)
+                        document = try await self.runtime.getChapterContent(chapterUrl: chapter.url)
                     }
-                    guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    guard !document.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                         await MainActor.run {
                             if self.prefetchGeneration == generation { self.prefetchTasks.remove(i) }
                         }
@@ -266,11 +299,11 @@ public final class ReaderViewModel {
                         guard self.prefetchGeneration == generation,
                               i < self.chapters.count,
                               self.chapters[i].url == chapter.url else { return }
-                        self.contentCache[i] = text
+                        self.contentCache[i] = document
                     }
                     if let bookURL = self.persistentBookURL {
-                        await ChapterContentCache.shared.save(
-                            text, bookURL: bookURL, chapterURL: chapter.url
+                        await ChapterContentCache.shared.saveDocument(
+                            document, bookURL: bookURL, chapterURL: chapter.url
                         )
                     }
                 } catch {

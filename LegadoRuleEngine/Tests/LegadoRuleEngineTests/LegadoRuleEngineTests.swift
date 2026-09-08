@@ -427,3 +427,23 @@ final class LegadoRuleEngineTests: XCTestCase {
         XCTAssertEqual(loginHeader, "token-abc")
     }
 }
+
+
+extension LegadoRuleEngineTests {
+    func testReaderContentFormatterKeepsTextStyleReviewImage() {
+        let html = #"<p>第一段</p><p>第二段<img src="https://review.example/comment,{\"style\":\"TEXT\",\"click\":\"java.showBrowser('https://review.example/list')\"}"></p>"#
+        let content = ReaderContentFormatter.format(html, baseURL: "https://example.com/chapter/1")
+        XCTAssertEqual(content.inlineReviewMarkers.count, 1)
+        XCTAssertEqual(content.inlineReviewMarkers.first?.paragraphIndex, 1)
+        XCTAssertEqual(content.inlineReviewMarkers.first?.source, "https://review.example/comment")
+        XCTAssertTrue(content.text.contains(content.inlineReviewMarkers[0].token))
+        XCTAssertTrue(content.inlineReviewMarkers.first?.action?.contains("java.showBrowser") == true)
+    }
+
+    func testReaderContentFormatterDoesNotExposeOrdinaryImages() {
+        let html = #"<p>正文<img src="/cover.jpg"></p>"#
+        let content = ReaderContentFormatter.format(html, baseURL: "https://example.com/chapter/1")
+        XCTAssertEqual(content.inlineReviewMarkers.count, 0)
+        XCTAssertEqual(content.text, "正文")
+    }
+}

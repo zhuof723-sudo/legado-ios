@@ -28,7 +28,9 @@ struct ReaderView: View {
     @State private var showReviewList = false
     @State private var selectedParagraphIndex = 0
     @State private var selectedParagraphText = ""
+    @State private var selectedReviewURL: String? = nil
     @State private var reviewCounts: [Int: Int] = [:]
+    @State private var browserDestination: BrowserDestination?
 
     init(
         viewModel: ReaderViewModel,
@@ -72,17 +74,14 @@ struct ReaderView: View {
                         currentIndex: $pageIndex,
                         reviewEnabled: viewModel.reviewEnabled,
                         onReviewTap: { paragraphIndex in
-                            selectedParagraphIndex = paragraphIndex
-                            // 获取段落文本
-                            let allParagraphs = viewModel.currentContent.components(separatedBy: "\n")
-                            if paragraphIndex < allParagraphs.count {
-                                selectedParagraphText = allParagraphs[paragraphIndex]
-                            } else {
-                                selectedParagraphText = ""
-                            }
-                            showReviewList = true
+                            selectedReviewURL = nil
+                            presentReview(for: paragraphIndex)
                         },
-                        reviewCounts: reviewCounts
+                        reviewCounts: reviewCounts,
+                        inlineReviewMarkers: viewModel.currentReviewMarkers,
+                        onInlineReviewTap: { markerID in
+                            handleInlineReviewTap(markerID)
+                        }
                     )
                     .id("\(config.pageAnim)_\(config.themeId)_\(config.nightMode)")
                     // 页面边距由 PageContentView 内部承担；这样每个被翻页
@@ -132,9 +131,16 @@ struct ReaderView: View {
                 paragraphIndex: selectedParagraphIndex,
                 onClose: { showReviewList = false },
                 fetchReviews: { paragraphIndex, paragraphText in
-                    await viewModel.fetchReviews(paragraphIndex: paragraphIndex, paragraphText: paragraphText)
+                    await viewModel.fetchReviews(
+                        paragraphIndex: paragraphIndex,
+                        paragraphText: paragraphText,
+                        markerSource: selectedReviewURL
+                    )
                 }
             )
+        }
+        .sheet(item: $browserDestination) { destination in
+            InAppBrowserView(destination: destination)
         }
         .onChange(of: viewModel.currentIndex) { _, _ in
             // 切章后总是从新章第一页开始；只有向前切章时才由
@@ -145,6 +151,28 @@ struct ReaderView: View {
         }
         .onChange(of: pageIndex) { _, _ in
             if speech.isSpeaking, pageIndex < pages.count { speech.speak(pages[pageIndex]) }
+        }
+    }
+
+    private func presentReview(for paragraphIndex: Int) {
+        let paragraphs = viewModel.currentContent.components(separatedBy: "\n")
+        selectedParagraphIndex = max(0, paragraphIndex)
+        selectedParagraphText = paragraphIndex < paragraphs.count ? paragraphs[paragraphIndex] : ""
+        showReviewList = true
+    }
+
+    private func handleInlineReviewTap(_ markerID: Int) {
+        // 有 click/js 时执行书源动作（通常会调用 java.showBrowser）；
+        // 没有动作时直接打开段评列表，避免段评图看起来“点了没反应”。
+        guard let marker = viewModel.currentReviewMarkers.first(where: { $0.id == markerID }) else { return }
+        if marker.action?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            viewModel.executeInlineReviewAction(markerID: markerID) { url, title in
+                guard let destination = BrowserDestination(urlString: url, title: title) else { return }
+                DispatchQueue.main.async { browserDestination = destination }
+            }
+        } else {
+            selectedReviewURL = marker.source
+            presentReview(for: marker.paragraphIndex)
         }
     }
 

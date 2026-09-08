@@ -1,44 +1,42 @@
 import UIKit
+import LegadoRuleEngine
 
-// MARK: - 评论链接工具（用 NSLink 代替 NSTextAttachment，更可靠）
-
-/// 段评相关的常量和工具方法。
-/// 用 NSLink（URL 方案 "review://paragraph/{index}"）在段落末尾插入评论按钮，
-/// UITextView 原生支持链接点击，比 NSTextAttachment 更可靠。
+/// Legado 段评图在 iOS 阅读器中的交互适配。
+/// Android 原版会把正文末尾 `style:"TEXT"` 的 img 转成 `꧁`，并保留其 click/js 选项；
+/// iOS 使用专用 URL 让 UITextView 可靠地处理点击。
 public enum ReviewLinkHelper {
-    /// 评论链接的 URL scheme
     public static let scheme = "review"
-    /// 评论链接的 host
     public static let host = "paragraph"
+    public static let markerHost = "marker"
+    public static let reviewButtonText = "  💬"
 
-    /// 生成某段落的评论链接 URL
     public static func reviewURL(for paragraphIndex: Int) -> URL {
         URL(string: "\(scheme)://\(host)/\(paragraphIndex)")!
     }
 
-    /// 判断是否是评论链接
+    public static func markerURL(for markerID: Int) -> URL {
+        URL(string: "\(scheme)://\(markerHost)/\(markerID)")!
+    }
+
     public static func isReviewURL(_ url: URL) -> Bool {
-        url.scheme == scheme && url.host == host
+        url.scheme == scheme && (url.host == host || url.host == markerHost)
     }
 
-    /// 从评论链接中解析段落索引
     public static func paragraphIndex(from url: URL) -> Int? {
-        guard isReviewURL(url) else { return nil }
+        guard isReviewURL(url), url.host == host else { return nil }
         let components = url.pathComponents
-        guard components.count >= 2, let index = Int(components[1]) else { return nil }
-        return index
+        guard components.count >= 2 else { return nil }
+        return Int(components[1])
     }
 
-    /// 评论按钮显示的文字（用表情符号，简单可靠）
-    public static let reviewButtonText = " 💬"
+    public static func markerID(from url: URL) -> Int? {
+        guard isReviewURL(url), url.host == markerHost else { return nil }
+        let components = url.pathComponents
+        guard components.count >= 2 else { return nil }
+        return Int(components[1])
+    }
 
-    /// 将纯文本转换为带评论链接的 NSAttributedString。
-    /// 在每段末尾（换行符前）插入评论链接，点击时触发 onReviewTap。
-    /// - Parameters:
-    ///   - text: 原始纯文本
-    ///   - attributes: 文本的基础属性（字体、颜色、段落样式等）
-    ///   - reviewCounts: 各段落的评论数（用于显示在评论按钮上）
-    /// - Returns: 带评论链接的 NSAttributedString
+    /// 给普通纯文本段落添加兼容段评入口。
     public static func attachReviewLinks(
         to text: String,
         attributes: [NSAttributedString.Key: Any],
@@ -46,40 +44,67 @@ public enum ReviewLinkHelper {
     ) -> NSAttributedString {
         let paragraphs = text.components(separatedBy: "\n")
         let result = NSMutableAttributedString()
-
         for (index, paragraph) in paragraphs.enumerated() {
-            // 添加段落文本
             result.append(NSAttributedString(string: paragraph, attributes: attributes))
-
-            // 在段落末尾添加评论链接（最后一段不加）
             if index < paragraphs.count - 1 {
-                let count = reviewCounts[index] ?? 0
-                let buttonText = count > 0 ? " 💬\(count > 999 ? "999" : "\(count)")" : reviewButtonText
-
                 var linkAttributes = attributes
                 linkAttributes[.link] = reviewURL(for: index)
                 linkAttributes[.foregroundColor] = UIColor.systemGray
-                linkAttributes[.font] = UIFont.systemFont(ofSize: (attributes[.font] as? UIFont)?.pointSize ?? 14)
-
-                result.append(NSAttributedString(string: buttonText, attributes: linkAttributes))
-            }
-
-            // 添加换行符（最后一段不加）
-            if index < paragraphs.count - 1 {
+                let count = reviewCounts[index] ?? 0
+                let title = count > 0 ? "  💬\(min(count, 999))" : reviewButtonText
+                result.append(NSAttributedString(string: title, attributes: linkAttributes))
                 result.append(NSAttributedString(string: "\n", attributes: attributes))
             }
         }
-
         return result
     }
 
-    /// 从带评论链接的 NSAttributedString 中提取纯文本（用于缓存等）
+    /// 将正文中私有区 marker 替换成可点击的段评图标，并保留普通文本。
+    public static func attachInlineReviewLinks(
+        to text: String,
+        markers: [InlineReviewMarker],
+        attributes: [NSAttributedString.Key: Any],
+        reviewCounts: [Int: Int] = [:]
+    ) -> NSAttributedString {
+        let map = Dictionary(uniqueKeysWithValues: markers.map { ($0.id, $0) })
+        let result = NSMutableAttributedString()
+        let markerPattern = try! NSRegularExpression(pattern: "[\\u{E000}-\\u{F8FF}]")
+        let ns = text as NSString
+        var cursor = 0
+        for match in markerPattern.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            if match.range.location > cursor {
+                result.append(NSAttributedString(
+                    string: ns.substring(with: NSRange(location: cursor, length: match.range.location - cursor)),
+                    attributes: attributes
+                ))
+            }
+            let scalarValue = ns.substring(with: match.range).unicodeScalars.first?.value ?? 0
+            let id = Int(scalarValue) - 0xE000
+            if let marker = map[id] {
+                var linkAttributes = attributes
+                linkAttributes[.link] = markerURL(for: marker.id)
+                linkAttributes[.foregroundColor] = UIColor.systemGray
+                linkAttributes[.font] = (attributes[.font] as? UIFont)?.withSize(
+                    max(11, ((attributes[.font] as? UIFont)?.pointSize ?? 14) * 0.9)
+                )
+                let count = reviewCounts[marker.paragraphIndex] ?? 0
+                let title = count > 0 ? "💬\(min(count, 999))" : "💬"
+                result.append(NSAttributedString(string: title, attributes: linkAttributes))
+            } else {
+                result.append(NSAttributedString(string: "", attributes: attributes))
+            }
+            cursor = match.range.location + match.range.length
+        }
+        if cursor < ns.length {
+            result.append(NSAttributedString(string: ns.substring(from: cursor), attributes: attributes))
+        }
+        return result
+    }
+
     public static func extractPlainText(from attributedText: NSAttributedString) -> String {
         let plain = NSMutableAttributedString(attributedString: attributedText)
-        // 移除所有链接属性
         plain.removeAttribute(.link, range: NSRange(location: 0, length: plain.length))
-        // 移除评论按钮文字（💬 及后面的数字）
-        let result = plain.string.replacingOccurrences(of: " 💬[0-9]*", with: "", options: .regularExpression)
-        return result
+        return plain.string
+            .replacingOccurrences(of: "\\s*💬[0-9]*", with: "", options: .regularExpression)
     }
 }

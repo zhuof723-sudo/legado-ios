@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import LegadoRuleEngine
 
 // MARK: - 单页内容视图
 
@@ -16,6 +17,12 @@ final class PageContentView: UIView, UITextViewDelegate {
     var reviewCounts: [Int: Int] = [:] {
         didSet { updateAttributedText() }
     }
+    /// 由正文内嵌段评图生成的 marker。
+    var inlineReviewMarkers: [InlineReviewMarker] = [] {
+        didSet { updateAttributedText() }
+    }
+    /// 点击内嵌段评图时回传 marker id。
+    var onInlineReviewTap: ((Int) -> Void)?
     private let contentView = UIView()
     private let textView = UITextView()
     private var contentTopConstraint: NSLayoutConstraint?
@@ -51,6 +58,8 @@ final class PageContentView: UIView, UITextViewDelegate {
         textView.translatesAutoresizingMaskIntoConstraints = false
         textView.backgroundColor = .clear
         textView.isEditable = false
+        // UITextView 只有在 selectable 时才会把 NSLink 交给 delegate。
+        textView.isSelectable = true
         textView.isScrollEnabled = false
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
@@ -109,8 +118,15 @@ final class PageContentView: UIView, UITextViewDelegate {
             .paragraphStyle: paragraphStyle
         ]
 
-        if reviewEnabled {
-            // 启用段评：在每段末尾添加评论链接（NSLink，比 NSTextAttachment 更可靠）
+        if !inlineReviewMarkers.isEmpty {
+            textView.attributedText = ReviewLinkHelper.attachInlineReviewLinks(
+                to: text,
+                markers: inlineReviewMarkers,
+                attributes: attributes,
+                reviewCounts: reviewCounts
+            )
+        } else if reviewEnabled {
+            // 兼容旧书源：没有内嵌段评图时，仍给普通段落附加可点击入口。
             textView.attributedText = ReviewLinkHelper.attachReviewLinks(
                 to: text,
                 attributes: attributes,
@@ -124,12 +140,17 @@ final class PageContentView: UIView, UITextViewDelegate {
     // MARK: - UITextViewDelegate
 
     func textView(_ textView: UITextView, shouldInteractWith URL: URL, in characterRange: NSRange, interaction: UITextItemInteraction) -> Bool {
-        // 处理评论链接点击
+        // 处理兼容模式的段落链接。
         if let paragraphIndex = ReviewLinkHelper.paragraphIndex(from: URL) {
             onReviewTap?(paragraphIndex)
             return false
         }
-        return true
+        // Legado 原版 style:"TEXT" 段评图入口。
+        if let markerID = ReviewLinkHelper.markerID(from: URL) {
+            onInlineReviewTap?(markerID)
+            return false
+        }
+        return false
     }
 }
 
@@ -146,6 +167,10 @@ protocol PageReaderContainer: AnyObject {
     var onReviewTap: ((Int) -> Void)? { get set }
     /// 各段落的评论数
     var reviewCounts: [Int: Int] { get set }
+    /// 正文内嵌段评图 marker。
+    var inlineReviewMarkers: [InlineReviewMarker] { get set }
+    /// 点击内嵌段评图。
+    var onInlineReviewTap: ((Int) -> Void)? { get set }
     /// 刷新每个独立页面的背景和文字样式。
     func refreshAppearance()
     func goToPage(_ index: Int, animated: Bool)
@@ -162,6 +187,8 @@ final class HorizontalSlideReader: UIViewController, PageReaderContainer, UIScro
     var reviewEnabled: Bool = false
     var onReviewTap: ((Int) -> Void)?
     var reviewCounts: [Int: Int] = [:]
+    var inlineReviewMarkers: [InlineReviewMarker] = []
+    var onInlineReviewTap: ((Int) -> Void)?
 
     private let scrollView = UIScrollView()
     private let stackView = UIStackView()
@@ -259,6 +286,8 @@ final class HorizontalSlideReader: UIViewController, PageReaderContainer, UIScro
             pageView.reviewEnabled = reviewEnabled
             pageView.onReviewTap = onReviewTap
             pageView.reviewCounts = reviewCounts
+            pageView.inlineReviewMarkers = inlineReviewMarkers
+            pageView.onInlineReviewTap = onInlineReviewTap
             pageView.translatesAutoresizingMaskIntoConstraints = false
             stackView.addArrangedSubview(pageView)
             pageView.widthAnchor.constraint(equalTo: scrollView.widthAnchor).isActive = true
@@ -369,6 +398,8 @@ final class CoverPageReader: UIViewController, PageReaderContainer, UIGestureRec
     var reviewEnabled: Bool = false
     var onReviewTap: ((Int) -> Void)?
     var reviewCounts: [Int: Int] = [:]
+    var inlineReviewMarkers: [InlineReviewMarker] = []
+    var onInlineReviewTap: ((Int) -> Void)?
 
     private var currentPageView: PageContentView?
     private var isTransitioning = false
@@ -500,6 +531,8 @@ final class CoverPageReader: UIViewController, PageReaderContainer, UIGestureRec
         page.reviewEnabled = reviewEnabled
         page.onReviewTap = onReviewTap
         page.reviewCounts = reviewCounts
+        page.inlineReviewMarkers = inlineReviewMarkers
+        page.onInlineReviewTap = onInlineReviewTap
         page.frame = view.bounds
         page.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         return page
@@ -620,6 +653,8 @@ final class CurlPageReader: UIPageViewController, PageReaderContainer, UIPageVie
     var reviewEnabled: Bool = false
     var onReviewTap: ((Int) -> Void)?
     var reviewCounts: [Int: Int] = [:]
+    var inlineReviewMarkers: [InlineReviewMarker] = []
+    var onInlineReviewTap: ((Int) -> Void)?
 
     init(pages: [String], config: ReaderConfig, initialIndex: Int) {
         self.pages = pages
@@ -674,6 +709,8 @@ final class CurlPageReader: UIPageViewController, PageReaderContainer, UIPageVie
         pageView.reviewEnabled = reviewEnabled
         pageView.onReviewTap = onReviewTap
         pageView.reviewCounts = reviewCounts
+        pageView.inlineReviewMarkers = inlineReviewMarkers
+        pageView.onInlineReviewTap = onInlineReviewTap
         return IndexedPageViewController(index: index, pageView: pageView)
     }
 
@@ -707,6 +744,8 @@ final class VerticalScrollReader: UIViewController, PageReaderContainer, UIScrol
     var reviewEnabled: Bool = false
     var onReviewTap: ((Int) -> Void)?
     var reviewCounts: [Int: Int] = [:]
+    var inlineReviewMarkers: [InlineReviewMarker] = []
+    var onInlineReviewTap: ((Int) -> Void)?
 
     private let scrollView = UIScrollView()
     private let stackView = UIStackView()
@@ -817,6 +856,8 @@ final class VerticalScrollReader: UIViewController, PageReaderContainer, UIScrol
             pageView.reviewEnabled = reviewEnabled
             pageView.onReviewTap = onReviewTap
             pageView.reviewCounts = reviewCounts
+            pageView.inlineReviewMarkers = inlineReviewMarkers
+            pageView.onInlineReviewTap = onInlineReviewTap
             pageView.translatesAutoresizingMaskIntoConstraints = false
             stackView.addArrangedSubview(pageView)
             pageView.heightAnchor.constraint(equalTo: scrollView.heightAnchor).isActive = true
@@ -914,6 +955,8 @@ final class NonePageReader: UIViewController, PageReaderContainer, UIGestureReco
     var reviewEnabled: Bool = false
     var onReviewTap: ((Int) -> Void)?
     var reviewCounts: [Int: Int] = [:]
+    var inlineReviewMarkers: [InlineReviewMarker] = []
+    var onInlineReviewTap: ((Int) -> Void)?
 
     private var currentPageView: PageContentView?
 
@@ -967,6 +1010,8 @@ final class NonePageReader: UIViewController, PageReaderContainer, UIGestureReco
         pageView.reviewEnabled = reviewEnabled
         pageView.onReviewTap = onReviewTap
         pageView.reviewCounts = reviewCounts
+        pageView.inlineReviewMarkers = inlineReviewMarkers
+        pageView.onInlineReviewTap = onInlineReviewTap
         pageView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(pageView)
         NSLayoutConstraint.activate([
@@ -1009,12 +1054,16 @@ struct PageReaderViewRepresentable: UIViewControllerRepresentable {
     var onReviewTap: ((Int) -> Void)?
     /// 各段落的评论数
     var reviewCounts: [Int: Int] = [:]
+    var inlineReviewMarkers: [InlineReviewMarker] = []
+    var onInlineReviewTap: ((Int) -> Void)?
 
     func makeUIViewController(context: Context) -> UIViewController {
         let reader = makeReader(for: config.currentPageAnim)
         reader.reviewEnabled = reviewEnabled
         reader.onReviewTap = onReviewTap
         reader.reviewCounts = reviewCounts
+        reader.inlineReviewMarkers = inlineReviewMarkers
+        reader.onInlineReviewTap = onInlineReviewTap
         reader.onPageChanged = { index in
             DispatchQueue.main.async {
                 currentIndex = index
@@ -1036,6 +1085,8 @@ struct PageReaderViewRepresentable: UIViewControllerRepresentable {
         reader.reviewEnabled = reviewEnabled
         reader.onReviewTap = onReviewTap
         reader.reviewCounts = reviewCounts
+        reader.inlineReviewMarkers = inlineReviewMarkers
+        reader.onInlineReviewTap = onInlineReviewTap
         reader.onPageChanged = { index in
             DispatchQueue.main.async {
                 guard currentIndex != index else { return }
