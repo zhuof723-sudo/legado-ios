@@ -23,53 +23,66 @@ enum AppThemeMode: String, CaseIterable, Identifiable {
     }
 }
 
-// MARK: - 全局视觉主题
+// MARK: - 全局视觉主题（对照设计规范）
+//
+// 颜色系统（浅色 / 深色）：
+//   系统背景  #FFFFFF / #000000
+//   次级背景  #F8F9FA / #1C1C1E
+//   说明文字  #8E8E93 / #A1A1A6
+//   主要文字  #000000 / #FFFFFF
+//   系统蓝    #007AFF
 
 enum Theme {
-    // 主色调：珊瑚粉
-    static let accent = Color(red: 0.910, green: 0.604, blue: 0.604)      // #E89A9A
-    static let accentDeep = Color(red: 0.820, green: 0.490, blue: 0.490)  // #D17D7D
+    // 系统蓝主色
+    static let accent = Color(red: 0, green: 0.478, blue: 1.0)           // #007AFF
+    static let accentDeep = Color(red: 0, green: 0.400, blue: 0.840)     // #0066D6
 
-    // 根据模式动态返回颜色
     static func bg(for mode: AppThemeMode) -> Color {
         switch mode {
-        case .light: return Color(red: 0.965, green: 0.945, blue: 0.965)  // #F6F1F6 柔粉底
-        case .dark: return Color(red: 0.12, green: 0.12, blue: 0.14)      // 深灰底
+        case .light: return Color(red: 1, green: 1, blue: 1)             // #FFFFFF
+        case .dark: return Color(red: 0, green: 0, blue: 0)              // #000000
+        }
+    }
+
+    static func secondaryBg(for mode: AppThemeMode) -> Color {
+        switch mode {
+        case .light: return Color(red: 0.973, green: 0.976, blue: 0.980) // #F8F9FA
+        case .dark: return Color(red: 0.110, green: 0.110, blue: 0.118)  // #1C1C1E
         }
     }
 
     static func cardBg(for mode: AppThemeMode) -> Color {
         switch mode {
         case .light: return Color.white
-        case .dark: return Color(red: 0.18, green: 0.18, blue: 0.20)
+        case .dark: return Color(red: 0.110, green: 0.110, blue: 0.118)
         }
     }
 
     static func textPrimary(for mode: AppThemeMode) -> Color {
         switch mode {
-        case .light: return Color(red: 0.13, green: 0.13, blue: 0.14)
-        case .dark: return Color(red: 0.92, green: 0.92, blue: 0.94)
+        case .light: return Color(red: 0, green: 0, blue: 0)             // #000000
+        case .dark: return Color(red: 1, green: 1, blue: 1)              // #FFFFFF
         }
     }
 
     static func textSecondary(for mode: AppThemeMode) -> Color {
         switch mode {
-        case .light: return Color(red: 0.50, green: 0.50, blue: 0.52)
-        case .dark: return Color(red: 0.65, green: 0.65, blue: 0.68)
+        case .light: return Color(red: 0.557, green: 0.557, blue: 0.576) // #8E8E93
+        case .dark: return Color(red: 0.631, green: 0.631, blue: 0.651)  // #A1A1A6
         }
     }
 
     static func hairline(for mode: AppThemeMode) -> Color {
         switch mode {
-        case .light: return Color(red: 0.910, green: 0.604, blue: 0.604).opacity(0.12)
-        case .dark: return Color.white.opacity(0.08)
+        case .light: return Color(red: 0.898, green: 0.898, blue: 0.918) // #E5E5EA
+        case .dark: return Color.white.opacity(0.12)
         }
     }
 
     static func shadow(for mode: AppThemeMode) -> Color {
         switch mode {
-        case .light: return Color(red: 0.910, green: 0.604, blue: 0.604).opacity(0.10)
-        case .dark: return Color.black.opacity(0.30)
+        case .light: return Color.black.opacity(0.06)
+        case .dark: return Color.black.opacity(0.40)
         }
     }
 
@@ -81,7 +94,7 @@ enum Theme {
 
     /// 阅读器可选背景色
     static let readerBackgrounds: [Color] = [
-        Color(red: 0.99, green: 0.99, blue: 0.98),
+        Color(red: 1.00, green: 1.00, blue: 1.00),
         Color(red: 0.96, green: 0.93, blue: 0.86),
         Color(red: 0.90, green: 0.94, blue: 0.88),
         Color(red: 0.92, green: 0.92, blue: 0.92),
@@ -123,7 +136,7 @@ extension View {
             .shadow(color: Theme.shadow(for: mode), radius: 10, y: 4)
     }
 
-    /// 强调按钮（红色主按钮）
+    /// 强调按钮（系统蓝主按钮）
     @ViewBuilder
     func prominentGlassButton() -> some View {
         self.buttonStyle(.borderedProminent)
@@ -150,8 +163,8 @@ struct PlaceholderCover: View {
 
     private var palette: [Color] {
         let presets: [[Color]] = [
-            [Color(red: 0.98, green: 0.80, blue: 0.44), Color(red: 0.93, green: 0.55, blue: 0.30)],
             [Color(red: 0.55, green: 0.75, blue: 0.95), Color(red: 0.35, green: 0.52, blue: 0.85)],
+            [Color(red: 0.98, green: 0.80, blue: 0.44), Color(red: 0.93, green: 0.55, blue: 0.30)],
             [Color(red: 0.60, green: 0.85, blue: 0.70), Color(red: 0.28, green: 0.62, blue: 0.52)],
             [Color(red: 0.85, green: 0.62, blue: 0.90), Color(red: 0.55, green: 0.38, blue: 0.80)],
             [Theme.accent, Theme.accentDeep],
@@ -190,7 +203,7 @@ struct SmartCover: View {
                 CoverImageView(url: url, headers: headers)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 

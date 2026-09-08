@@ -24,7 +24,6 @@ struct ReaderView: View {
     @State private var showControls = false
     @State private var showSettings = false
     @State private var showToc = false
-    @State private var showChapterSearch = false
     // 段评相关
     @State private var showReviewList = false
     @State private var selectedParagraphIndex = 0
@@ -120,10 +119,6 @@ struct ReaderView: View {
         .sheet(isPresented: $showToc) {
             TocSheet(bookUrl: bookUrl, viewModel: viewModel).presentationDetents([.large])
         }
-        .sheet(isPresented: $showChapterSearch) {
-            ReaderChapterSearchView(text: viewModel.currentContent)
-                .presentationDetents([.medium, .large])
-        }
         .sheet(isPresented: $showReviewList) {
             ReviewListView(
                 paragraphText: selectedParagraphText,
@@ -205,23 +200,16 @@ struct ReaderView: View {
                     .background(.ultraThinMaterial, in: Circle())
             }
             Spacer(minLength: 0)
-            VStack(spacing: 1) {
-                Text(bookName)
-                    .font(.subheadline.bold())
-                    .lineLimit(1)
-                if !bookAuthor.isEmpty {
-                    Text(bookAuthor).font(.caption2).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
-                }
+            Menu {
+                Button { } label: { Label("分享", systemImage: "square.and.arrow.up") }
+                Button { } label: { Label("书源详情", systemImage: "info.circle") }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 36, height: 36)
+                    .background(.ultraThinMaterial, in: Circle())
             }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 14)
-            .frame(height: 36)
-            .background(.ultraThinMaterial, in: Capsule())
-            Spacer(minLength: 0)
-            SmartCover(url: coverURL, title: bookName)
-                .frame(width: 36, height: 36)
-                .clipShape(Circle())
-                .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 0.8))
         }
     }
 
@@ -256,14 +244,12 @@ struct ReaderView: View {
             HStack {
                 immersiveToolButton("list.bullet", "目录") { showToc = true }
                 Spacer()
-                immersiveToolButton(speech.isSpeaking ? "speaker.wave.2.fill" : "speaker.wave.2", "听书") {
+                immersiveToolButton("headphones", "TTS") {
                     guard pageIndex < pages.count else { return }
                     speech.toggle(pages[pageIndex])
                 }
                 Spacer()
-                immersiveToolButton("magnifyingglass", "搜索") { showChapterSearch = true }
-                Spacer()
-                immersiveToolButton("textformat.size", "排版") { showSettings = true }
+                immersiveToolButton("gearshape", "设置") { showSettings = true }
             }
         }
         .foregroundStyle(.white)

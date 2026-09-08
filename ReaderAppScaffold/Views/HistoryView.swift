@@ -2,7 +2,7 @@ import SwiftUI
 import SwiftData
 import LegadoRuleEngine
 
-/// 历史页：按 今天/昨天/更早 分组展示阅读记录（对照设计稿）
+/// 阅读历史页（对照设计稿）：大标题 + 记录行（封面 / 标题 / 阅读至 N 章 + 进度 / 时间）。
 struct HistoryView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: [SortDescriptor(\ShelfBook.lastReadAt, order: .reverse)])
@@ -19,43 +19,35 @@ struct HistoryView: View {
             .filter { searchText.isEmpty || $0.name.localizedCaseInsensitiveContains(searchText) }
     }
 
-    private var groups: [(title: String, items: [ShelfBook])] {
-        let calendar = Calendar.current
-        var today: [ShelfBook] = [], yesterday: [ShelfBook] = [], earlier: [ShelfBook] = []
-        for book in filtered {
-            guard let date = book.lastReadAt else { continue }
-            if calendar.isDateInToday(date) {
-                today.append(book)
-            } else if calendar.isDateInYesterday(date) {
-                yesterday.append(book)
-            } else {
-                earlier.append(book)
-            }
-        }
-        var result: [(String, [ShelfBook])] = []
-        if !today.isEmpty { result.append(("今天", today)) }
-        if !yesterday.isEmpty { result.append(("昨天", yesterday)) }
-        if !earlier.isEmpty { result.append(("更早", earlier)) }
-        return result
-    }
-
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    header
+                    HStack {
+                        Text("阅读历史").font(.system(size: 32, weight: .bold))
+                        Spacer()
+                    }
+                    .padding(.top, 4)
+
                     historySearchBar
-                    if groups.isEmpty {
+
+                    if filtered.isEmpty {
                         emptyState
                     } else {
-                        ForEach(groups, id: \.title) { group in
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text(group.title).font(.headline)
-                                ForEach(group.items) { book in
-                                    row(book)
+                        VStack(spacing: 0) {
+                            ForEach(Array(filtered.enumerated()), id: \.element.id) { index, book in
+                                row(book)
+                                if index != filtered.count - 1 {
+                                    Rectangle().fill(Theme.hairline).frame(height: 0.5)
+                                        .padding(.leading, 68)
                                 }
                             }
                         }
+                        .background(
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(Theme.cardBg)
+                                .shadow(color: Theme.shadow, radius: 8, y: 3)
+                        )
                     }
                 }
                 .padding(.horizontal, 16)
@@ -75,36 +67,28 @@ struct HistoryView: View {
         }
     }
 
-    private var header: some View {
-        HStack {
-            Text("历史").font(.system(size: 30, weight: .bold))
-            Spacer()
-            Image(systemName: "ellipsis")
-                .font(.system(size: 17, weight: .semibold))
-                .frame(width: 34, height: 34)
-                .glassCircle()
-        }
-        .padding(.top, 6)
-    }
-
     private var historySearchBar: some View {
         HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-            TextField("在历史记录中查找", text: $searchText)
+            Image(systemName: "magnifyingglass").foregroundStyle(Theme.textSecondary)
+            TextField("搜索历史记录", text: $searchText)
+                .font(.subheadline)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 11)
-        .glassCard(Capsule(), interactive: true)
-        .overlay(Capsule().stroke(Theme.hairline, lineWidth: 0.5))
+        .padding(.vertical, 12)
+        .background(
+            Capsule()
+                .fill(Theme.secondaryBg)
+                .overlay(Capsule().stroke(Theme.hairline, lineWidth: 0.5))
+        )
     }
 
     private var emptyState: some View {
         VStack(spacing: 14) {
             Spacer().frame(height: 90)
-            Image(systemName: "clock.arrow.circlepath")
-                .font(.system(size: 46, weight: .light))
-                .foregroundStyle(.secondary)
-            Text("暂无阅读记录").font(.headline).foregroundStyle(.secondary)
+            Image(systemName: "clock")
+                .font(.system(size: 44, weight: .light))
+                .foregroundStyle(Theme.textSecondary)
+            Text("暂无阅读记录").font(.headline).foregroundStyle(Theme.textSecondary)
             Spacer().frame(height: 120)
         }
         .frame(maxWidth: .infinity)
@@ -117,36 +101,47 @@ struct HistoryView: View {
 
     private func timeText(_ date: Date?) -> String {
         guard let date else { return "" }
+        let formatter = DateFormatter()
         if Calendar.current.isDateInToday(date) {
-            return date.formatted(date: .omitted, time: .shortened)
+            formatter.dateFormat = "今天 HH:mm"
+        } else if Calendar.current.isDateInYesterday(date) {
+            formatter.dateFormat = "昨天 HH:mm"
+        } else {
+            formatter.dateFormat = "MM-dd HH:mm"
         }
-        return date.formatted(.dateTime.month().day())
+        return formatter.string(from: date)
     }
 
     private func row(_ book: ShelfBook) -> some View {
         Button { open(book) } label: {
             HStack(spacing: 12) {
                 SmartCover(url: book.coverUrl, title: book.name, headers: headers(for: book))
-                    .frame(width: 44, height: 60)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(book.name).font(.subheadline.bold()).foregroundStyle(.primary).lineLimit(1)
-                    Text(book.author).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    .frame(width: 46, height: 62)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(book.name)
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
                     HStack(spacing: 8) {
                         Text("阅读至: 第 \(min(book.lastReadChapterIndex + 1, max(book.totalChapters, 1))) 章")
-                            .font(.caption2).foregroundStyle(.secondary)
+                            .font(.caption2)
+                            .foregroundStyle(Theme.textSecondary)
+                            .lineLimit(1)
                         MiniProgressBar(progress: progress(of: book))
-                            .frame(width: 70)
+                            .frame(maxWidth: 70)
                         Text("\(Int((progress(of: book) * 100).rounded()))%")
-                            .font(.caption2).foregroundStyle(Theme.accent)
+                            .font(.caption2.bold())
+                            .foregroundStyle(Theme.textSecondary)
+                            .monospacedDigit()
                     }
+                    Text(timeText(book.lastReadAt))
+                        .font(.caption2)
+                        .foregroundStyle(Theme.textSecondary.opacity(0.7))
                 }
-                Spacer()
-                Text(timeText(book.lastReadAt))
-                    .font(.caption2).foregroundStyle(.tertiary)
+                Spacer(minLength: 0)
             }
-            .padding(12)
-            .background(RoundedRectangle(cornerRadius: 14).fill(Color.white))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.hairline, lineWidth: 0.5))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
         }
         .buttonStyle(.plain)
         .contextMenu {

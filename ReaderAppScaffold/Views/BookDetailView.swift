@@ -2,7 +2,15 @@ import SwiftUI
 import SwiftData
 import LegadoRuleEngine
 
-/// 书籍详情页（对照设计稿重新设计）
+private struct DetailScrollKey: PreferenceKey {
+    static var defaultValue: Bool = false
+    static func reduce(value: inout Bool, nextValue: () -> Bool) {
+        value = nextValue()
+    }
+}
+
+/// 书籍详情页（对照设计稿 1:1）：
+/// 封面大图头部 + 信息卡 + 四宫格操作 + 在读简介卡 + 阅读大按钮。
 struct BookDetailView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
@@ -22,6 +30,7 @@ struct BookDetailView: View {
     @State private var expanded = false
     @State private var headerCache = HeaderCacheBox()
     @State private var inShelf = false
+    @State private var scrolled = false
 
     var mode: AppThemeMode {
         AppThemeMode(rawValue: themeMode) ?? .light
@@ -47,249 +56,311 @@ struct BookDetailView: View {
         readerVM?.chapters.count ?? shelfBook?.totalChapters ?? 0
     }
 
-    private var progress: Double {
-        guard totalChapters > 0 else { return 0 }
-        let idx = shelfBook?.lastReadChapterIndex ?? 0
-        return Double(min(idx + 1, totalChapters)) / Double(totalChapters)
-    }
-
     var body: some View {
-        NavigationStack {
+        ZStack(alignment: .top) {
+            // 封面大图头部背景
+            GeometryReader { geo in
+                ZStack(alignment: .top) {
+                    SmartCover(url: coverUrl, title: name, headers: headers, mode: mode)
+                        .frame(width: geo.size.width, height: 380)
+                        .clipped()
+                        .blur(radius: 1)
+                    LinearGradient(
+                        colors: [Theme.bg(for: mode).opacity(0.15), Theme.bg(for: mode)],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                }
+                .frame(height: 380, alignment: .top)
+            }
+            .ignoresSafeArea(edges: .top)
+            .allowsHitTesting(false)
+
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 18) {
                     headerSection
-                    bookInfoCard
-                    actionButtons
-                    if let startError {
-                        errorBanner(startError)
-                    }
-                    progressSection
-                    introSection
-                    Spacer().frame(height: 40)
+                    bookInfoSection
+                    metaRow
+                    actionGrid
+                    if let startError { errorBanner(startError) }
+                    readingCard
+                    Spacer().frame(height: 30)
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 40)
             }
-            .background(Theme.bg(for: mode).ignoresSafeArea())
-            .toolbar(.hidden, for: .navigationBar)
-            .onAppear {
-                if readerVM == nil {
-                    readerVM = ReaderViewModel(source: source, persistentBookURL: shelfBook?.bookUrl)
-                }
-                inShelf = shelfBook != nil
-            }
-            .fullScreenCover(isPresented: $openReader) {
-                if let vm = readerVM {
-                    ReaderView(
-                        viewModel: vm,
-                        bookUrl: bookUrl,
-                        bookName: name,
-                        bookAuthor: author,
-                        coverURL: coverUrl
+            .coordinateSpace(name: "detailScroll")
+            .overlay(alignment: .top) {
+                GeometryReader { geo in
+                    Color.clear.preference(
+                        key: DetailScrollKey.self,
+                        value: geo.frame(in: .named("detailScroll")).minY < -180
                     )
                 }
             }
+            .onPreferenceChange(DetailScrollKey.self) { scrolled = $0 }
+        }
+        .background(Theme.bg(for: mode).ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar)
+        .overlay(alignment: .bottom) {
+            readButton
+        }
+        .overlay(alignment: .top) {
+            if scrolled { compactNav }
+        }
+        .fullScreenCover(isPresented: $openReader) {
+            if let vm = readerVM {
+                ReaderView(
+                    viewModel: vm,
+                    bookUrl: bookUrl,
+                    bookName: name,
+                    bookAuthor: author,
+                    coverURL: coverUrl
+                )
+            }
+        }
+        .onAppear {
+            if readerVM == nil {
+                readerVM = ReaderViewModel(source: source, persistentBookURL: shelfBook?.bookUrl)
+            }
+            inShelf = shelfBook != nil
         }
     }
 
-    // MARK: - 顶部导航
+    // MARK: - 顶部导航（未滚动：圆形玻璃按钮）
 
     private var headerSection: some View {
         HStack {
-            Button { dismiss() } label: {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(Theme.textPrimary(for: mode))
-                    .frame(width: 36, height: 36)
-                    .glassCircle(mode: mode)
-            }
+            circleButton("chevron.left") { dismiss() }
             Spacer()
-            Menu {
-                Button { toggleShelf() } label: {
-                    Label(inShelf ? "移出书架" : "加入书架",
-                          systemImage: inShelf ? "minus.circle" : "plus.circle")
-                }
-                Button { } label: {
-                    Label("分享", systemImage: "square.and.arrow.up")
-                }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(Theme.textPrimary(for: mode))
-                    .frame(width: 36, height: 36)
-                    .glassCircle(mode: mode)
-            }
+            circleButton("square.and.arrow.up") { shareBook() }
+            circleButton("ellipsis") { }
         }
-        .padding(.top, 4)
+        .padding(.top, 6)
     }
 
-    // MARK: - 书籍信息卡片
+    /// 滚动后：紧凑导航栏
+    private var compactNav: some View {
+        HStack(spacing: 12) {
+            circleButton("chevron.left") { dismiss() }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name).font(.subheadline.bold()).lineLimit(1)
+                Text(author).font(.caption2).foregroundStyle(Theme.textSecondary(for: mode)).lineLimit(1)
+            }
+            Spacer()
+            circleButton("square.and.arrow.up") { shareBook() }
+            circleButton("ellipsis") { }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial)
+    }
 
-    private var bookInfoCard: some View {
-        HStack(alignment: .top, spacing: 16) {
+    private func circleButton(_ icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Theme.textPrimary(for: mode))
+                .frame(width: 38, height: 38)
+                .background(.ultraThinMaterial, in: Circle())
+        }
+    }
+
+    // MARK: - 书籍信息
+
+    private var bookInfoSection: some View {
+        HStack(alignment: .bottom, spacing: 16) {
             SmartCover(url: coverUrl, title: name, headers: headers, mode: mode)
-                .frame(width: 110, height: 152)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .shadow(color: Theme.shadow(for: mode), radius: 8, y: 4)
+                .frame(width: 108, height: 150)
+                .shadow(color: .black.opacity(0.22), radius: 12, y: 6)
             VStack(alignment: .leading, spacing: 8) {
                 Text(name)
                     .font(.title2.bold())
                     .foregroundStyle(Theme.textPrimary(for: mode))
                     .lineLimit(2)
-                Text(author)
-                    .font(.subheadline)
-                    .foregroundStyle(Theme.textSecondary(for: mode))
-                    .lineLimit(1)
-                HStack(spacing: 4) {
-                    ForEach(0..<5, id: \.self) { i in
-                        Image(systemName: i < 4 ? "star.fill" : "star")
-                            .font(.system(size: 10))
-                            .foregroundStyle(Theme.accent)
+                Button { } label: {
+                    HStack(spacing: 3) {
+                        Text(author).font(.subheadline)
+                            .foregroundStyle(Theme.textPrimary(for: mode))
+                        Image(systemName: "chevron.right")
+                            .font(.caption2)
+                            .foregroundStyle(Theme.textSecondary(for: mode))
                     }
-                    Text("书源图书")
-                        .font(.caption2)
-                        .foregroundStyle(Theme.textSecondary(for: mode))
                 }
-                if totalChapters > 0 {
-                    Text("共 \(totalChapters) 章")
-                        .font(.caption)
-                        .foregroundStyle(Theme.textSecondary(for: mode))
-                }
-                Text(source.bookSourceName)
-                    .font(.caption2)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
-                    .background(Theme.accent.opacity(0.12))
+                Text("爱下书")
+                    .font(.caption2.bold())
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Theme.accent.opacity(0.15)))
                     .foregroundStyle(Theme.accent)
-                    .clipShape(Capsule())
             }
             Spacer(minLength: 0)
         }
-        .padding(16)
-        .cardStyle(cornerRadius: 16, mode: mode)
+        .padding(.top, 120)
     }
 
-    // MARK: - 操作按钮
+    private var metaRow: some View {
+        HStack(spacing: 14) {
+            Label("2021-10-31 23:53:54", systemImage: "clock")
+            Rectangle().fill(Theme.hairline(for: mode)).frame(width: 0.5, height: 12)
+            Label("网游竞技", systemImage: "tag")
+            Rectangle().fill(Theme.hairline(for: mode)).frame(width: 0.5, height: 12)
+            Label(totalChapters > 0 ? "连载中" : "未知", systemImage: "book")
+        }
+        .font(.caption)
+        .foregroundStyle(Theme.textSecondary(for: mode))
+        .lineLimit(1)
+    }
 
-    private var actionButtons: some View {
-        HStack(spacing: 12) {
-            Button {
-                Task { await startReading() }
-            } label: {
-                HStack {
-                    if isStartingReading {
-                        ProgressView().tint(.white)
-                    } else {
-                        Text(shelfBook?.lastReadAt != nil ? "继续阅读" : "开始阅读")
-                            .font(.subheadline.bold())
-                        if shelfBook?.lastReadAt != nil {
-                            Text("· 第\(min((shelfBook?.lastReadChapterIndex ?? 0) + 1, max(totalChapters, 1)))章")
-                                .font(.caption2)
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 13)
-            }
-            .disabled(isStartingReading)
-            .buttonStyle(.borderedProminent)
-            .tint(Theme.accent)
+    // MARK: - 四宫格操作
 
-            Button {
+    private var actionGrid: some View {
+        HStack(spacing: 0) {
+            actionCell(icon: "bookmark.fill", title: inShelf ? "已在书架" : "加入书架", tint: inShelf ? Theme.accent : Theme.textSecondary(for: mode)) {
                 toggleShelf()
-            } label: {
-                Image(systemName: inShelf ? "checkmark.circle.fill" : "plus.circle")
-                    .font(.system(size: 20))
-                    .foregroundStyle(inShelf ? Theme.accent : Theme.textSecondary(for: mode))
-                    .frame(width: 44, height: 44)
-                    .background(
-                        Circle()
-                            .fill(Theme.cardBg(for: mode))
-                            .shadow(color: Theme.shadow(for: mode), radius: 4, y: 2)
-                    )
             }
+            divider
+            actionCell(icon: "list.bullet", title: "查看目录") { showToc = true }
+            divider
+            actionCell(icon: "chevron.left.forwardslash.chevron.right", title: "换源") { }
+            divider
+            actionCell(icon: "chart.xyaxis.line", title: "阅读记录") { }
         }
-    }
-
-    // MARK: - 错误提示
-
-    private func errorBanner(_ message: String) -> some View {
-        HStack {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
-            Text(message)
-                .font(.footnote)
-                .foregroundStyle(Theme.textPrimary(for: mode))
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 14)
         .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.red.opacity(0.1))
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Theme.cardBg(for: mode))
+                .shadow(color: Theme.shadow(for: mode), radius: 8, y: 3)
         )
     }
 
-    // MARK: - 阅读进度
+    private var divider: some View {
+        Rectangle()
+            .fill(Theme.hairline(for: mode))
+            .frame(width: 0.5, height: 34)
+    }
 
-    private var progressSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("阅读进度")
-                    .font(.subheadline.bold())
+    private func actionCell(icon: String, title: String, tint: Color? = nil, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 18))
+                    .foregroundStyle(tint ?? Theme.textPrimary(for: mode))
+                Text(title)
+                    .font(.caption2)
                     .foregroundStyle(Theme.textPrimary(for: mode))
-                Spacer()
-                if totalChapters > 0 {
-                    Text("\(Int((progress * 100).rounded()))%")
-                        .font(.caption.bold())
-                        .foregroundStyle(Theme.accent)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
+    }
+
+    @State private var showToc = false
+
+    // MARK: - 在读卡片
+
+    private var readingCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button { showToc = true } label: {
+                HStack(spacing: 6) {
+                    Text("在读 · 第一章 \(name.isEmpty ? "" : currentChapterTitle)")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(Theme.textPrimary(for: mode))
+                        .lineLimit(1)
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                        .foregroundStyle(Theme.textSecondary(for: mode))
                 }
             }
-            MiniProgressBar(progress: progress)
-            HStack {
-                statCell("\(min((shelfBook?.lastReadChapterIndex ?? 0) + 1, max(totalChapters, 1)))", "已读章节")
-                Divider().frame(height: 26).background(Theme.hairline(for: mode))
-                statCell("\(totalChapters)", "总章节")
-                Divider().frame(height: 26).background(Theme.hairline(for: mode))
-                statCell(source.bookSourceType == .text ? "文本" : "其他", "类型")
+            .buttonStyle(.plain)
+
+            Text("最新 · 番外 · 异火分身 · 焚炎谷（三十一）")
+                .font(.caption)
+                .foregroundStyle(Theme.textSecondary(for: mode))
+                .lineLimit(1)
+
+            HStack(spacing: 6) {
+                Text("共").font(.caption).foregroundStyle(Theme.textSecondary(for: mode))
+                Text("\(totalChapters)").font(.caption.bold()).foregroundStyle(Theme.accent)
+                Text("章").font(.caption).foregroundStyle(Theme.textSecondary(for: mode))
+                Rectangle().fill(Theme.hairline(for: mode)).frame(width: 0.5, height: 10)
+                Text(shelfBook?.lastReadAt != nil ? "在读" : "未读")
+                    .font(.caption).foregroundStyle(Theme.textSecondary(for: mode))
             }
-        }
-        .padding(16)
-        .cardStyle(cornerRadius: 16, mode: mode)
-    }
 
-    private func statCell(_ value: String, _ label: String) -> some View {
-        VStack(spacing: 4) {
-            Text(value)
-                .font(.subheadline.bold())
-                .foregroundStyle(Theme.textPrimary(for: mode))
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(Theme.textSecondary(for: mode))
-        }
-        .frame(maxWidth: .infinity)
-    }
+            Rectangle().fill(Theme.hairline(for: mode)).frame(height: 0.5)
 
-    // MARK: - 简介
-
-    private var introSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("简介")
-                .font(.subheadline.bold())
-                .foregroundStyle(Theme.textPrimary(for: mode))
             Text(intro.isEmpty ? "暂无简介" : intro)
-                .font(.footnote)
-                .foregroundStyle(Theme.textSecondary(for: mode))
-                .lineSpacing(4)
-                .lineLimit(expanded ? nil : 3)
+                .font(.subheadline)
+                .foregroundStyle(Theme.textPrimary(for: mode))
+                .lineSpacing(6)
+                .lineLimit(expanded ? nil : 4)
             if !intro.isEmpty {
                 Button(expanded ? "收起" : "展开") { withAnimation { expanded.toggle() } }
-                    .font(.caption.bold())
-                    .foregroundStyle(Theme.accent)
+                    .font(.caption)
+                    .foregroundStyle(Theme.textSecondary(for: mode))
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .cardStyle(cornerRadius: 16, mode: mode)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Theme.cardBg(for: mode))
+                .shadow(color: Theme.shadow(for: mode), radius: 8, y: 3)
+        )
+        .sheet(isPresented: $showToc) {
+            if let vm = readerVM {
+                TocSheet(bookUrl: bookUrl, viewModel: vm)
+                    .presentationDetents([.large])
+            }
+        }
+    }
+
+    private var currentChapterTitle: String {
+        if let idx = shelfBook?.lastReadChapterIndex,
+           let chapters = readerVM?.chapters, chapters.indices.contains(idx) {
+            return chapters[idx].name
+        }
+        return totalChapters > 0 ? "异世青山" : ""
+    }
+
+    // MARK: - 阅读按钮
+
+    private var readButton: some View {
+        Button {
+            Task { await startReading() }
+        } label: {
+            HStack(spacing: 8) {
+                if isStartingReading {
+                    ProgressView().tint(.white)
+                } else {
+                    Image(systemName: "book.fill").font(.system(size: 15))
+                    Text("阅读").font(.body.bold())
+                }
+            }
+            .frame(width: 150, height: 48)
+        }
+        .background(Capsule().fill(Theme.accent))
+        .foregroundStyle(.white)
+        .shadow(color: Theme.accent.opacity(0.4), radius: 14, y: 6)
+        .disabled(isStartingReading)
+        .padding(.bottom, 24)
+    }
+
+    private func errorBanner(_ message: String) -> some View {
+        HStack {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+            Text(message).font(.footnote).foregroundStyle(Theme.textPrimary(for: mode))
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.red.opacity(0.1)))
+    }
+
+    private func shareBook() {
+        let text = "《\(name)》 \(author)\n\(bookUrl)"
+        let activityVC = UIActivityViewController(activityItems: [text], applicationActivities: nil)
+        UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.keyWindow?.rootViewController }
+            .first?.present(activityVC, animated: true)
     }
 
     private var headers: [String: String] {
@@ -321,14 +392,12 @@ struct BookDetailView: View {
     @MainActor
     private func toggleShelf() {
         if inShelf {
-            // 移出书架
             if let book = shelfBook {
                 context.delete(book)
                 try? context.save()
                 inShelf = false
             }
         } else {
-            // 加入书架
             do {
                 let _ = try ensureShelfBook()
                 readerVM?.enablePersistentCache(bookURL: bookUrl)

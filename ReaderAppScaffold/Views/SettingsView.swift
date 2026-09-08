@@ -10,33 +10,37 @@ struct SettingsView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    Text("设置").font(.system(size: 30, weight: .bold))
-                        .padding(.top, 6)
+                    HStack {
+                        Text("设置").font(.system(size: 32, weight: .bold))
+                        Spacer()
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 20))
+                            .foregroundStyle(Theme.textSecondary)
+                    }
+                    .padding(.top, 4)
 
+                    sectionLabel("阅读设置")
                     settingGroup {
-                        navRow("阅读设置", icon: "book", destination: ReaderSettingsPage())
-                        sheetRow("书源管理", icon: "tray.full", subtitle: "\(allSources.filter(\.enabled).count) 个已启用") {
+                        navRow("字体与排版", icon: "textformat", destination: ReaderSettingsPage())
+                        navRow("背景与主题", icon: "circle.lefthalf.filled", destination: AppearancePage())
+                        navRow("翻页方式", icon: "book.pages", destination: ReaderSettingsPage())
+                        navRow("阅读进度", icon: "chart.xyaxis.line", destination: AppearancePage())
+                    }
+
+                    sectionLabel("功能设置")
+                    settingGroup {
+                        sheetRow("书源管理", icon: "tray.full", subtitle: "\(allSources.filter(\\.enabled).count) 个已启用") {
                             SourceListSheet()
                         }
                         navRow("下载管理", icon: "arrow.down.circle", destination: DownloadStubPage())
+                        navRow("TTS 语音", icon: "speaker.wave.2", destination: ReaderAloudConfigPage())
                         navRow("数据备份", icon: "externaldrive", destination: BackupPage())
                     }
 
-                    Text("通用").font(.footnote.bold()).foregroundStyle(.secondary)
-                        .padding(.leading, 6)
+                    sectionLabel("其他")
                     settingGroup {
-                        navRow("主题模式", icon: "circle.lefthalf.filled", destination: AppearancePage())
-                        navRow("隐私设置", icon: "hand.raised", destination: PrivacyStubPage())
-                        navRow("通知设置", icon: "bell", destination: NotificationStubPage())
-                        navRow("清除缓存", icon: "trash", destination: ClearCacheView())
-                    }
-
-                    Text("关于").font(.footnote.bold()).foregroundStyle(.secondary)
-                        .padding(.leading, 6)
-                    settingGroup {
-                        navRow("关于我们", icon: "info.circle", detail: "1.0.0", destination: AboutPage())
-                        navRow("崩溃日志", icon: "exclamationmark.triangle", detail: "\(CrashLogStore.shared.entries.count)", destination: CrashLogView())
-                        navRow("意见反馈", icon: "envelope", destination: FeedbackPage())
+                        navRow("关于我们", icon: "info.circle", detail: "v1.0.0", destination: AboutPage())
+                        navRow("隐私与协议", icon: "hand.raised", destination: PrivacyStubPage())
                     }
 
                     Text("书源驱动的本地阅读器 · 学习交流用途")
@@ -52,11 +56,18 @@ struct SettingsView: View {
         }
     }
 
+    private func sectionLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.footnote.bold())
+            .foregroundStyle(Theme.textSecondary)
+            .padding(.leading, 6)
+    }
+
     // MARK: - 通用小组件
 
     private func settingGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(spacing: 0) { content() }
-            .background(RoundedRectangle(cornerRadius: 16).fill(Color.white))
+            .background(RoundedRectangle(cornerRadius: 16).fill(Theme.cardBg))
             .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.hairline, lineWidth: 0.5))
     }
 
@@ -91,7 +102,7 @@ struct SettingsView: View {
                 }
             } trailing: {
                 HStack(spacing: 5) {
-                    if let detail { Text(detail).font(.caption).foregroundStyle(.secondary) }
+                    if let detail { Text(detail).font(.caption).foregroundStyle(Theme.textSecondary) }
                     Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
                 }
             }
@@ -117,7 +128,7 @@ struct SettingsView: View {
                 }
             } trailing: {
                 HStack(spacing: 5) {
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                    Text(subtitle).font(.caption).foregroundStyle(Theme.textSecondary)
                     Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
                 }
             }
@@ -132,6 +143,23 @@ struct SettingsView: View {
 struct SourceListSheet: View {
     var body: some View {
         BookSourceListView()
+    }
+}
+
+// MARK: - 子页面
+
+struct ReaderAloudConfigPage: View {
+    var body: some View {
+        List {
+            Section {
+                Text("在线朗读引擎与系统 TTS 可在阅读页 → TTS 中切换。")
+                    .font(.footnote).foregroundStyle(Theme.textSecondary)
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationTitle("TTS 语音")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

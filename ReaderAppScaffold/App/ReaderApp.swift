@@ -58,13 +58,13 @@ struct RootView: View {
     var body: some View {
         TabView {
             ShelfView()
-                .tabItem { Label("书架", systemImage: "books.vertical") }
+                .tabItem { Label("书架", systemImage: "book.fill") }
             BrowseView()
-                .tabItem { Label("浏览", systemImage: "square.grid.2x2") }
+                .tabItem { Label("发现", systemImage: "safari") }
             SearchView(embeddedInTab: true)
                 .tabItem { Label("搜索", systemImage: "magnifyingglass") }
             HistoryView()
-                .tabItem { Label("历史", systemImage: "clock.arrow.circlepath") }
+                .tabItem { Label("历史", systemImage: "clock") }
             SettingsView()
                 .tabItem { Label("设置", systemImage: "gearshape") }
         }

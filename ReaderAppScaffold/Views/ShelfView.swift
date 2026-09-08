@@ -2,7 +2,8 @@ import SwiftUI
 import SwiftData
 import LegadoRuleEngine
 
-/// 书架页：顶部搜索 + 最近阅读卡片 + 书架网格（对照设计稿）
+/// 书架页（对照设计稿 1:1）：
+/// 大标题 + 圆形操作按钮、搜索胶囊、推荐横幅、最近阅读卡片、我的书架网格。
 struct ShelfView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: [SortDescriptor(\ShelfBook.lastReadAt, order: .reverse)])
@@ -22,7 +23,7 @@ struct ShelfView: View {
     @State private var sortByRecent = true
 
     private var recentBook: ShelfBook? {
-        books.first { $0.lastReadAt != nil }
+        books.first { $0.lastReadAt != nil } ?? books.first
     }
 
     private var sortedBooks: [ShelfBook] {
@@ -37,7 +38,11 @@ struct ShelfView: View {
         }
     }
 
-    private let columns = [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)]
+    private let columns = [
+        GridItem(.flexible(), spacing: 14),
+        GridItem(.flexible(), spacing: 14),
+        GridItem(.flexible(), spacing: 14)
+    ]
 
     var body: some View {
         NavigationStack {
@@ -45,6 +50,7 @@ struct ShelfView: View {
                 VStack(alignment: .leading, spacing: 20) {
                     header
                     searchBar
+                    heroBanner
                     if books.isEmpty && localBooks.isEmpty {
                         emptyState
                     } else {
@@ -55,7 +61,7 @@ struct ShelfView: View {
                             localSection
                         }
                         if !books.isEmpty {
-                            shelfGrid
+                            shelfSection
                         }
                     }
                 }
@@ -82,61 +88,134 @@ struct ShelfView: View {
         }
     }
 
-    // MARK: - 顶部
+    // MARK: - 顶部标题
 
     private var header: some View {
-        HStack {
-            Text("书架").font(.system(size: 30, weight: .bold))
+        HStack(spacing: 12) {
+            Text("书架")
+                .font(.system(size: 32, weight: .bold))
             Spacer()
             Menu {
-                Button { showSourceList = true } label: { Label("书源管理", systemImage: "tray.full") }
                 Button { showImport = true } label: { Label("导入书源", systemImage: "square.and.arrow.down") }
                 Button { showTxtImport = true } label: { Label("导入 TXT", systemImage: "doc.text") }
             } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 17, weight: .semibold))
+                Image(systemName: "plus")
+                    .font(.system(size: 18, weight: .medium))
                     .foregroundStyle(.primary)
-                    .frame(width: 34, height: 34)
-                    .glassCircle()
+                    .frame(width: 40, height: 40)
+                    .background(Circle().fill(Theme.secondaryBg))
+            }
+            Menu {
+                Button { showSourceList = true } label: { Label("书源管理", systemImage: "tray.full") }
+                Button(sortByRecent ? "按加入时间排序" : "按最近阅读排序") { sortByRecent.toggle() }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 40, height: 40)
+                    .background(Circle().fill(Theme.secondaryBg))
             }
         }
-        .padding(.top, 6)
+        .padding(.top, 4)
     }
 
+    // MARK: - 搜索框
+
     private var searchBar: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-            TextField("在书架查找", text: $searchText)
-                .textInputAutocapitalization(.never)
-            if !searchText.isEmpty {
-                Button { searchText = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+        NavigationLink {
+            SearchView(embeddedInTab: false)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(Theme.textSecondary)
+                Text("搜索书名、作者、书源...")
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.textSecondary)
+                Spacer()
             }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(
+                Capsule()
+                    .fill(Theme.secondaryBg)
+                    .overlay(Capsule().stroke(Theme.hairline, lineWidth: 0.5))
+            )
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
-        .glassCard(Capsule(), interactive: true)
-        .overlay(Capsule().stroke(Theme.hairline, lineWidth: 0.5))
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - 推荐横幅
+
+    private var heroBanner: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 18)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.85, green: 0.90, blue: 0.96),
+                            Color(red: 0.93, green: 0.95, blue: 0.98),
+                            Color(red: 0.97, green: 0.98, blue: 0.99)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+            // 远山与云的抽象层次
+            GeometryReader { geo in
+                Circle()
+                    .fill(Color.white.opacity(0.45))
+                    .frame(width: geo.size.width * 0.7, height: geo.size.width * 0.5)
+                    .offset(x: geo.size.width * 0.45, y: -geo.size.width * 0.18)
+                Ellipse()
+                    .fill(Color(red: 0.72, green: 0.80, blue: 0.90).opacity(0.55))
+                    .frame(width: geo.size.width * 0.9, height: geo.size.height * 0.9)
+                    .offset(x: geo.size.width * 0.35, y: geo.size.height * 0.45)
+                Ellipse()
+                    .fill(Color(red: 0.62, green: 0.72, blue: 0.85).opacity(0.45))
+                    .frame(width: geo.size.width * 0.8, height: geo.size.height * 1.1)
+                    .offset(x: -geo.size.width * 0.15, y: geo.size.height * 0.62)
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                Text("阅读，遇见更好的自己")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.16, green: 0.23, blue: 0.38))
+                Text("— 热门推荐 —")
+                    .font(.caption)
+                    .foregroundStyle(Color(red: 0.35, green: 0.42, blue: 0.55))
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .padding(.leading, 20)
+        }
+        .frame(height: 150)
     }
 
     private var emptyState: some View {
         VStack(spacing: 14) {
-            Spacer().frame(height: 80)
-            Image(systemName: "books.vertical")
-                .font(.system(size: 52, weight: .light))
-                .foregroundStyle(Theme.accent.opacity(0.85))
-                .frame(width: 110, height: 110)
-                .glassCard(RoundedRectangle(cornerRadius: 28))
+            Spacer().frame(height: 60)
+            Image(systemName: "book.fill")
+                .font(.system(size: 44, weight: .light))
+                .foregroundStyle(Theme.accent)
+                .frame(width: 100, height: 100)
+                .background(Circle().fill(Theme.secondaryBg))
             Text("书架为空").font(.title3.bold())
-            Text("从浏览页找书，或先导入一个书源").font(.footnote).foregroundStyle(.secondary)
+            Text("从发现页找书，或先导入一个书源").font(.footnote).foregroundStyle(Theme.textSecondary)
             HStack(spacing: 12) {
-                Button { showImport = true } label: { Label("导入书源", systemImage: "square.and.arrow.down") }
-                    .prominentGlassButton()
-                    .tint(Theme.accent)
-                Button { showTxtImport = true } label: { Label("导入 TXT", systemImage: "doc.text") }
-                    .plainGlassButton()
-                    .tint(.primary)
+                Button { showImport = true } label: {
+                    Label("导入书源", systemImage: "square.and.arrow.down")
+                        .font(.subheadline.bold())
+                        .padding(.horizontal, 16).padding(.vertical, 10)
+                        .background(Capsule().fill(Theme.accent))
+                        .foregroundStyle(.white)
+                }
+                Button { showTxtImport = true } label: {
+                    Label("导入 TXT", systemImage: "doc.text")
+                        .font(.subheadline.bold())
+                        .padding(.horizontal, 16).padding(.vertical, 10)
+                        .background(Capsule().fill(Theme.secondaryBg))
+                }
             }
-            Spacer().frame(height: 120)
+            .tint(Theme.accent)
+            Spacer().frame(height: 80)
         }
         .frame(maxWidth: .infinity)
     }
@@ -149,36 +228,55 @@ struct ShelfView: View {
     }
 
     private func recentCard(_ book: ShelfBook) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("最近阅读").font(.headline)
+        VStack(alignment: .leading, spacing: 12) {
+            Text("最近阅读")
+                .font(.title3.bold())
             Button { open(book) } label: {
-                HStack(alignment: .top, spacing: 12) {
+                HStack(alignment: .top, spacing: 14) {
                     SmartCover(url: book.coverUrl, title: book.name, headers: headers(for: book))
-                        .frame(width: 52, height: 72)
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(book.name).font(.subheadline.bold()).foregroundStyle(.primary).lineLimit(1)
-                        Text(book.author).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        Text("第 \(min(book.lastReadChapterIndex + 1, max(book.totalChapters, 1))) 章 / \(max(book.totalChapters, 1)) 章")
-                            .font(.caption2).foregroundStyle(.secondary)
-                        MiniProgressBar(progress: progress(of: book))
+                        .frame(width: 56, height: 76)
+                        .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(book.name)
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        Text("第 \(min(book.lastReadChapterIndex + 1, max(book.totalChapters, 1))) 章 · \(book.author)")
+                            .font(.caption)
+                            .foregroundStyle(Theme.textSecondary)
+                            .lineLimit(1)
+                        HStack(spacing: 10) {
+                            MiniProgressBar(progress: progress(of: book))
+                            Text("\(Int((progress(of: book) * 100).rounded()))%")
+                                .font(.caption.bold())
+                                .foregroundStyle(.primary)
+                                .monospacedDigit()
+                        }
                     }
-                    Spacer()
-                    Text("\(Int((progress(of: book) * 100).rounded()))%")
-                        .font(.caption.bold()).foregroundStyle(Theme.accent)
+                    Spacer(minLength: 0)
                 }
                 .padding(12)
-                .background(RoundedRectangle(cornerRadius: 16).fill(Color.white))
-                .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.hairline, lineWidth: 0.5))
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(Theme.cardBg)
+                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.hairline, lineWidth: 0.5))
+                )
             }
             .buttonStyle(.plain)
         }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Theme.cardBg)
+                .shadow(color: Theme.shadow, radius: 10, y: 4)
+        )
     }
 
     // MARK: - 本地书籍
 
     private var localSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("本地书籍").font(.headline)
+            Text("本地书籍").font(.title3.bold())
             ForEach(localBooks) { book in
                 Button { openLocal = book } label: {
                     HStack(spacing: 12) {
@@ -187,14 +285,17 @@ struct ShelfView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(book.name).font(.subheadline.bold()).foregroundStyle(.primary).lineLimit(1)
                             Text("\(book.author) · \(TxtParser.decode(book.chaptersData).count) 章")
-                                .font(.caption).foregroundStyle(.secondary)
+                                .font(.caption).foregroundStyle(Theme.textSecondary)
                         }
                         Spacer()
-                        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
+                        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(Theme.textSecondary)
                     }
                     .padding(12)
-                    .background(RoundedRectangle(cornerRadius: 14).fill(Color.white))
-                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.hairline, lineWidth: 0.5))
+                    .background(
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(Theme.cardBg)
+                            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.hairline, lineWidth: 0.5))
+                    )
                 }
                 .buttonStyle(.plain)
                 .contextMenu {
@@ -209,24 +310,22 @@ struct ShelfView: View {
 
     // MARK: - 我的书架
 
-    private var shelfGrid: some View {
-        VStack(alignment: .leading, spacing: 12) {
+    private var shelfSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("我的书架").font(.headline)
+                Text("我的书架").font(.title3.bold())
                 Spacer()
-                Menu {
-                    Button("按最近阅读") { sortByRecent = true }
-                    Button("按加入时间") { sortByRecent = false }
-                } label: {
-                    Label(sortByRecent ? "按最近阅读" : "按加入时间", systemImage: "chevron.down")
-                        .font(.caption).foregroundStyle(.secondary)
+                Button { sortByRecent.toggle() } label: {
+                    Text("编辑").font(.subheadline).foregroundStyle(Theme.accent)
                 }
             }
             if filtered.isEmpty {
-                Text("没有找到「\(searchText)」相关书籍").font(.footnote).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center).padding(.top, 24)
+                Text("没有找到「\(searchText)」相关书籍")
+                    .font(.footnote).foregroundStyle(Theme.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.top, 24)
             } else {
-                LazyVGrid(columns: columns, spacing: 18) {
+                LazyVGrid(columns: columns, spacing: 20) {
                     ForEach(filtered) { book in
                         gridCell(book)
                     }
@@ -239,10 +338,23 @@ struct ShelfView: View {
         Button { open(book) } label: {
             VStack(alignment: .leading, spacing: 6) {
                 SmartCover(url: book.coverUrl, title: book.name, headers: headers(for: book))
-                    .frame(width: 96, height: 128)
-                    .shadow(color: .black.opacity(0.10), radius: 6, y: 3)
-                Text(book.name).font(.caption.bold()).lineLimit(1).foregroundStyle(.primary)
-                Text(book.author).font(.caption2).lineLimit(1).foregroundStyle(.secondary)
+                    .aspectRatio(0.72, contentMode: .fit)
+                    .frame(maxWidth: .infinity)
+                    .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
+                Text(book.name)
+                    .font(.caption.bold())
+                    .lineLimit(1)
+                    .foregroundStyle(.primary)
+                if progress(of: book) > 0.001 {
+                    Text("\(Int((progress(of: book) * 100).rounded()))%")
+                        .font(.caption2.bold())
+                        .foregroundStyle(Theme.accent)
+                } else {
+                    Text("更新至 \(max(book.totalChapters, 0)) 章")
+                        .font(.caption2)
+                        .foregroundStyle(Theme.textSecondary)
+                        .lineLimit(1)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
