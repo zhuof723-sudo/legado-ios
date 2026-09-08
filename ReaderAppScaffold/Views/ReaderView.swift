@@ -46,6 +46,13 @@ struct ReaderView: View {
 
     private var textColor: Color { config.currentTheme.textColor }
 
+    private var brightnessBinding: Binding<Double> {
+        Binding(
+            get: { Double(UIScreen.main.brightness) },
+            set: { UIScreen.main.brightness = CGFloat($0) }
+        )
+    }
+
     var body: some View {
         GeometryReader { geo in
             let pageSize = CGSize(
@@ -191,73 +198,86 @@ struct ReaderView: View {
     }
 
     private var immersiveHeader: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             Button { dismiss() } label: {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(textColor)
                     .frame(width: 36, height: 36)
-                    .background(.ultraThinMaterial, in: Circle())
+                    .background(.thinMaterial, in: Circle())
             }
-            Spacer(minLength: 0)
+            Text(viewModel.currentChapterTitle ?? bookName)
+                .font(.subheadline.bold())
+                .foregroundStyle(textColor)
+                .lineLimit(1)
+            Spacer(minLength: 8)
             Menu {
                 Button { } label: { Label("分享", systemImage: "square.and.arrow.up") }
                 Button { } label: { Label("书源详情", systemImage: "info.circle") }
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(textColor)
                     .frame(width: 36, height: 36)
-                    .background(.ultraThinMaterial, in: Circle())
+                    .background(.thinMaterial, in: Circle())
             }
         }
     }
 
     private var immersiveBottomPanel: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: "sun.min")
+                    .font(.caption)
+                    .foregroundStyle(Theme.textSecondary)
+                Slider(value: brightnessBinding, in: 0.05...1)
+                    .tint(Theme.accent)
+                Image(systemName: "sun.max.fill")
+                    .font(.caption)
+                    .foregroundStyle(Theme.textSecondary)
+            }
+
             HStack {
-                Text(viewModel.currentChapterTitle ?? bookName)
-                    .font(.caption).foregroundStyle(.white).lineLimit(1)
+                Button {
+                    pendingJumpToLastPage = true
+                    Task { await viewModel.prevChapter() }
+                } label: {
+                    Text("上一章").font(.footnote)
+                }
+                .disabled(!viewModel.hasPreviousChapter)
                 Spacer()
                 Text("\(pageIndex + 1) / \(max(pages.count, 1))")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.7))
-            }
-            HStack(spacing: 8) {
-                Button { goPrevPage() } label: {
-                    Image(systemName: "chevron.left").frame(width: 28, height: 28)
+                    .font(.caption2)
+                    .foregroundStyle(Theme.textSecondary)
+                Spacer()
+                Button {
+                    pendingJumpToLastPage = false
+                    pageIndex = 0
+                    Task { await viewModel.nextChapter() }
+                } label: {
+                    Text("下一章").font(.footnote)
                 }
-                .tint(.white.opacity(0.9))
-                Slider(
-                    value: Binding(
-                        get: { Double(min(pageIndex, max(pages.count - 1, 0))) },
-                        set: { pageIndex = Int($0.rounded()) }
-                    ),
-                    in: 0...Double(max(pages.count - 1, 1))
-                )
-                .tint(Theme.accent)
-                Button { advancePage(allowNextChapter: true) } label: {
-                    Image(systemName: "chevron.right").frame(width: 28, height: 28)
-                }
-                .tint(.white.opacity(0.9))
+                .disabled(!viewModel.hasNextChapter)
             }
+            .foregroundStyle(.primary)
+
             HStack {
                 immersiveToolButton("list.bullet", "目录") { showToc = true }
                 Spacer()
-                immersiveToolButton("headphones", "TTS") {
+                immersiveToolButton(speech.isSpeaking ? "headphones.circle.fill" : "headphones", "TTS") {
                     guard pageIndex < pages.count else { return }
                     speech.toggle(pages[pageIndex])
                 }
                 Spacer()
                 immersiveToolButton("gearshape", "设置") { showSettings = true }
             }
+            .foregroundStyle(.primary)
         }
-        .foregroundStyle(.white)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.15), lineWidth: 0.6))
-        .shadow(color: .black.opacity(0.2), radius: 12, y: 4)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.hairline, lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
     }
 
     private func immersiveToolButton(_ icon: String, _ label: String, action: @escaping () -> Void) -> some View {

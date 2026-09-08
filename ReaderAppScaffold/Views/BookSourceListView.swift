@@ -9,6 +9,7 @@ import UIKit
 /// 长按菜单(测试/编辑/登录/导出/删除) + 多种导入 + 导出全部 + 日志
 struct BookSourceListView: View {
     @Environment(\.modelContext) private var context
+    @Environment(\.dismiss) private var dismiss
     @Query(sort: [SortDescriptor(\BookSourceRecord.customOrder), SortDescriptor(\BookSourceRecord.bookSourceName)])
     private var sources: [BookSourceRecord]
 
@@ -45,26 +46,53 @@ struct BookSourceListView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                if !groups.isEmpty {
-                    groupChips
+            VStack(spacing: 12) {
+                HStack {
+                    Button { dismiss() } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.primary)
+                    }
+                    Text("书源管理").font(.title3.bold())
+                    Spacer()
+                    Menu {
+                        Button { showImport = true } label: { Label("粘贴 JSON 导入", systemImage: "doc.on.clipboard") }
+                        Button { showUrlImport = true } label: { Label("从网络地址导入", systemImage: "link") }
+                        if !sources.isEmpty {
+                            Divider()
+                            Button { editing = true } label: { Label("编辑书源", systemImage: "checklist") }
+                            Button { showBatchTest = true } label: { Label("批量测试", systemImage: "play.circle") }
+                            Button { exportAll() } label: { Label("导出全部", systemImage: "square.and.arrow.up") }
+                        }
+                    } label: {
+                        Label("添加书源", systemImage: "plus")
+                            .font(.subheadline)
+                            .foregroundStyle(Theme.accent)
+                    }
                 }
+                .padding(.horizontal, 16)
+                .padding(.top, 10)
+
+                sourceSearchBar
+
+                if !groups.isEmpty { groupChips }
                 if filtered.isEmpty {
                     emptyState
                 } else {
                     List {
                         ForEach(filtered) { record in
                             row(record)
+                                .listRowInsets(EdgeInsets(top: 7, leading: 16, bottom: 7, trailing: 16))
+                                .listRowSeparator(.hidden)
                         }
                         .onDelete(perform: deleteAtOffsets)
                     }
                     .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
                 }
             }
-            .navigationTitle("书源管理")
-            .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $searchText, prompt: "搜索书源名称 / 地址")
-            .toolbar { toolbarContent }
+            .background(Theme.bg.ignoresSafeArea())
+            .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .bottom) {
                 if editing { batchBar }
             }
@@ -82,6 +110,27 @@ struct BookSourceListView: View {
                 Button("取消", role: .cancel) {}
             }
         }
+    }
+
+    private var sourceSearchBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(Theme.textSecondary)
+            TextField("搜索书源名称", text: $searchText)
+                .font(.subheadline)
+            if !searchText.isEmpty {
+                Button { searchText = "" } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.textSecondary)
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .background(
+            Capsule()
+                .fill(Theme.secondaryBg)
+                .overlay(Capsule().stroke(Theme.hairline, lineWidth: 0.5))
+        )
+        .padding(.horizontal, 16)
     }
 
     // MARK: - 分组筛选
@@ -122,22 +171,33 @@ struct BookSourceListView: View {
                 Button { toggleSelect(record) } label: {
                     Image(systemName: selected.contains(record.bookSourceUrl) ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 20))
-                        .foregroundStyle(selected.contains(record.bookSourceUrl) ? Theme.accent : .secondary)
+                        .foregroundStyle(selected.contains(record.bookSourceUrl) ? Theme.accent : Theme.textSecondary)
                 }
                 .buttonStyle(.plain)
             }
+
+            ZStack {
+                RoundedRectangle(cornerRadius: 9)
+                    .fill(sourceIconColor(record.bookSourceName))
+                Text(String(record.bookSourceName.prefix(1)))
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 42, height: 42)
+
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(record.bookSourceName).font(.headline).foregroundStyle(.primary).lineLimit(1)
+                Text(record.bookSourceName)
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                HStack(spacing: 5) {
+                    Text(record.enabled ? "可用" : "已停用")
                     if let group = record.bookSourceGroup, !group.isEmpty {
-                        Text(group)
-                            .font(.caption2).foregroundStyle(Theme.accent)
-                            .padding(.horizontal, 7).padding(.vertical, 2)
-                            .background(Capsule().fill(Theme.accent.opacity(0.12)))
+                        Text("· \(group)")
                     }
                 }
-                Text(record.bookSourceUrl)
-                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                .font(.caption2)
+                .foregroundStyle(Theme.textSecondary)
             }
             Spacer()
             if !editing {
@@ -147,11 +207,27 @@ struct BookSourceListView: View {
                 ))
                 .labelsHidden()
                 .tint(Theme.accent)
+                Image(systemName: "line.3.horizontal")
+                    .font(.caption)
+                    .foregroundStyle(Theme.textSecondary.opacity(0.6))
             }
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Theme.cardBg)
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.hairline, lineWidth: 0.5))
+        )
         .contentShape(Rectangle())
         .onTapGesture { if editing { toggleSelect(record) } }
         .contextMenu { contextMenu(for: record) }
+    }
+
+    private func sourceIconColor(_ name: String) -> Color {
+        let colors: [Color] = [.blue, .green, .orange, .red, .purple, .indigo]
+        let value = name.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
+        return colors[value % colors.count]
     }
 
     @ViewBuilder

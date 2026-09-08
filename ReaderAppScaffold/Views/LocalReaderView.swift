@@ -19,7 +19,6 @@ struct LocalReaderView: View {
     @State private var showControls = false
     @State private var showSettings = false
     @State private var showToc = false
-    @State private var showChapterSearch = false
 
     init(book: LocalBook) {
         self.bookName = book.name
@@ -28,6 +27,13 @@ struct LocalReaderView: View {
 
     private var bgColor: Color { config.currentTheme.background }
     private var textColor: Color { config.currentTheme.textColor }
+
+    private var brightnessBinding: Binding<Double> {
+        Binding(
+            get: { Double(UIScreen.main.brightness) },
+            set: { UIScreen.main.brightness = CGFloat($0) }
+        )
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -86,10 +92,6 @@ struct LocalReaderView: View {
         .sheet(isPresented: $showToc) {
             tocSheet
                 .presentationDetents([.large])
-        }
-        .sheet(isPresented: $showChapterSearch) {
-            ReaderChapterSearchView(text: viewModel.currentContent)
-                .presentationDetents([.medium, .large])
         }
         .onChange(of: viewModel.currentIndex) { _, _ in
             if !pendingJumpToLastPage { pageIndex = 0 }
@@ -150,81 +152,69 @@ struct LocalReaderView: View {
     }
 
     private var immersiveHeader: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             Button { dismiss() } label: {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(textColor)
                     .frame(width: 36, height: 36)
-                    .background(.ultraThinMaterial, in: Circle())
+                    .background(.thinMaterial, in: Circle())
             }
-            Spacer(minLength: 0)
-            Text(bookName)
+            Text(viewModel.currentTitle ?? bookName)
                 .font(.subheadline.bold())
-                .foregroundStyle(.white)
+                .foregroundStyle(textColor)
                 .lineLimit(1)
-                .padding(.horizontal, 14)
-                .frame(height: 36)
-                .background(.ultraThinMaterial, in: Capsule())
-            Spacer(minLength: 0)
-            Circle()
-                .fill(.ultraThinMaterial)
+            Spacer(minLength: 8)
+            Image(systemName: "ellipsis")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(textColor)
                 .frame(width: 36, height: 36)
-                .overlay(
-                    Image(systemName: "book")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.white.opacity(0.7))
-                )
+                .background(.thinMaterial, in: Circle())
         }
     }
 
     private var immersiveBottomPanel: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: "sun.min").font(.caption).foregroundStyle(Theme.textSecondary)
+                Slider(value: brightnessBinding, in: 0.05...1).tint(Theme.accent)
+                Image(systemName: "sun.max.fill").font(.caption).foregroundStyle(Theme.textSecondary)
+            }
             HStack {
-                Text(viewModel.currentTitle ?? bookName)
-                    .font(.caption).foregroundStyle(.white).lineLimit(1)
+                Button {
+                    pendingJumpToLastPage = true
+                    viewModel.prevChapter()
+                } label: { Text("上一章").font(.footnote) }
+                    .disabled(!viewModel.hasPreviousChapter)
                 Spacer()
                 Text("\(pageIndex + 1) / \(max(pages.count, 1))")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.7))
+                    .font(.caption2).foregroundStyle(Theme.textSecondary)
+                Spacer()
+                Button {
+                    pendingJumpToLastPage = false
+                    pageIndex = 0
+                    viewModel.nextChapter()
+                } label: { Text("下一章").font(.footnote) }
+                    .disabled(!viewModel.hasNextChapter)
             }
-            HStack(spacing: 8) {
-                Button { goPrevPage() } label: {
-                    Image(systemName: "chevron.left").frame(width: 28, height: 28)
-                }
-                .tint(.white.opacity(0.9))
-                Slider(
-                    value: Binding(
-                        get: { Double(min(pageIndex, max(pages.count - 1, 0))) },
-                        set: { pageIndex = Int($0.rounded()) }
-                    ),
-                    in: 0...Double(max(pages.count - 1, 1))
-                )
-                .tint(Theme.accent)
-                Button { advancePage(allowNextChapter: true) } label: {
-                    Image(systemName: "chevron.right").frame(width: 28, height: 28)
-                }
-                .tint(.white.opacity(0.9))
-            }
+            .foregroundStyle(.primary)
             HStack {
                 immersiveToolButton("list.bullet", "目录") { showToc = true }
                 Spacer()
-                immersiveToolButton(speech.isSpeaking ? "speaker.wave.2.fill" : "speaker.wave.2", "听书") {
+                immersiveToolButton(speech.isSpeaking ? "headphones.circle.fill" : "headphones", "TTS") {
                     guard pageIndex < pages.count else { return }
                     speech.toggle(pages[pageIndex])
                 }
                 Spacer()
-                immersiveToolButton("magnifyingglass", "搜索") { showChapterSearch = true }
-                Spacer()
-                immersiveToolButton("textformat.size", "排版") { showSettings = true }
+                immersiveToolButton("gearshape", "设置") { showSettings = true }
             }
+            .foregroundStyle(.primary)
         }
-        .foregroundStyle(.white)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.15), lineWidth: 0.6))
-        .shadow(color: .black.opacity(0.2), radius: 12, y: 4)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.hairline, lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
     }
 
     private func immersiveToolButton(_ icon: String, _ label: String, action: @escaping () -> Void) -> some View {

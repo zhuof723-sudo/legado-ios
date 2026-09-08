@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // MARK: - 主题模式枚举
 
@@ -86,14 +87,14 @@ enum Theme {
         }
     }
 
-    // 默认浅色主题的颜色（向后兼容）
-    static let bg = bg(for: .light)
-    static let cardBg = cardBg(for: .light)
-    static let hairline = hairline(for: .light)
-    static let shadow = shadow(for: .light)
-    static let textPrimary = textPrimary(for: .light)
-    static let textSecondary = textSecondary(for: .light)
-    static let secondaryBg = secondaryBg(for: .light)
+    // 默认动态主题色（向后兼容，并随系统亮暗模式切换）
+    static let bg = Color(uiColor: .systemBackground)
+    static let cardBg = Color(uiColor: .secondarySystemBackground)
+    static let hairline = Color(uiColor: .separator).opacity(0.45)
+    static let shadow = Color.black.opacity(0.08)
+    static let textPrimary = Color(uiColor: .label)
+    static let textSecondary = Color(uiColor: .secondaryLabel)
+    static let secondaryBg = Color(uiColor: .secondarySystemBackground)
 
     /// 阅读器可选背景色
     static let readerBackgrounds: [Color] = [

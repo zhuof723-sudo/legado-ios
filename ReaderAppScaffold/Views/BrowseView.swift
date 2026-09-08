@@ -227,11 +227,12 @@ struct BrowseView: View {
     var body: some View {
         NavigationStack {
             ZStack(alignment: .bottom) {
-                Color(.systemGroupedBackground).ignoresSafeArea()
-                Rectangle().fill(.ultraThinMaterial).ignoresSafeArea()
+                Theme.bg.ignoresSafeArea()
 
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 26) {
+                    LazyVStack(alignment: .leading, spacing: 22) {
+                        Text("发现")
+                            .font(.system(size: 32, weight: .bold))
                         topControls
                         searchEntry
                         if model.isLoading && model.boards.isEmpty {
@@ -320,7 +321,7 @@ struct BrowseView: View {
             Button { refreshBrowse() } label: {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(Theme.accent)
                     .frame(width: 46, height: 46)
                     .background(.thinMaterial, in: Circle())
             }
@@ -356,7 +357,7 @@ struct BrowseView: View {
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 19, weight: .bold))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(Theme.accent)
                     .frame(width: 52, height: 52)
                     .background(.thinMaterial, in: Circle())
             }
