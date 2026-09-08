@@ -162,6 +162,12 @@ struct ShelfView: View {
                 )
             // 远山与云的抽象层次
             GeometryReader { geo in
+                Image(systemName: "mountain.2.fill")
+                    .resizable()
+                    .scaledToFit()
+                    .foregroundStyle(Color(red: 0.58, green: 0.70, blue: 0.84).opacity(0.32))
+                    .frame(width: geo.size.width * 0.72)
+                    .offset(x: geo.size.width * 0.36, y: geo.size.height * 0.10)
                 Circle()
                     .fill(Color.white.opacity(0.45))
                     .frame(width: geo.size.width * 0.7, height: geo.size.width * 0.5)

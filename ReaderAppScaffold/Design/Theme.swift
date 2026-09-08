@@ -88,13 +88,21 @@ enum Theme {
     }
 
     // 默认动态主题色（向后兼容，并随系统亮暗模式切换）
-    static let bg = Color(uiColor: .systemBackground)
-    static let cardBg = Color(uiColor: .secondarySystemBackground)
+    static let bg = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark ? UIColor.black : UIColor.white
+    })
+    static let cardBg = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark ? UIColor(white: 0.11, alpha: 1) : UIColor.white
+    })
     static let hairline = Color(uiColor: .separator).opacity(0.45)
     static let shadow = Color.black.opacity(0.08)
     static let textPrimary = Color(uiColor: .label)
     static let textSecondary = Color(uiColor: .secondaryLabel)
-    static let secondaryBg = Color(uiColor: .secondarySystemBackground)
+    static let secondaryBg = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(white: 0.11, alpha: 1)
+            : UIColor(red: 0.973, green: 0.976, blue: 0.980, alpha: 1)
+    })
 
     /// 阅读器可选背景色
     static let readerBackgrounds: [Color] = [

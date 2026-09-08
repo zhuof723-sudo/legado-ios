@@ -120,10 +120,24 @@ struct BookDetailView: View {
             }
         }
         .onAppear {
-            if readerVM == nil {
-                readerVM = ReaderViewModel(source: source, persistentBookURL: shelfBook?.bookUrl)
+            let vm: ReaderViewModel
+            if let existing = readerVM {
+                vm = existing
+            } else {
+                let created = ReaderViewModel(source: source, persistentBookURL: shelfBook?.bookUrl)
+                readerVM = created
+                vm = created
             }
             inShelf = shelfBook != nil
+            if vm.chapters.isEmpty {
+                Task {
+                    await vm.loadToc(bookUrl: bookUrl)
+                    if let book = shelfBook {
+                        book.totalChapters = vm.chapters.count
+                        try? context.save()
+                    }
+                }
+            }
         }
     }
 
@@ -418,7 +432,9 @@ struct BookDetailView: View {
 
         do {
             let _ = try ensureShelfBook()
-            await readerVM?.loadToc(bookUrl: bookUrl)
+            if readerVM?.chapters.isEmpty != false {
+                await readerVM?.loadToc(bookUrl: bookUrl)
+            }
             if let book = shelfBook {
                 book.totalChapters = readerVM?.chapters.count ?? 0
                 try? context.save()

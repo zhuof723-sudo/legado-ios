@@ -55,19 +55,28 @@ struct BookSourceListView: View {
                     }
                     Text("书源管理").font(.title3.bold())
                     Spacer()
-                    Menu {
-                        Button { showImport = true } label: { Label("粘贴 JSON 导入", systemImage: "doc.on.clipboard") }
-                        Button { showUrlImport = true } label: { Label("从网络地址导入", systemImage: "link") }
-                        if !sources.isEmpty {
-                            Divider()
-                            Button { editing = true } label: { Label("编辑书源", systemImage: "checklist") }
-                            Button { showBatchTest = true } label: { Label("批量测试", systemImage: "play.circle") }
-                            Button { exportAll() } label: { Label("导出全部", systemImage: "square.and.arrow.up") }
+                    if editing {
+                        Button("完成") {
+                            editing = false
+                            selected.removeAll()
                         }
-                    } label: {
-                        Label("添加书源", systemImage: "plus")
-                            .font(.subheadline)
-                            .foregroundStyle(Theme.accent)
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.accent)
+                    } else {
+                        Menu {
+                            Button { showImport = true } label: { Label("粘贴 JSON 导入", systemImage: "doc.on.clipboard") }
+                            Button { showUrlImport = true } label: { Label("从网络地址导入", systemImage: "link") }
+                            if !sources.isEmpty {
+                                Divider()
+                                Button { editing = true } label: { Label("编辑书源", systemImage: "checklist") }
+                                Button { showBatchTest = true } label: { Label("批量测试", systemImage: "play.circle") }
+                                Button { exportAll() } label: { Label("导出全部", systemImage: "square.and.arrow.up") }
+                            }
+                        } label: {
+                            Label("添加书源", systemImage: "plus")
+                                .font(.subheadline)
+                                .foregroundStyle(Theme.accent)
+                        }
                     }
                 }
                 .padding(.horizontal, 16)
