@@ -314,7 +314,7 @@ struct BrowseView: View {
                 .foregroundStyle(.primary)
                 .padding(.horizontal, 14)
                 .frame(height: 46)
-                .background(.thinMaterial, in: Capsule())
+                .glassCard(Capsule(), interactive: true)
             }
             .buttonStyle(.plain)
 
@@ -323,7 +323,7 @@ struct BrowseView: View {
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(Theme.accent)
                     .frame(width: 46, height: 46)
-                    .background(.thinMaterial, in: Circle())
+                    .glassCircle()
             }
             .buttonStyle(.plain)
             .disabled(activeSource == nil)
@@ -359,7 +359,7 @@ struct BrowseView: View {
                     .font(.system(size: 19, weight: .bold))
                     .foregroundStyle(Theme.accent)
                     .frame(width: 52, height: 52)
-                    .background(.thinMaterial, in: Circle())
+                    .glassCircle()
             }
             .accessibilityLabel("榜单布局：\(layoutLabel)")
         }
@@ -377,8 +377,7 @@ struct BrowseView: View {
             }
             .padding(.horizontal, 18)
             .frame(height: 58)
-            .background(.thinMaterial, in: Capsule())
-            .overlay(Capsule().stroke(Color.white.opacity(0.7), lineWidth: 0.6))
+            .glassCard(Capsule(), interactive: true)
             .shadow(color: .black.opacity(0.08), radius: 10, y: 5)
         }
         .buttonStyle(.plain)
@@ -476,8 +475,7 @@ struct BrowseView: View {
             }
         }
         .padding(16)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.65), lineWidth: 0.6))
+        .glassCard(RoundedRectangle(cornerRadius: 18))
         .task { model.loadSection(board.id) }
     }
 

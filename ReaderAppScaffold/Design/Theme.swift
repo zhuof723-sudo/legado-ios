@@ -121,46 +121,101 @@ enum Theme {
     ]
 }
 
+// MARK: - iOS 26 Liquid Glass 兼容层
+
+private struct LiquidGlassSurface<S: Shape>: ViewModifier {
+    let shape: S
+    let interactive: Bool
+    let mode: AppThemeMode
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.glassEffect(.regular.interactive(interactive), in: shape)
+        } else {
+            content
+                .background(.ultraThinMaterial, in: shape)
+                .overlay(shape.stroke(Theme.hairline(for: mode), lineWidth: 0.5))
+        }
+    }
+}
+
+/// 在 iOS 26 合并相邻玻璃表面并启用系统形变；旧系统保持原布局。
+struct LiquidGlassContainer<Content: View>: View {
+    let spacing: CGFloat?
+    let content: Content
+
+    init(spacing: CGFloat? = nil, @ViewBuilder content: () -> Content) {
+        self.spacing = spacing
+        self.content = content()
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer(spacing: spacing) { content }
+        } else {
+            content
+        }
+    }
+}
+
 // MARK: - 卡片样式兼容封装
 
 extension View {
-    /// 标准卡片样式
+    /// 通用玻璃表面：iOS 26 使用原生 Liquid Glass，旧系统降级为 Material。
+    @ViewBuilder
+    func liquidGlass<S: Shape>(
+        in shape: S,
+        interactive: Bool = false,
+        mode: AppThemeMode = .light
+    ) -> some View {
+        modifier(LiquidGlassSurface(shape: shape, interactive: interactive, mode: mode))
+    }
+
+    /// 标准玻璃卡片。
     @ViewBuilder
     func cardStyle(cornerRadius: CGFloat = 14, mode: AppThemeMode = .light) -> some View {
-        self.background(
-            RoundedRectangle(cornerRadius: cornerRadius)
-                .fill(Theme.cardBg(for: mode))
-                .shadow(color: Theme.shadow(for: mode), radius: 6, y: 2)
-        )
+        self
+            .liquidGlass(in: RoundedRectangle(cornerRadius: cornerRadius), mode: mode)
+            .shadow(color: Theme.shadow(for: mode), radius: 7, y: 3)
     }
 
-    /// 卡片/面板玻璃
+    /// 卡片/面板玻璃。
     @ViewBuilder
     func glassCard<S: Shape>(_ shape: S, interactive: Bool = false, mode: AppThemeMode = .light) -> some View {
-        self.background(.ultraThinMaterial, in: shape)
-            .overlay(shape.stroke(Theme.hairline(for: mode), lineWidth: 0.5))
+        self.liquidGlass(in: shape, interactive: interactive, mode: mode)
     }
 
-    /// 圆形玻璃（悬浮搜索等）
+    /// 圆形玻璃按钮。
     @ViewBuilder
     func glassCircle(mode: AppThemeMode = .light) -> some View {
-        self.background(.ultraThinMaterial, in: Circle())
+        self
+            .liquidGlass(in: Circle(), interactive: true, mode: mode)
             .shadow(color: Theme.shadow(for: mode), radius: 10, y: 4)
     }
 
-    /// 强调按钮（系统蓝主按钮）
+    /// 强调按钮。
     @ViewBuilder
     func prominentGlassButton() -> some View {
-        self.buttonStyle(.borderedProminent)
+        if #available(iOS 26.0, *) {
+            self.buttonStyle(.glassProminent)
+        } else {
+            self.buttonStyle(.borderedProminent)
+        }
     }
 
-    /// 普通玻璃按钮
+    /// 普通玻璃按钮。
     @ViewBuilder
     func plainGlassButton() -> some View {
-        self.buttonStyle(.bordered)
+        if #available(iOS 26.0, *) {
+            self.buttonStyle(.glass)
+        } else {
+            self.buttonStyle(.bordered)
+        }
     }
 
-    /// 底部标签栏随滚动收缩
+    /// 底部标签栏随滚动收缩。
     @ViewBuilder
     func minimizeTabBarOnScroll() -> some View {
         self

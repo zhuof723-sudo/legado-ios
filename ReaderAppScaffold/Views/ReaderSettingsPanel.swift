@@ -45,11 +45,11 @@ struct ReaderSettingsPanel: View {
                     HStack(spacing: 12) {
                         Button { config.fontSize = max(12, config.fontSize - 1) } label: { Text("A-").font(.footnote.bold()) }
                             .frame(width: 40, height: 32)
-                            .background(Capsule().fill(Color(.secondarySystemBackground)))
+                            .glassCard(Capsule(), interactive: true)
                         Slider(value: $config.fontSize, in: 12...32, step: 1).tint(Theme.accent)
                         Button { config.fontSize = min(32, config.fontSize + 1) } label: { Text("A+").font(.footnote.bold()) }
                             .frame(width: 40, height: 32)
-                            .background(Capsule().fill(Color(.secondarySystemBackground)))
+                            .glassCard(Capsule(), interactive: true)
                     }
                 }
 
@@ -113,14 +113,7 @@ struct ReaderSettingsPanel: View {
             }
             .foregroundStyle(isActive ? Theme.accent : .primary.opacity(0.6))
             .frame(width: 56, height: 50)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(isActive ? Theme.accent.opacity(0.12) : Color(.secondarySystemBackground))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(isActive ? Theme.accent.opacity(0.4) : Color.clear, lineWidth: 1)
-            )
+            .glassCard(RoundedRectangle(cornerRadius: 10), interactive: true)
         }
         .buttonStyle(.plain)
     }
@@ -153,9 +146,7 @@ struct ReaderSettingsPanel: View {
                 .font(.caption)
                 .foregroundStyle(isActive ? Theme.accent : .primary.opacity(0.7))
                 .frame(width: 64, height: 32)
-                .background(
-                    Capsule().fill(isActive ? Theme.accent.opacity(0.12) : Color(.secondarySystemBackground))
-                )
+                .glassCard(Capsule(), interactive: true)
         }
         .buttonStyle(.plain)
     }

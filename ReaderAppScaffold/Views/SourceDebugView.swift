@@ -933,7 +933,7 @@ private extension View {
     func debugCard() -> some View {
         padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+            .glassCard(RoundedRectangle(cornerRadius: 18), interactive: true)
             .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.55), lineWidth: 0.6))
     }
 }

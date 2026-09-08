@@ -434,7 +434,7 @@ struct SourceEditView: View {
         .padding(.horizontal, 16)
         .padding(.top, 10)
         .padding(.bottom, 12)
-        .background(.ultraThinMaterial)
+        .liquidGlass(in: Rectangle())
     }
 
     private var tabPicker: some View {

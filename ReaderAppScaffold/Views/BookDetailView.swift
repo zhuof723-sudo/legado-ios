@@ -167,7 +167,7 @@ struct BookDetailView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .background(.ultraThinMaterial)
+        .liquidGlass(in: Rectangle(), mode: mode)
     }
 
     private func circleButton(_ icon: String, action: @escaping () -> Void) -> some View {
@@ -176,7 +176,7 @@ struct BookDetailView: View {
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(Theme.textPrimary(for: mode))
                 .frame(width: 38, height: 38)
-                .background(.ultraThinMaterial, in: Circle())
+                .glassCircle(mode: mode)
         }
     }
 
@@ -205,8 +205,8 @@ struct BookDetailView: View {
                     .font(.caption2.bold())
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
-                    .background(Capsule().fill(Theme.accent.opacity(0.15)))
                     .foregroundStyle(Theme.accent)
+                    .glassCard(Capsule(), mode: mode)
             }
             Spacer(minLength: 0)
         }
@@ -241,11 +241,7 @@ struct BookDetailView: View {
             actionCell(icon: "chart.xyaxis.line", title: "阅读记录") { }
         }
         .padding(.vertical, 14)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Theme.cardBg(for: mode))
-                .shadow(color: Theme.shadow(for: mode), radius: 8, y: 3)
-        )
+        .cardStyle(cornerRadius: 16, mode: mode)
     }
 
     private var divider: some View {
@@ -316,11 +312,7 @@ struct BookDetailView: View {
             }
         }
         .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Theme.cardBg(for: mode))
-                .shadow(color: Theme.shadow(for: mode), radius: 8, y: 3)
-        )
+        .cardStyle(cornerRadius: 16, mode: mode)
         .sheet(isPresented: $showToc) {
             if let vm = readerVM {
                 TocSheet(bookUrl: bookUrl, viewModel: vm)
@@ -353,7 +345,8 @@ struct BookDetailView: View {
             }
             .frame(width: 150, height: 48)
         }
-        .background(Capsule().fill(Theme.accent))
+        .prominentGlassButton()
+        .tint(Theme.accent)
         .foregroundStyle(.white)
         .shadow(color: Theme.accent.opacity(0.4), radius: 14, y: 6)
         .disabled(isStartingReading)

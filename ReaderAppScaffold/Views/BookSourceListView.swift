@@ -134,11 +134,7 @@ struct BookSourceListView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
-        .background(
-            Capsule()
-                .fill(Theme.secondaryBg)
-                .overlay(Capsule().stroke(Theme.hairline, lineWidth: 0.5))
-        )
+        .glassCard(Capsule(), interactive: true)
         .padding(.horizontal, 16)
     }
 
@@ -164,9 +160,8 @@ struct BookSourceListView: View {
             Text(title)
                 .font(.footnote)
                 .padding(.horizontal, 12).padding(.vertical, 6)
-                .background(Capsule().fill(groupFilter == value ? Theme.accent : Color.white))
-                .foregroundStyle(groupFilter == value ? .white : .primary.opacity(0.8))
-                .overlay(Capsule().stroke(Theme.hairline, lineWidth: 0.5))
+                .foregroundStyle(groupFilter == value ? Theme.accent : .primary.opacity(0.8))
+                .glassCard(Capsule(), interactive: true)
         }
         .buttonStyle(.plain)
     }
@@ -223,11 +218,7 @@ struct BookSourceListView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(Theme.cardBg)
-                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.hairline, lineWidth: 0.5))
-        )
+        .glassCard(RoundedRectangle(cornerRadius: 14), interactive: true)
         .contentShape(Rectangle())
         .onTapGesture { if editing { toggleSelect(record) } }
         .contextMenu { contextMenu(for: record) }

@@ -83,7 +83,7 @@ struct ReviewListView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(Color(.secondarySystemBackground).opacity(0.5))
+        .glassCard(RoundedRectangle(cornerRadius: 12))
     }
 
     // MARK: - 评论列表
@@ -128,7 +128,7 @@ struct ReviewListView: View {
             Button("重试") {
                 loadReviews()
             }
-            .buttonStyle(.bordered)
+            .plainGlassButton()
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 60)
@@ -168,7 +168,7 @@ struct ReviewListView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(.ultraThinMaterial)
+        .liquidGlass(in: Rectangle())
     }
 
     // MARK: - 加载评论

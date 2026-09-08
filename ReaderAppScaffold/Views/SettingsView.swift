@@ -71,8 +71,7 @@ struct SettingsView: View {
 
     private func settingGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(spacing: 0) { content() }
-            .background(RoundedRectangle(cornerRadius: 16).fill(Theme.cardBg))
-            .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.hairline, lineWidth: 0.5))
+            .glassCard(RoundedRectangle(cornerRadius: 16), interactive: true)
     }
 
     private func rowShell<Label: View, Trailing: View>(
@@ -308,7 +307,7 @@ struct AboutPage: View {
                 .font(.system(size: 52))
                 .foregroundStyle(Theme.accent)
                 .frame(width: 104, height: 104)
-                .background(RoundedRectangle(cornerRadius: 26).fill(Color.white))
+                .glassCard(RoundedRectangle(cornerRadius: 26))
                 .shadow(color: .black.opacity(0.08), radius: 8, y: 3)
             Text("Legado iOS").font(.title3.bold())
             Text("1.0.0 (Build 1)").font(.caption).foregroundStyle(.secondary)

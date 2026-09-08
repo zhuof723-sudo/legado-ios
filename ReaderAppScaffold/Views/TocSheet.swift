@@ -90,11 +90,7 @@ struct TocSheet: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
-        .background(
-            Capsule()
-                .fill(Theme.secondaryBg)
-                .overlay(Capsule().stroke(Theme.hairline, lineWidth: 0.5))
-        )
+        .glassCard(Capsule(), interactive: true)
         .padding(.horizontal, 16)
     }
 }

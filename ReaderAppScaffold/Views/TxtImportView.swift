@@ -17,7 +17,7 @@ struct TxtImportView: View {
                     .font(.system(size: 52, weight: .light))
                     .foregroundStyle(Theme.accent)
                     .frame(width: 110, height: 110)
-                    .background(RoundedRectangle(cornerRadius: 28).fill(Color.white))
+                    .glassCard(RoundedRectangle(cornerRadius: 28))
                 Text("导入本地 TXT 小说")
                     .font(.title3.bold())
                 Text("自动按「第X章/卷/节…」切分章节；\n识别不到时按空行分块，仍不行则整本一章。")

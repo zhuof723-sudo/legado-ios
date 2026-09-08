@@ -2,6 +2,8 @@ name: Build IPA
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [ main ]
   push:
     branches: [ main ]
 
@@ -10,7 +12,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 60
     env:
       BUNDLE_ID: com.BYEh.eNbcVl2
@@ -26,9 +28,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          XCODE=$(ls -1d /Applications/Xcode*.app 2>/dev/null | tail -1 || true)
+          XCODE=$(ls -1d /Applications/Xcode_26*.app 2>/dev/null | tail -1 || true)
           if [ -z "$XCODE" ]; then
-            echo "No Xcode installation was found" >&2
+            echo "Xcode 26 is required to compile Liquid Glass APIs" >&2
             exit 1
           fi
           echo "Selecting $XCODE"

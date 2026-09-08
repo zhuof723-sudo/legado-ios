@@ -44,11 +44,8 @@ struct HistoryView: View {
                                 }
                             }
                         }
-                        .background(
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(Theme.cardBg)
-                                .shadow(color: Theme.shadow, radius: 8, y: 3)
-                        )
+                        .glassCard(RoundedRectangle(cornerRadius: 16))
+                        .shadow(color: Theme.shadow, radius: 8, y: 3)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -76,11 +73,7 @@ struct HistoryView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(
-            Capsule()
-                .fill(Theme.secondaryBg)
-                .overlay(Capsule().stroke(Theme.hairline, lineWidth: 0.5))
-        )
+        .glassCard(Capsule(), interactive: true)
     }
 
     private var emptyState: some View {

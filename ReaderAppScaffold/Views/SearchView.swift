@@ -111,11 +111,7 @@ struct SearchView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(
-            Capsule()
-                .fill(Theme.secondaryBg)
-                .overlay(Capsule().stroke(Theme.hairline, lineWidth: 0.5))
-        )
+        .glassCard(Capsule(), interactive: true)
     }
 
     // MARK: - 热门搜索
@@ -239,11 +235,7 @@ struct SearchView: View {
                 Spacer()
             }
             .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(Theme.cardBg)
-                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.hairline, lineWidth: 0.5))
-            )
+            .glassCard(RoundedRectangle(cornerRadius: 14), interactive: true)
         }
         .buttonStyle(.plain)
     }
@@ -285,11 +277,7 @@ private struct FlowTags: View {
                         .padding(.horizontal, 16)
                         .padding(.vertical, 9)
                         .frame(maxWidth: .infinity)
-                        .background(
-                            Capsule()
-                                .fill(Theme.secondaryBg)
-                                .overlay(Capsule().stroke(Theme.hairline, lineWidth: 0.5))
-                        )
+                        .glassCard(Capsule(), interactive: true)
                 }
                 .buttonStyle(.plain)
             }

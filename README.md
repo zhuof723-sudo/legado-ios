@@ -32,6 +32,12 @@ dependencies: [
 
 这部分是**源码文件**，不是独立的Xcode工程，接入步骤见其README。
 
+## Liquid Glass
+
+- 使用 Xcode 26 / iOS 26 SDK 编译时，卡片、搜索栏、工具栏、圆形按钮和阅读控制区采用原生 SwiftUI `glassEffect`、`GlassEffectContainer` 与玻璃按钮样式。
+- 最低部署版本仍为 iOS 17；在 iOS 17–25 上自动降级为系统 Material，功能和布局保持一致。
+- GitHub Actions 使用 macOS 26 / Xcode 26，同时验证 iOS 26 原生路径与旧系统可用性声明。
+
 ## 状态 / 免责声明
 
 - 规则引擎部分有单元测试覆盖核心路径（`LegadoRuleEngine/Tests/`），但**没有经过真实设备编译验证**（这里没有Swift工具链），接入Xcode后如果遇到编译错误，大概率是SwiftSoup等三方库API版本差异，对照报错信息小改一下就行。

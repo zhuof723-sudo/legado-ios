@@ -103,7 +103,7 @@ struct ShelfView: View {
                     .font(.system(size: 18, weight: .medium))
                     .foregroundStyle(.primary)
                     .frame(width: 40, height: 40)
-                    .background(Circle().fill(Theme.secondaryBg))
+                    .glassCircle()
             }
             Menu {
                 Button { showSourceList = true } label: { Label("书源管理", systemImage: "tray.full") }
@@ -113,7 +113,7 @@ struct ShelfView: View {
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.primary)
                     .frame(width: 40, height: 40)
-                    .background(Circle().fill(Theme.secondaryBg))
+                    .glassCircle()
             }
         }
         .padding(.top, 4)
@@ -135,11 +135,7 @@ struct ShelfView: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
-            .background(
-                Capsule()
-                    .fill(Theme.secondaryBg)
-                    .overlay(Capsule().stroke(Theme.hairline, lineWidth: 0.5))
-            )
+            .glassCard(Capsule(), interactive: true)
         }
         .buttonStyle(.plain)
     }
@@ -202,7 +198,7 @@ struct ShelfView: View {
                 .font(.system(size: 44, weight: .light))
                 .foregroundStyle(Theme.accent)
                 .frame(width: 100, height: 100)
-                .background(Circle().fill(Theme.secondaryBg))
+                .glassCircle()
             Text("书架为空").font(.title3.bold())
             Text("从发现页找书，或先导入一个书源").font(.footnote).foregroundStyle(Theme.textSecondary)
             HStack(spacing: 12) {
@@ -210,15 +206,15 @@ struct ShelfView: View {
                     Label("导入书源", systemImage: "square.and.arrow.down")
                         .font(.subheadline.bold())
                         .padding(.horizontal, 16).padding(.vertical, 10)
-                        .background(Capsule().fill(Theme.accent))
-                        .foregroundStyle(.white)
                 }
+                .prominentGlassButton()
+                .tint(Theme.accent)
                 Button { showTxtImport = true } label: {
                     Label("导入 TXT", systemImage: "doc.text")
                         .font(.subheadline.bold())
                         .padding(.horizontal, 16).padding(.vertical, 10)
-                        .background(Capsule().fill(Theme.secondaryBg))
                 }
+                .plainGlassButton()
             }
             .tint(Theme.accent)
             Spacer().frame(height: 80)
@@ -243,11 +239,7 @@ struct ShelfView: View {
             .buttonStyle(.plain)
         }
         .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(Theme.cardBg)
-                .shadow(color: Theme.shadow, radius: 10, y: 4)
-        )
+        .cardStyle(cornerRadius: 20)
     }
 
     private func recentBookRow(_ book: ShelfBook) -> some View {
@@ -277,11 +269,7 @@ struct ShelfView: View {
             Spacer(minLength: 0)
         }
         .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(Theme.cardBg)
-                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.hairline, lineWidth: 0.5))
-        )
+        .glassCard(RoundedRectangle(cornerRadius: 14), interactive: true)
     }
 
     // MARK: - 本地书籍
@@ -303,11 +291,7 @@ struct ShelfView: View {
                         Image(systemName: "chevron.right").font(.caption2).foregroundStyle(Theme.textSecondary)
                     }
                     .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14)
-                            .fill(Theme.cardBg)
-                            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.hairline, lineWidth: 0.5))
-                    )
+                    .glassCard(RoundedRectangle(cornerRadius: 14), interactive: true)
                 }
                 .buttonStyle(.plain)
                 .contextMenu {

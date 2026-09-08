@@ -164,7 +164,7 @@ struct ReaderView: View {
     private var chrome: some View {
         VStack(spacing: 0) {
             if showControls {
-                immersiveHeader
+                LiquidGlassContainer(spacing: 12) { immersiveHeader }
                     .transition(.asymmetric(
                         insertion: .move(edge: .top).combined(with: .opacity),
                         removal: .move(edge: .top).combined(with: .opacity)
@@ -172,7 +172,7 @@ struct ReaderView: View {
             }
             Spacer(minLength: 0)
             if showControls {
-                immersiveBottomPanel
+                LiquidGlassContainer(spacing: 14) { immersiveBottomPanel }
                     .transition(.asymmetric(
                         insertion: .move(edge: .bottom).combined(with: .opacity),
                         removal: .move(edge: .bottom).combined(with: .opacity)
@@ -204,7 +204,7 @@ struct ReaderView: View {
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(textColor)
                     .frame(width: 36, height: 36)
-                    .background(.thinMaterial, in: Circle())
+                    .glassCircle()
             }
             Text(viewModel.currentChapterTitle ?? bookName)
                 .font(.subheadline.bold())
@@ -219,7 +219,7 @@ struct ReaderView: View {
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(textColor)
                     .frame(width: 36, height: 36)
-                    .background(.thinMaterial, in: Circle())
+                    .glassCircle()
             }
         }
     }
@@ -275,8 +275,7 @@ struct ReaderView: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.hairline, lineWidth: 0.5))
+        .glassCard(RoundedRectangle(cornerRadius: 18), interactive: true)
         .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
     }
 

@@ -24,22 +24,22 @@ struct ReaderApp: App {
         configureTabBarAppearance()
     }
 
-    /// 配置 UITabBar 外观：iOS 原生毛玻璃效果
+    /// 配置 UITabBar 外观：iOS 26 交给系统原生 Liquid Glass；旧系统使用材质背景。
     private func configureTabBarAppearance() {
-        let tabBarAppearance = UITabBarAppearance()
+        let tabBar = UITabBar.appearance()
+        tabBar.tintColor = UIColor(Theme.accent)
+        tabBar.unselectedItemTintColor = UIColor.secondaryLabel
 
-        // iOS 15+：使用系统原生毛玻璃背景
-        tabBarAppearance.configureWithDefaultBackground()
+        if #available(iOS 26.0, *) {
+            // 链接 iOS 26 SDK 后，标准 TabView 会自动采用 Liquid Glass。
+            // 不设置自定义 background，避免覆盖系统的玻璃形变与高光。
+            return
+        }
 
-        // 确保滚动到边缘时也保持毛玻璃效果（不变成透明）
-        UITabBar.appearance().standardAppearance = tabBarAppearance
-        UITabBar.appearance().scrollEdgeAppearance = tabBarAppearance
-
-        // 设置选中颜色
-        UITabBar.appearance().tintColor = UIColor(Theme.accent)
-
-        // 未选中颜色
-        UITabBar.appearance().unselectedItemTintColor = UIColor.secondaryLabel
+        let appearance = UITabBarAppearance()
+        appearance.configureWithDefaultBackground()
+        tabBar.standardAppearance = appearance
+        tabBar.scrollEdgeAppearance = appearance
     }
 
     var body: some Scene {
