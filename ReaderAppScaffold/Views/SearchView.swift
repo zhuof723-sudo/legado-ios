@@ -46,20 +46,18 @@ struct SearchView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    if !embeddedInTab {
-                        HStack {
-                            Text("搜索").font(.system(size: 32, weight: .bold))
-                            Spacer()
-                            Button {
-                                if let vm = viewModel { vm.keyword = ""; keyword = "" }
-                            } label: {
-                                Image(systemName: "qrcode.viewfinder")
-                                    .font(.system(size: 19))
-                                    .foregroundStyle(.primary)
-                            }
+                    HStack {
+                        Text("搜索").font(.system(size: 32, weight: .bold))
+                        Spacer()
+                        Button {
+                            if let vm = viewModel { vm.keyword = ""; keyword = "" }
+                        } label: {
+                            Image(systemName: "qrcode.viewfinder")
+                                .font(.system(size: 19))
+                                .foregroundStyle(.primary)
                         }
-                        .padding(.top, 4)
                     }
+                    .padding(.top, 4)
                     searchBar
                     if let vm = viewModel, vm.isSearching || !vm.results.isEmpty {
                         resultSection(vm)

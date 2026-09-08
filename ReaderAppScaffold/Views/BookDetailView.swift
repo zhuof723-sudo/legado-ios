@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import UIKit
 import LegadoRuleEngine
 
 private struct DetailScrollKey: PreferenceKey {

@@ -91,6 +91,9 @@ enum Theme {
     static let cardBg = cardBg(for: .light)
     static let hairline = hairline(for: .light)
     static let shadow = shadow(for: .light)
+    static let textPrimary = textPrimary(for: .light)
+    static let textSecondary = textSecondary(for: .light)
+    static let secondaryBg = secondaryBg(for: .light)
 
     /// 阅读器可选背景色
     static let readerBackgrounds: [Color] = [

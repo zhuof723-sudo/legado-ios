@@ -232,35 +232,7 @@ struct ShelfView: View {
             Text("最近阅读")
                 .font(.title3.bold())
             Button { open(book) } label: {
-                HStack(alignment: .top, spacing: 14) {
-                    SmartCover(url: book.coverUrl, title: book.name, headers: headers(for: book))
-                        .frame(width: 56, height: 76)
-                        .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(book.name)
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                        Text("第 \(min(book.lastReadChapterIndex + 1, max(book.totalChapters, 1))) 章 · \(book.author)")
-                            .font(.caption)
-                            .foregroundStyle(Theme.textSecondary)
-                            .lineLimit(1)
-                        HStack(spacing: 10) {
-                            MiniProgressBar(progress: progress(of: book))
-                            Text("\(Int((progress(of: book) * 100).rounded()))%")
-                                .font(.caption.bold())
-                                .foregroundStyle(.primary)
-                                .monospacedDigit()
-                        }
-                    }
-                    Spacer(minLength: 0)
-                }
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 14)
-                        .fill(Theme.cardBg)
-                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.hairline, lineWidth: 0.5))
-                )
+                recentBookRow(book)
             }
             .buttonStyle(.plain)
         }
@@ -269,6 +241,40 @@ struct ShelfView: View {
             RoundedRectangle(cornerRadius: 20)
                 .fill(Theme.cardBg)
                 .shadow(color: Theme.shadow, radius: 10, y: 4)
+        )
+    }
+
+    private func recentBookRow(_ book: ShelfBook) -> some View {
+        let chapter = min(book.lastReadChapterIndex + 1, max(book.totalChapters, 1))
+        let percent = Int((progress(of: book) * 100).rounded())
+        return HStack(alignment: .top, spacing: 14) {
+            SmartCover(url: book.coverUrl, title: book.name, headers: headers(for: book))
+                .frame(width: 56, height: 76)
+                .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(book.name)
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text("第 \(chapter) 章 · \(book.author)")
+                    .font(.caption)
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(1)
+                HStack(spacing: 10) {
+                    MiniProgressBar(progress: progress(of: book))
+                    Text("\(percent)%")
+                        .font(.caption.bold())
+                        .foregroundStyle(.primary)
+                        .monospacedDigit()
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Theme.cardBg)
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.hairline, lineWidth: 0.5))
         )
     }
 

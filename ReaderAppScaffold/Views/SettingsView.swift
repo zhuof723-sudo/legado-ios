@@ -6,6 +6,10 @@ import LegadoRuleEngine
 struct SettingsView: View {
     @Query private var allSources: [BookSourceRecord]
 
+    private var enabledSourceCount: Int {
+        allSources.filter { $0.enabled }.count
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -29,7 +33,7 @@ struct SettingsView: View {
 
                     sectionLabel("功能设置")
                     settingGroup {
-                        sheetRow("书源管理", icon: "tray.full", subtitle: "\(allSources.filter(\\.enabled).count) 个已启用") {
+                        sheetRow("书源管理", icon: "tray.full", subtitle: "\(enabledSourceCount) 个已启用") {
                             SourceListSheet()
                         }
                         navRow("下载管理", icon: "arrow.down.circle", destination: DownloadStubPage())

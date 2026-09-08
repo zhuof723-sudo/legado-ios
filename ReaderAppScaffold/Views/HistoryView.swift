@@ -35,7 +35,8 @@ struct HistoryView: View {
                         emptyState
                     } else {
                         VStack(spacing: 0) {
-                            ForEach(Array(filtered.enumerated()), id: \.element.id) { index, book in
+                            ForEach(filtered.indices, id: \.self) { index in
+                                let book = filtered[index]
                                 row(book)
                                 if index != filtered.count - 1 {
                                     Rectangle().fill(Theme.hairline).frame(height: 0.5)
