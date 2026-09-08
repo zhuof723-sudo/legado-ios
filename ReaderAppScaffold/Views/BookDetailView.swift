@@ -79,6 +79,14 @@ struct BookDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     headerSection
+                        .background {
+                            GeometryReader { geo in
+                                Color.clear.preference(
+                                    key: DetailScrollKey.self,
+                                    value: geo.frame(in: .named("detailScroll")).minY < -180
+                                )
+                            }
+                        }
                     bookInfoSection
                     metaRow
                     actionGrid
@@ -90,14 +98,6 @@ struct BookDetailView: View {
                 .padding(.bottom, 40)
             }
             .coordinateSpace(name: "detailScroll")
-            .overlay(alignment: .top) {
-                GeometryReader { geo in
-                    Color.clear.preference(
-                        key: DetailScrollKey.self,
-                        value: geo.frame(in: .named("detailScroll")).minY < -180
-                    )
-                }
-            }
             .onPreferenceChange(DetailScrollKey.self) { scrolled = $0 }
         }
         .background(Theme.bg(for: mode).ignoresSafeArea())
