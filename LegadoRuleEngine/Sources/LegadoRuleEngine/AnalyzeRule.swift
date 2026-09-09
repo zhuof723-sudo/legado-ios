@@ -372,8 +372,10 @@ public final class AnalyzeRule {
     public func put(_ key: String, _ value: String) -> String {
         if ruleData != nil {
             ruleData?.variableMap[key] = value
-        } else {
+        } else if sourcePut != nil {
             sourcePut?(key, value)
+        } else {
+            keyValueStore?.put(key, value)
         }
         return value
     }
@@ -383,6 +385,8 @@ public final class AnalyzeRule {
         if key == "title", let chapterTitle = chapterTitle { return chapterTitle }
         if let v = ruleData?.variableMap[key], !v.isEmpty { return v }
         if let v = sourceGet?(key), !v.isEmpty { return v }
+        // legado 的 java.get/put 使用书源级 KV；不能只依赖章节 ruleData。
+        if let v = keyValueStore?.get(key), !v.isEmpty { return v }
         return ""
     }
 

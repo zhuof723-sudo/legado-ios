@@ -24,12 +24,33 @@ public struct InlineReviewMarker: Codable, Equatable, Sendable, Identifiable {
 
 /// 已格式化但尚未分页的章节正文。
 public struct ReaderChapterContent: Codable, Equatable, Sendable {
+    /// 缓存格式版本。1 表示旧版纯文本/旧元数据，2 表示可安全复用的段评正文。
+    public let formatVersion: Int
     public let text: String
     public let inlineReviewMarkers: [InlineReviewMarker]
 
-    public init(text: String, inlineReviewMarkers: [InlineReviewMarker] = []) {
+    public init(
+        text: String,
+        inlineReviewMarkers: [InlineReviewMarker] = [],
+        formatVersion: Int = 2
+    ) {
+        self.formatVersion = formatVersion
         self.text = text
         self.inlineReviewMarkers = inlineReviewMarkers
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case formatVersion, text, inlineReviewMarkers
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        formatVersion = try container.decodeIfPresent(Int.self, forKey: .formatVersion) ?? 1
+        text = try container.decode(String.self, forKey: .text)
+        inlineReviewMarkers = try container.decodeIfPresent(
+            [InlineReviewMarker].self,
+            forKey: .inlineReviewMarkers
+        ) ?? []
     }
 }
 
@@ -43,12 +64,15 @@ public enum ReaderContentFormatter {
     ) -> ReaderChapterContent {
         guard !html.isEmpty else { return ReaderChapterContent(text: "") }
 
+        // getComments 在部分书山接口响应中会返回 &lt;comment ...&gt;，
+        // 必须先解码，否则后面的 HTML 标签解析永远不会命中。
+        let normalizedHTML = decodeEntities(html)
         let tagRegex = try! NSRegularExpression(
-            pattern: "(?is)<(?:img|comment)\\b(?:[^>]|\\n)*?>", options: []
+            pattern: "(?is)<(?:img|comment)(?:[^>])*?>", options: []
         )
-        let source = html as NSString
+        let source = normalizedHTML as NSString
         let fullRange = NSRange(location: 0, length: source.length)
-        let matches = tagRegex.matches(in: html, range: fullRange)
+        let matches = tagRegex.matches(in: normalizedHTML, range: fullRange)
 
         var output = ""
         var cursor = 0

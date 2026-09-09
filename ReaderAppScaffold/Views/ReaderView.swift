@@ -83,7 +83,7 @@ struct ReaderView: View {
                             handleInlineReviewTap(markerID)
                         }
                     )
-                    .id("\(config.pageAnim)_\(config.themeId)_\(config.nightMode)")
+                    .id("\(config.pageAnim)_\(config.themeId)_\(config.nightMode)_reviews\(viewModel.currentReviewMarkers.map { "\($0.id):\($0.paragraphIndex):\($0.source)" }.joined(separator: "|").hashValue)")
                     // 页面边距由 PageContentView 内部承担；这样每个被翻页
                     // transform 的页面包含完整背景和文字，不会留下固定的父背景。
                     .contentShape(Rectangle())
