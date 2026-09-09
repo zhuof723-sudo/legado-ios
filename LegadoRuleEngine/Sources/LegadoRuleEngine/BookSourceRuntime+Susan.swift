@@ -80,16 +80,37 @@ extension BookSourceRuntime {
         return chapters
     }
 
+    /// 书山聚合配置自带 v1–v4 多个网关。单一网关常因其上游源站超时返回 500，
+    /// 所以保留用户手动选择的节点优先，并在 5xx、超时和连接失败时自动切换其他节点。
     private func susanRequest(path: String, body: [String: Any]) async throws -> [String: Any] {
-        let urlString = susanServerHost() + path
-        guard let url = URL(string: urlString) else { throw SusanAdapterError.invalidURL(urlString) }
         guard JSONSerialization.isValidJSONObject(body) else {
             throw SusanAdapterError.invalidPayload(path)
         }
 
+        var lastError: Error?
+        for host in susanServerHosts() {
+            do {
+                return try await susanRequest(path: path, body: body, host: host)
+            } catch {
+                lastError = error
+                guard susanShouldRetry(error) else { throw error }
+                EngineLogger.log(
+                    "书山节点 \(host) 请求失败，切换备用节点：\(error.localizedDescription)",
+                    tag: source.bookSourceName,
+                    level: .warn
+                )
+            }
+        }
+        throw lastError ?? SusanAdapterError.invalidResponse("所有书山节点均不可用")
+    }
+
+    private func susanRequest(path: String, body: [String: Any], host: String) async throws -> [String: Any] {
+        let urlString = host + path
+        guard let url = URL(string: urlString) else { throw SusanAdapterError.invalidURL(urlString) }
+
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = 30
+        request.timeoutInterval = 15
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.setValue("application/json;charset=UTF-8", forHTTPHeaderField: "Content-Type")
         request.setValue(JSCommonMethods.defaultUserAgent, forHTTPHeaderField: "User-Agent")
@@ -99,11 +120,11 @@ extension BookSourceRuntime {
             request.setValue(JSCommonMethods.base64Encode(loginHeader), forHTTPHeaderField: "X-Api-Key")
         }
 
-        EngineLogger.log("书山原生请求：\(path) · body \(request.httpBody?.count ?? 0) 字节", tag: source.bookSourceName)
+        EngineLogger.log("书山原生请求：\(host)\(path) · body \(request.httpBody?.count ?? 0) 字节", tag: source.bookSourceName)
         let (responseData, response) = try await URLSession.shared.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         let responseText = String(data: responseData, encoding: .utf8) ?? ""
-        EngineLogger.log("书山原生响应：\(path) · HTTP \(status) · \(responseData.count) 字节", tag: source.bookSourceName)
+        EngineLogger.log("书山原生响应：\(host)\(path) · HTTP \(status) · \(responseData.count) 字节", tag: source.bookSourceName)
         guard (200..<300).contains(status) else {
             throw SusanAdapterError.http(status, String(responseText.prefix(300)))
         }
@@ -114,6 +135,17 @@ extension BookSourceRuntime {
             throw SusanAdapterError.invalidResponse(susanString(object["message"], fallback: "code=\(code)"))
         }
         return object
+    }
+
+    private func susanShouldRetry(_ error: Error) -> Bool {
+        if let error = error as? SusanAdapterError {
+            if case let .http(status, _) = error { return status >= 500 }
+            return false
+        }
+        if let error = error as? URLError {
+            return [.timedOut, .cannotConnectToHost, .networkConnectionLost, .notConnectedToInternet].contains(error.code)
+        }
+        return false
     }
 
     private func susanNovelToken() -> String {
@@ -130,24 +162,35 @@ extension BookSourceRuntime {
         return "SHUSAN_READ_2025"
     }
 
-    private func susanServerHost() -> String {
+    private func susanServerHosts() -> [String] {
+        let defaults = [
+            "https://v1.vossc.com",
+            "https://v2.vossc.com",
+            "https://v3.vossc.com",
+            "https://v4.vossc.com"
+        ]
         let variable = sourceContext?.getVariable()
             ?? sourceKeyValueStore?.get("__source_variable")
             ?? ""
+        var preferred: String?
         if let data = variable.data(using: .utf8),
            let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
            let host = array.first?["host"] as? String,
            host.hasPrefix("http") {
-            return host.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            preferred = host.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         }
 
-        if let lib = source.jsLib,
+        if preferred == nil, let lib = source.jsLib,
            let regex = try? NSRegularExpression(pattern: #"https?://[A-Za-z0-9._:-]+"#),
            let match = regex.firstMatch(in: lib, range: NSRange(lib.startIndex..., in: lib)),
            let range = Range(match.range, in: lib) {
-            return String(lib[range]).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            preferred = String(lib[range]).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         }
-        return "https://v1.vossc.com"
+
+        var hosts: [String] = []
+        if let preferred, !preferred.isEmpty { hosts.append(preferred) }
+        for host in defaults where !hosts.contains(host) { hosts.append(host) }
+        return hosts
     }
 
     private func susanDataPayload(
