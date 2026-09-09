@@ -573,6 +573,13 @@ public final class BookSourceRuntime {
     /// Android 原版不会在此阶段删掉这类 `<img>`，而是在排版阶段把它转换为 `꧁` 占位；
     /// iOS 使用私有占位字符保存同一份元数据，之后由 `UITextView` 渲染为可点击段评入口。
     public func getChapterContent(chapterUrl: String, maxPages: Int = 20) async throws -> ReaderChapterContent {
+        // 书山 v5.48 的段评注入由 ruleContent JS 中的 yunpara 开关控制。
+        // Android 首次使用时等价于默认开启；iOS 也初始化为 on，但不覆盖用户手动设置的 off。
+        if isSusanSource,
+           let store = sourceKeyValueStore,
+           store.get("yunpara").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            store.put("yunpara", "on")
+        }
         guard let rule = source.ruleContent, let contentRule = rule.content else {
             EngineLogger.log("书源缺少 ruleContent.content", tag: source.bookSourceName, level: .warn)
             return ReaderChapterContent(text: "")
@@ -660,6 +667,10 @@ public final class BookSourceRuntime {
     }
 
     /// 兼容现有调用方；需要段评元数据的阅读器应改用 `getChapterContent`。
+    private var isSusanSource: Bool {
+        source.bookSourceUrl == "书山聚合" || source.bookSourceName.contains("书山聚合")
+    }
+
     public func getContent(chapterUrl: String, maxPages: Int = 20) async throws -> String {
         let document = try await getChapterContent(chapterUrl: chapterUrl, maxPages: maxPages)
         return ReaderContentFormatter.removingMarkers(from: document.text)

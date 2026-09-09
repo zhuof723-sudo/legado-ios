@@ -49,7 +49,7 @@ public enum ReaderContentFormatter {
         guard !html.isEmpty else { return ReaderChapterContent(text: "") }
 
         let imagePattern = try! NSRegularExpression(
-            pattern: "(?is)<img\\b[^>]*>", options: []
+            pattern: "(?is)<(?:img|comment)\\b[^>]*>", options: []
         )
         let ns = html as NSString
         let matches = imagePattern.matches(
@@ -67,7 +67,20 @@ public enum ReaderContentFormatter {
             output += before
             paragraphIndex += paragraphBreakCount(in: before)
             let tag = ns.substring(with: match.range)
-            if let source = imageSource(from: tag) {
+            let lowerTag = tag.lowercased()
+            if lowerTag.hasPrefix("<comment"),
+               let action = attributeValue("onPress", in: tag),
+               let absolute = firstURL(in: action, baseURL: baseURL) {
+                let marker = InlineReviewMarker(
+                    id: markerID,
+                    source: absolute,
+                    action: action,
+                    paragraphIndex: paragraphIndex
+                )
+                output += marker.token
+                markers.append(marker)
+                markerID += 1
+            } else if let source = imageSource(from: tag) {
                 let decoded = decodeHTMLEntities(source)
                     .replacingOccurrences(of: "\\\"", with: "\"")
                 let (urlPart, options) = splitURLAndOptions(decoded)
@@ -101,6 +114,27 @@ public enum ReaderContentFormatter {
     /// 供旧版纯文本 API 使用：不向调试页或其他非阅读调用方泄露私有 marker 字符。
     public static func removingMarkers(from text: String) -> String {
         text.replacingOccurrences(of: "[\\u{E000}-\\u{F8FF}]", with: "", options: .regularExpression)
+    }
+
+    private static func attributeValue(_ name: String, in tag: String) -> String? {
+        let pattern = try! NSRegularExpression(
+            pattern: "(?i)\\b" + NSRegularExpression.escapedPattern(for: name) + "\\s*=\\s*([\\\"'])(.*?)\\1",
+            options: []
+        )
+        let range = NSRange(tag.startIndex..., in: tag)
+        guard let match = pattern.firstMatch(in: tag, range: range), match.numberOfRanges > 2,
+              let valueRange = Range(match.range(at: 2), in: tag) else { return nil }
+        return String(tag[valueRange])
+    }
+
+    private static func firstURL(in value: String, baseURL: String) -> String? {
+        let pattern = try! NSRegularExpression(pattern: "https?://[^\\\\'\\\" )]+", options: [.caseInsensitive])
+        let range = NSRange(value.startIndex..., in: value)
+        if let match = pattern.firstMatch(in: value, range: range),
+           let urlRange = Range(match.range, in: value) {
+            return String(value[urlRange])
+        }
+        return absoluteURL(value, baseURL: baseURL)
     }
 
     private static func imageSource(from tag: String) -> String? {
