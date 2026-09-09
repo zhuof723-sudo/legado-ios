@@ -447,3 +447,15 @@ extension LegadoRuleEngineTests {
         XCTAssertEqual(content.text, "正文")
     }
 }
+
+
+extension LegadoRuleEngineTests {
+    func testReaderContentFormatterKeepsCommentTag() {
+        let html = #"<div>正文<comment count="12" onPress="java.startBrowser('https://v1.vossc.com/idea_comment?item_id=1')" /></div>"#
+        let content = ReaderContentFormatter.format(html, baseURL: "https://example.com/chapter/1")
+        XCTAssertEqual(content.inlineReviewMarkers.count, 1)
+        XCTAssertEqual(content.inlineReviewMarkers.first?.source, "https://v1.vossc.com/idea_comment?item_id=1")
+        XCTAssertEqual(content.inlineReviewMarkers.first?.paragraphIndex, 0)
+        XCTAssertTrue(content.text.contains(content.inlineReviewMarkers[0].token))
+    }
+}

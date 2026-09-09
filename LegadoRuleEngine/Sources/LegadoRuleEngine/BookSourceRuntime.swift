@@ -577,7 +577,7 @@ public final class BookSourceRuntime {
         // Android 首次使用时等价于默认开启；iOS 也初始化为 on，但不覆盖用户手动设置的 off。
         if isSusanSource,
            let store = sourceKeyValueStore,
-           store.get("yunpara").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+           (store.get("yunpara") ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             store.put("yunpara", "on")
         }
         guard let rule = source.ruleContent, let contentRule = rule.content else {
