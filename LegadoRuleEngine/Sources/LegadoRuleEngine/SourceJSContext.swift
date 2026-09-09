@@ -94,11 +94,17 @@ public extension SourceJSContext {
     func get(_ key: String) -> String
     func put(_ key: String, _ value: String) -> String
     func remove(_ key: String) -> String
+    /// Legado 书源用来存放一次性点击/防抖状态的内存缓存 API。
+    func getFromMemory(_ key: String) -> String
+    func putMemory(_ key: String, _ value: JSValue) -> String
+    func removeFromMemory(_ key: String) -> String
 }
 
 /// 对应 JS 里的独立 `cache` 对象。
 @objc final class CacheJSBridge: NSObject, CacheJSBridgeExport {
     private let store: SourceKeyValueStore?
+    private static var memory: [String: String] = [:]
+    private static let memoryLock = NSLock()
 
     init(_ store: SourceKeyValueStore?) {
         self.store = store
@@ -111,6 +117,34 @@ public extension SourceJSContext {
     }
     func remove(_ key: String) -> String {
         store?.remove(key)
+        return ""
+    }
+
+    func getFromMemory(_ key: String) -> String {
+        Self.memoryLock.lock()
+        defer { Self.memoryLock.unlock() }
+        return Self.memory[key] ?? ""
+    }
+
+    func putMemory(_ key: String, _ value: JSValue) -> String {
+        let text: String
+        if value.isString {
+            text = value.toString() ?? ""
+        } else if value.isNumber {
+            text = value.toString() ?? ""
+        } else {
+            text = value.toString() ?? ""
+        }
+        Self.memoryLock.lock()
+        Self.memory[key] = text
+        Self.memoryLock.unlock()
+        return text
+    }
+
+    func removeFromMemory(_ key: String) -> String {
+        Self.memoryLock.lock()
+        Self.memory.removeValue(forKey: key)
+        Self.memoryLock.unlock()
         return ""
     }
 }

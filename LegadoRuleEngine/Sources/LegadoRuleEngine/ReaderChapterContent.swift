@@ -24,23 +24,32 @@ public struct InlineReviewMarker: Codable, Equatable, Sendable, Identifiable {
 
 /// 已格式化但尚未分页的章节正文。
 public struct ReaderChapterContent: Codable, Equatable, Sendable {
-    /// 缓存格式版本。1 表示旧版纯文本/旧元数据，2 表示可安全复用的段评正文。
+    /// 当前正文缓存格式。版本 3 开始明确记录段评处理是否已经完成，
+    /// 旧版纯文本和旧 JSON 缓存会被在线阅读器自动重新获取。
+    public static let currentFormatVersion = 4
     public let formatVersion: Int
     public let text: String
     public let inlineReviewMarkers: [InlineReviewMarker]
+    public let inlineReviewProcessed: Bool
+    public let inlineReviewEnabled: Bool
 
     public init(
         text: String,
         inlineReviewMarkers: [InlineReviewMarker] = [],
-        formatVersion: Int = 2
+        formatVersion: Int = ReaderChapterContent.currentFormatVersion,
+        inlineReviewProcessed: Bool = true,
+        inlineReviewEnabled: Bool = true
     ) {
         self.formatVersion = formatVersion
         self.text = text
         self.inlineReviewMarkers = inlineReviewMarkers
+        self.inlineReviewProcessed = inlineReviewProcessed
+        self.inlineReviewEnabled = inlineReviewEnabled
     }
 
     private enum CodingKeys: String, CodingKey {
         case formatVersion, text, inlineReviewMarkers
+        case inlineReviewProcessed, inlineReviewEnabled
     }
 
     public init(from decoder: Decoder) throws {
@@ -51,6 +60,15 @@ public struct ReaderChapterContent: Codable, Equatable, Sendable {
             [InlineReviewMarker].self,
             forKey: .inlineReviewMarkers
         ) ?? []
+        // 旧缓存没有这两个字段，必须视为尚未经过段评处理。
+        inlineReviewProcessed = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .inlineReviewProcessed
+        ) ?? false
+        inlineReviewEnabled = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .inlineReviewEnabled
+        ) ?? false
     }
 }
 

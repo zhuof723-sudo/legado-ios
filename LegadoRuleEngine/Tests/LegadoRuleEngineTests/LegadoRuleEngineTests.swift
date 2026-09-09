@@ -440,6 +440,13 @@ extension LegadoRuleEngineTests {
         XCTAssertTrue(content.inlineReviewMarkers.first?.action?.contains("java.showBrowser") == true)
     }
 
+    func testCacheMemoryBridgeSupportsNumbersAndStrings() {
+        let rule = AnalyzeRule()
+        rule.keyValueStore = InMemoryKeyValueStore()
+        XCTAssertEqual(rule.evalJS("cache.putMemory('time', 1234); cache.getFromMemory('time')") as? String, "1234")
+        XCTAssertEqual(rule.evalJS("cache.putMemory('state', '1-abc'); cache.getFromMemory('state')") as? String, "1-abc")
+    }
+
     func testReaderContentFormatterDoesNotExposeOrdinaryImages() {
         let html = #"<p>正文<img src="/cover.jpg"></p>"#
         let content = ReaderContentFormatter.format(html, baseURL: "https://example.com/chapter/1")

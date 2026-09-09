@@ -69,7 +69,9 @@ public final class ChapterDownloadManager: @unchecked Sendable {
         chapter: ChapterInfo
     ) async throws -> ReaderChapterContent {
         let runtime = BookSourceRuntime(book)
-        if let cached = await ChapterContentCache.shared.loadDocument(bookURL: bookURL, chapterURL: chapter.url) {
+        if let cached = await ChapterContentCache.shared.loadDocument(bookURL: bookURL, chapterURL: chapter.url),
+           cached.formatVersion >= ReaderChapterContent.currentFormatVersion,
+           cached.inlineReviewProcessed {
             return cached
         }
         let document = try await withTimeout(downloadTimeout) {

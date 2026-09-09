@@ -200,16 +200,17 @@ public final class ReaderViewModel {
         let requestID = contentRequestID
 
         // 内存缓存
-        if let cached = contentCache[index] {
+        if let cached = contentCache[index], cacheIsUsable(cached) {
             guard requestID == contentRequestID, index == currentIndex else { return }
             isLoadingContent = false
             apply(cached)
             prefetchAhead()
             return
         }
-        // 磁盘缓存；兼容旧版纯文本缓存。
+        // 旧缓存没有段评处理标记，不能再直接显示；重新请求正文。
         if let bookURL = persistentBookURL,
-           let cached = await ChapterContentCache.shared.loadDocument(bookURL: bookURL, chapterURL: chapter.url) {
+           let cached = await ChapterContentCache.shared.loadDocument(bookURL: bookURL, chapterURL: chapter.url),
+           cacheIsUsable(cached) {
             guard requestID == contentRequestID, index == currentIndex else { return }
             isLoadingContent = false
             contentCache[index] = cached
@@ -260,6 +261,11 @@ public final class ReaderViewModel {
     private func apply(_ document: ReaderChapterContent) {
         currentContent = document.text
         currentReviewMarkers = document.inlineReviewMarkers
+    }
+
+    private func cacheIsUsable(_ document: ReaderChapterContent) -> Bool {
+        // 所有在线正文都要经过书源的段评处理；旧缓存必须失效。
+        document.formatVersion >= ReaderChapterContent.currentFormatVersion && document.inlineReviewProcessed
     }
 
     /// 预取后面的章节（参考 legado-E 预下载机制，并发预取多章）
