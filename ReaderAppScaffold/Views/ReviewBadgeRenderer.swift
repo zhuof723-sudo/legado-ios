@@ -6,22 +6,24 @@ enum ReviewBadgeRenderer {
     private static let cache = NSCache<NSString, UIImage>()
 
     static func bubble(count: String, pointSize: CGFloat, color: UIColor) -> UIImage {
-        let display = count.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "··" : count
-        let key = "\(display)|\(Int(pointSize.rounded()))|\(color.description)" as NSString
+        let finiteSize = pointSize.isFinite ? min(max(pointSize, 8), 64) : 17
+        let rawDisplay = count.trimmingCharacters(in: .whitespacesAndNewlines)
+        let display = rawDisplay.isEmpty ? "··" : String(rawDisplay.prefix(6))
+        let key = "\(display)|\(Int(finiteSize.rounded()))|\(color)" as NSString
         if let image = cache.object(forKey: key) { return image }
 
-        let fontSize = max(8, pointSize * 0.60)
+        let fontSize = max(8, finiteSize * 0.60)
         let font = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
             .foregroundColor: color
         ]
         let textSize = (display as NSString).size(withAttributes: attributes)
-        let height = ceil(max(15, pointSize * 0.92))
-        let horizontalPadding = max(4, pointSize * 0.28)
+        let height = ceil(max(15, finiteSize * 0.92))
+        let horizontalPadding = max(4, finiteSize * 0.28)
         let bubbleWidth = max(height, ceil(textSize.width) + horizontalPadding * 2)
-        let leadingGap = ceil(pointSize * 0.22)
-        let tailHeight = max(2, pointSize * 0.12)
+        let leadingGap = ceil(finiteSize * 0.22)
+        let tailHeight = max(2, finiteSize * 0.12)
         let canvas = CGSize(width: leadingGap + bubbleWidth, height: height + tailHeight)
 
         let format = UIGraphicsImageRendererFormat()

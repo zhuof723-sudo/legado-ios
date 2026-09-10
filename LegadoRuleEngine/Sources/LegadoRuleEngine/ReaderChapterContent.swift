@@ -39,9 +39,13 @@ public struct InlineReviewMarker: Codable, Equatable, Sendable, Identifiable {
         title = try container.decodeIfPresent(String.self, forKey: .title) ?? "段评"
     }
 
+    /// `token` 只使用 BMP 私用区 U+E000...U+F8FF。
+    /// 继续向 FFFF 分配会撞到 CJK 字符空间，渲染或清理时可能误删正文。
+    public static let markerTokenLimit = 0x18FF
+
     /// 私有区占位符。分页时占一个字符位置，渲染时替换成可点击气泡。
     public var token: String {
-        guard id >= 0, id <= 0x1FFF,
+        guard id >= 0, id <= Self.markerTokenLimit,
               let scalar = UnicodeScalar(0xE000 + id) else { return "" }
         return String(scalar)
     }
@@ -134,7 +138,7 @@ public enum ReaderContentFormatter {
             let tag = source.substring(with: match.range)
             if tag.lowercased().hasPrefix("<comment"),
                let action = attributeValue("onPress", in: tag),
-               markerID <= 0x1FFF {
+               markerID <= InlineReviewMarker.markerTokenLimit {
                 let target = browserTarget(in: action, baseURL: baseURL)
                 let marker = InlineReviewMarker(
                     id: markerID,
@@ -156,7 +160,7 @@ public enum ReaderContentFormatter {
                 if style.caseInsensitiveCompare("TEXT") == .orderedSame,
                    let url = absoluteURL(parts.url, baseURL: baseURL),
                    !url.isEmpty,
-                   markerID <= 0x1FFF {
+                   markerID <= InlineReviewMarker.markerTokenLimit {
                     let action = parts.options["click"] ?? parts.options["action"] ?? parts.options["js"]
                     let marker = InlineReviewMarker(
                         id: markerID,
@@ -182,11 +186,13 @@ public enum ReaderContentFormatter {
     }
 
     public static func removingMarkers(from text: String) -> String {
-        text.replacingOccurrences(
-            of: "[\\u{E000}-\\u{FFFF}]",
-            with: "",
-            options: .regularExpression
-        )
+        var cleaned = String.UnicodeScalarView()
+        for scalar in text.unicodeScalars {
+            let value = scalar.value
+            guard (0xE000...0xF8FF).contains(value) == false else { continue }
+            cleaned.append(scalar)
+        }
+        return String(cleaned)
     }
 
     private static func attributeValue(_ name: String, in tag: String) -> String? {

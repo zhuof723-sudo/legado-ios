@@ -481,3 +481,28 @@ extension LegadoRuleEngineTests {
         XCTAssertEqual(content.inlineReviewMarkers.first?.action, "showCmt('1','2','3')")
     }
 }
+
+
+extension LegadoRuleEngineTests {
+    func testRemovingReviewMarkersPreservesChineseAndEmoji() {
+        let marker = InlineReviewMarker(id: 0, source: "https://review.example/0")
+        let text = "正文\(marker.token)中文，Emoji🙂"
+        XCTAssertEqual(
+            ReaderContentFormatter.removingMarkers(from: text),
+            "正文中文，Emoji🙂"
+        )
+    }
+
+    func testInlineReviewMarkerStaysInsidePrivateUseArea() {
+        let last = InlineReviewMarker(
+            id: InlineReviewMarker.markerTokenLimit,
+            source: "https://review.example/last"
+        )
+        XCTAssertEqual(last.token.unicodeScalars.first?.value, 0xF8FF)
+        let overflow = InlineReviewMarker(
+            id: InlineReviewMarker.markerTokenLimit + 1,
+            source: "https://review.example/overflow"
+        )
+        XCTAssertEqual(overflow.token, "")
+    }
+}

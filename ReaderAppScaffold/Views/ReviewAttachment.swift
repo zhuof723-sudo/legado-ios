@@ -60,33 +60,44 @@ public enum ReviewLinkHelper {
     }
 
     /// 将正文中私有区 marker 替换成可点击的段评图标，并保留普通文本。
+    /// 这里不能用 NSRegularExpression 扫 U+E000...U+F8FF：ICU 不接受
+    /// `[\u{E000}-...]` 这种 Swift 风格十六进制范围，旧版会在这一行直接 SIGTRAP；
+    /// 而使用 ICU 的 `[\uE000-\uFFFF]` 又会把中文正文一起匹配掉。
     public static func attachInlineReviewLinks(
         to text: String,
         markers: [InlineReviewMarker],
         attributes: [NSAttributedString.Key: Any],
         reviewCounts: [Int: Int] = [:]
     ) -> NSAttributedString {
-        let map = Dictionary(uniqueKeysWithValues: markers.map { ($0.id, $0) })
-        let result = NSMutableAttributedString()
-        guard let markerPattern = try? NSRegularExpression(pattern: "[\\u{E000}-\\u{FFFF}]") else {
-            return NSAttributedString(string: text, attributes: attributes)
+        var map: [Int: InlineReviewMarker] = [:]
+        map.reserveCapacity(markers.count)
+        for marker in markers where (0...InlineReviewMarker.markerTokenLimit).contains(marker.id) {
+            // 同一章架构建议由正文格式化器保证唯一；即使旧缓存出现重复 id，
+            // 也不能用 Dictionary(uniqueKeysWithValues:) 让阅读器崩溃。
+            if map[marker.id] == nil { map[marker.id] = marker }
         }
+
+        let result = NSMutableAttributedString()
         let ns = text as NSString
         var cursor = 0
-        for match in markerPattern.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
-            if match.range.location > cursor {
+        var index = 0
+        while index < ns.length {
+            let scalarValue = ns.character(at: index)
+            guard (0xE000...0xF8FF).contains(scalarValue) else {
+                index += 1
+                continue
+            }
+            if index > cursor {
                 result.append(NSAttributedString(
-                    string: ns.substring(with: NSRange(location: cursor, length: match.range.location - cursor)),
+                    string: ns.substring(with: NSRange(location: cursor, length: index - cursor)),
                     attributes: attributes
                 ))
             }
-            let scalarValue = ns.substring(with: match.range).unicodeScalars.first?.value ?? 0
             let id = Int(scalarValue) - 0xE000
             if let marker = map[id] {
+                let fallbackCount = reviewCounts[marker.paragraphIndex] ?? 0
                 let countText = marker.count.isEmpty
-                    ? (reviewCounts[marker.paragraphIndex] ?? 0) > 0
-                        ? "\(min(reviewCounts[marker.paragraphIndex] ?? 0, 999))"
-                        : ""
+                    ? (fallbackCount > 0 ? "\(min(fallbackCount, 999))" : "")
                     : marker.count
                 let image = ReviewBadgeRenderer.bubble(
                     count: countText,
@@ -105,10 +116,9 @@ public enum ReviewLinkHelper {
                 markerString.addAttribute(.link, value: markerURL(for: marker.id), range: NSRange(location: 0, length: markerString.length))
                 markerString.addAttribute(.accessibilityTextCustom, value: marker.title, range: NSRange(location: 0, length: markerString.length))
                 result.append(markerString)
-            } else {
-                result.append(NSAttributedString(string: "", attributes: attributes))
             }
-            cursor = match.range.location + match.range.length
+            index += 1
+            cursor = index
         }
         if cursor < ns.length {
             result.append(NSAttributedString(string: ns.substring(from: cursor), attributes: attributes))
