@@ -43,7 +43,7 @@ public struct InlineReviewMarker: Codable, Equatable, Sendable, Identifiable {
     public var token: String {
         guard id >= 0, id <= 0x1FFF,
               let scalar = UnicodeScalar(0xE000 + id) else { return "" }
-        return String(Character(scalar))
+        return String(scalar)
     }
 }
 
@@ -110,9 +110,9 @@ public enum ReaderContentFormatter {
         // getComments 在部分书山接口响应中会返回 &lt;comment ...&gt;，
         // 必须先解码，否则后面的 HTML 标签解析永远不会命中。
         let normalizedHTML = decodeEntities(html)
-        let tagRegex = try! NSRegularExpression(
+        guard let tagRegex = try? NSRegularExpression(
             pattern: "(?is)<(?:img|comment)(?:[^>])*?>", options: []
-        )
+        ) else { return ReaderChapterContent(text: html) }
         let source = normalizedHTML as NSString
         let fullRange = NSRange(location: 0, length: source.length)
         let matches = tagRegex.matches(in: normalizedHTML, range: fullRange)

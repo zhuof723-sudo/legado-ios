@@ -68,7 +68,9 @@ public enum ReviewLinkHelper {
     ) -> NSAttributedString {
         let map = Dictionary(uniqueKeysWithValues: markers.map { ($0.id, $0) })
         let result = NSMutableAttributedString()
-        let markerPattern = try! NSRegularExpression(pattern: "[\\u{E000}-\\u{FFFF}]")
+        guard let markerPattern = try? NSRegularExpression(pattern: "[\\u{E000}-\\u{FFFF}]") else {
+            return NSAttributedString(string: text, attributes: attributes)
+        }
         let ns = text as NSString
         var cursor = 0
         for match in markerPattern.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
