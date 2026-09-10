@@ -170,6 +170,8 @@ struct ReaderView: View {
                 guard let destination = BrowserDestination(urlString: url, title: title) else { return }
                 DispatchQueue.main.async { browserDestination = destination }
             }
+        } else if let destination = BrowserDestination(urlString: marker.source, title: marker.title) {
+            browserDestination = destination
         } else {
             selectedReviewURL = marker.source
             presentReview(for: marker.paragraphIndex)

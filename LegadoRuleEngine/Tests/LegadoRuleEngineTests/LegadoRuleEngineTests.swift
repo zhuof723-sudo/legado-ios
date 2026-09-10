@@ -463,6 +463,21 @@ extension LegadoRuleEngineTests {
         XCTAssertEqual(content.inlineReviewMarkers.count, 1)
         XCTAssertEqual(content.inlineReviewMarkers.first?.source, "https://v1.vossc.com/idea_comment?item_id=1")
         XCTAssertEqual(content.inlineReviewMarkers.first?.paragraphIndex, 0)
+        XCTAssertEqual(content.inlineReviewMarkers.first?.count, "12")
+        XCTAssertEqual(content.inlineReviewMarkers.first?.action, "java.startBrowser('https://v1.vossc.com/idea_comment?item_id=1')")
         XCTAssertTrue(content.text.contains(content.inlineReviewMarkers[0].token))
+    }
+}
+
+
+extension LegadoRuleEngineTests {
+    func testReaderContentFormatterReadsBubbleCountFromTextImage() {
+        let svg = "<svg viewBox='0 0 96 72'><rect width='80' height='56'/><text x='48' y='46'>99+</text></svg>"
+        let encoded = Data(svg.utf8).base64EncodedString()
+        let html = "<p>第一段</p><p>第二段<img src=\"data:image/svg+xml;base64,\(encoded),{\\\"style\\\":\\\"TEXT\\\",\\\"click\\\":\\\"showCmt('1','2','3')\\\"}\"></p>"
+        let content = ReaderContentFormatter.format(html, baseURL: "https://example.com/chapter/1")
+        XCTAssertEqual(content.inlineReviewMarkers.count, 1)
+        XCTAssertEqual(content.inlineReviewMarkers.first?.count, "99+")
+        XCTAssertEqual(content.inlineReviewMarkers.first?.action, "showCmt('1','2','3')")
     }
 }

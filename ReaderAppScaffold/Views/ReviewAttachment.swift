@@ -33,7 +33,7 @@ public enum ReviewLinkHelper {
         guard isReviewURL(url), url.host == markerHost else { return nil }
         let components = url.pathComponents
         guard components.count >= 2 else { return nil }
-        return Int(components[1])
+        return Int(components[1].replacingOccurrences(of: "-", with: ""))
     }
 
     /// 给普通纯文本段落添加兼容段评入口。
@@ -68,7 +68,7 @@ public enum ReviewLinkHelper {
     ) -> NSAttributedString {
         let map = Dictionary(uniqueKeysWithValues: markers.map { ($0.id, $0) })
         let result = NSMutableAttributedString()
-        let markerPattern = try! NSRegularExpression(pattern: "[\\u{E000}-\\u{F8FF}]")
+        let markerPattern = try! NSRegularExpression(pattern: "[\\u{E000}-\\u{FFFF}]")
         let ns = text as NSString
         var cursor = 0
         for match in markerPattern.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
@@ -81,15 +81,28 @@ public enum ReviewLinkHelper {
             let scalarValue = ns.substring(with: match.range).unicodeScalars.first?.value ?? 0
             let id = Int(scalarValue) - 0xE000
             if let marker = map[id] {
-                var linkAttributes = attributes
-                linkAttributes[.link] = markerURL(for: marker.id)
-                linkAttributes[.foregroundColor] = UIColor.systemGray
-                linkAttributes[.font] = (attributes[.font] as? UIFont)?.withSize(
-                    max(11, ((attributes[.font] as? UIFont)?.pointSize ?? 14) * 0.9)
+                let countText = marker.count.isEmpty
+                    ? (reviewCounts[marker.paragraphIndex] ?? 0) > 0
+                        ? "\(min(reviewCounts[marker.paragraphIndex] ?? 0, 999))"
+                        : ""
+                    : marker.count
+                let image = ReviewBadgeRenderer.bubble(
+                    count: countText,
+                    pointSize: (attributes[.font] as? UIFont)?.pointSize ?? 17,
+                    color: UIColor.secondaryLabel
                 )
-                let count = reviewCounts[marker.paragraphIndex] ?? 0
-                let title = count > 0 ? "💬\(min(count, 999))" : "💬"
-                result.append(NSAttributedString(string: title, attributes: linkAttributes))
+                let attachment = NSTextAttachment()
+                attachment.image = image
+                attachment.bounds = CGRect(
+                    x: 0,
+                    y: ((attributes[.font] as? UIFont)?.descender ?? -3) - max(2, image.size.height * 0.04),
+                    width: image.size.width,
+                    height: image.size.height
+                )
+                let markerString = NSMutableAttributedString(attachment: attachment)
+                markerString.addAttribute(.link, value: markerURL(for: marker.id), range: NSRange(location: 0, length: markerString.length))
+                markerString.addAttribute(.accessibilityTextCustom, value: marker.title, range: NSRange(location: 0, length: markerString.length))
+                result.append(markerString)
             } else {
                 result.append(NSAttributedString(string: "", attributes: attributes))
             }

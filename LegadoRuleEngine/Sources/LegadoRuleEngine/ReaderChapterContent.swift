@@ -6,12 +6,37 @@ public struct InlineReviewMarker: Codable, Equatable, Sendable, Identifiable {
     public let source: String
     public let action: String?
     public let paragraphIndex: Int
+    public let count: String
+    public let title: String
 
-    public init(id: Int, source: String, action: String? = nil, paragraphIndex: Int = 0) {
+    public init(
+        id: Int,
+        source: String,
+        action: String? = nil,
+        paragraphIndex: Int = 0,
+        count: String = "",
+        title: String = "段评"
+    ) {
         self.id = id
         self.source = source
         self.action = action
         self.paragraphIndex = paragraphIndex
+        self.count = count
+        self.title = title
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, source, action, paragraphIndex, count, title
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(Int.self, forKey: .id)
+        source = try container.decode(String.self, forKey: .source)
+        action = try container.decodeIfPresent(String.self, forKey: .action)
+        paragraphIndex = try container.decodeIfPresent(Int.self, forKey: .paragraphIndex) ?? 0
+        count = try container.decodeIfPresent(String.self, forKey: .count) ?? ""
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? "段评"
     }
 
     /// 私有区占位符。分页时占一个字符位置，渲染时替换成可点击气泡。
@@ -109,13 +134,15 @@ public enum ReaderContentFormatter {
             let tag = source.substring(with: match.range)
             if tag.lowercased().hasPrefix("<comment"),
                let action = attributeValue("onPress", in: tag),
-               let url = firstURL(in: action, baseURL: baseURL),
                markerID <= 0x1FFF {
+                let target = browserTarget(in: action, baseURL: baseURL)
                 let marker = InlineReviewMarker(
                     id: markerID,
-                    source: url,
+                    source: target?.url ?? action,
                     action: action,
-                    paragraphIndex: paragraphIndex
+                    paragraphIndex: paragraphIndex,
+                    count: attributeValue("count", in: tag) ?? "",
+                    title: target?.title.isEmpty == false ? target?.title ?? "段评" : "段评"
                 )
                 output += marker.token
                 markers.append(marker)
@@ -130,11 +157,14 @@ public enum ReaderContentFormatter {
                    let url = absoluteURL(parts.url, baseURL: baseURL),
                    !url.isEmpty,
                    markerID <= 0x1FFF {
+                    let action = parts.options["click"] ?? parts.options["action"] ?? parts.options["js"]
                     let marker = InlineReviewMarker(
                         id: markerID,
                         source: url,
-                        action: parts.options["click"] ?? parts.options["js"],
-                        paragraphIndex: paragraphIndex
+                        action: action,
+                        paragraphIndex: paragraphIndex,
+                        count: bubbleCount(fromImageSource: parts.url),
+                        title: action.flatMap { browserTarget(in: $0, baseURL: baseURL)?.title } ?? "段评"
                     )
                     output += marker.token
                     markers.append(marker)
@@ -195,30 +225,77 @@ public enum ReaderContentFormatter {
         return nil
     }
 
+    private static func browserTarget(in action: String, baseURL: String) -> (url: String, title: String)? {
+        let pattern = #"(?:showReadingBrowser|showCmt|startBrowser(?:Dp)?)\(\s*'([^']*)'(?:\s*,\s*'([^']*)')?\s*\)"#
+        if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) {
+            let ns = action as NSString
+            if let match = regex.firstMatch(
+                in: action,
+                range: NSRange(location: 0, length: ns.length)
+            ), match.numberOfRanges >= 2 {
+                let rawURL = ns.substring(with: match.range(at: 1))
+                let title = match.numberOfRanges >= 3 && match.range(at: 2).location != NSNotFound
+                    ? ns.substring(with: match.range(at: 2))
+                    : ""
+                if let url = absoluteURL(rawURL, baseURL: baseURL), !url.isEmpty {
+                    return (url, title)
+                }
+            }
+        }
+
+        let candidates = ["https://", "http://"]
+        var start: String.Index?
+        for candidate in candidates {
+            if let found = action.range(of: candidate, options: .caseInsensitive)?.lowerBound,
+               start == nil || found < start! {
+                start = found
+            }
+        }
+        guard let start else { return nil }
+        var end = start
+        while end < action.endIndex {
+            let character = action[end]
+            if character == "'" || character == "\"" || character == ")" || character.isWhitespace { break }
+            end = action.index(after: end)
+        }
+        guard let url = absoluteURL(String(action[start..<end]), baseURL: baseURL) else { return nil }
+        return (url, "")
+    }
+
+    private static func bubbleCount(fromImageSource source: String) -> String {
+        let prefix = "data:image/svg+xml"
+        guard source.lowercased().hasPrefix(prefix),
+              let comma = source.firstIndex(of: ",") else { return "" }
+        let metadata = source[..<comma].lowercased()
+        let payload = String(source[source.index(after: comma)...])
+        let svg: String?
+        if metadata.contains(";base64") {
+            svg = Data(base64Encoded: payload, options: [.ignoreUnknownCharacters])
+                .flatMap { String(data: $0, encoding: .utf8) }
+        } else {
+            svg = payload.removingPercentEncoding ?? payload
+        }
+        guard let svg,
+              let regex = try? NSRegularExpression(
+                pattern: #"<text\b[^>]*>(.*?)</text>"#,
+                options: [.caseInsensitive, .dotMatchesLineSeparators]
+              ) else { return "" }
+        let ns = svg as NSString
+        guard let match = regex.firstMatch(
+            in: svg,
+            range: NSRange(location: 0, length: ns.length)
+        ), match.numberOfRanges > 1 else { return "" }
+        let value = ns.substring(with: match.range(at: 1))
+            .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.range(of: #"^[0-9]+[+]?$"#, options: .regularExpression) != nil ? value : ""
+    }
+
     private static func imageSource(in tag: String) -> String? {
         for name in ["src", "data-src", "data-original", "data-srcset"] {
             if let value = attributeValue(name, in: tag) { return value }
         }
         return nil
-    }
-
-    private static func firstURL(in value: String, baseURL: String) -> String? {
-        let candidates = ["https://", "http://"]
-        var start: String.Index?
-        for candidate in candidates {
-            if let found = value.range(of: candidate, options: .caseInsensitive)?.lowerBound {
-                if start == nil || found < start! { start = found }
-            }
-        }
-        guard let start else { return absoluteURL(value, baseURL: baseURL) }
-        var end = start
-        while end < value.endIndex {
-            let c = value[end]
-            if c == "'" || c == "\"" || c == ")" || c.isWhitespace { break }
-            end = value.index(after: end)
-        }
-        let url = String(value[start..<end])
-        return absoluteURL(url, baseURL: baseURL)
     }
 
     private static func splitImageSourceAndOptions(_ source: String) -> (url: String, options: [String: String]) {
