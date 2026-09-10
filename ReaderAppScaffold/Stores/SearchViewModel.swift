@@ -46,12 +46,16 @@ public final class SearchViewModel {
         self.sources = sources
     }
 
+    /// 开始搜索并登记任务句柄，使 cancel() 真正生效。
+    public func startSearch() {
+        searchTask?.cancel()
+        searchTask = Task { await self.search() }
+    }
+
     /// 并发向所有启用的书源发起搜索，谁先回来先显示谁的结果
     public func search() async {
         let kw = keyword.trimmingCharacters(in: .whitespaces)
         guard !kw.isEmpty else { return }
-        // 取消之前的搜索
-        cancel()
         currentPage = 1
         reachedEnd = false
         results = []
@@ -60,7 +64,10 @@ public final class SearchViewModel {
         isSearching = true
         isPaused = false
         pauseController.resume()
-        defer { isSearching = false }
+        defer {
+            isSearching = false
+            searchTask = nil
+        }
         await performSearch(keyword: kw, page: currentPage)
     }
 

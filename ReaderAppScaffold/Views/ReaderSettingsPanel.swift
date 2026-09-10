@@ -15,7 +15,7 @@ struct ReaderSettingsPanel: View {
                     sectionLabel("翻页动画")
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 10) {
-                            ForEach(PageAnimationType.allCases) { anim in
+                            ForEach(PageAnimationType.preferredOrder) { anim in
                                 animOption(anim)
                             }
                         }

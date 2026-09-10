@@ -123,6 +123,22 @@ struct InAppBrowserView: View {
     @StateObject private var model = InAppBrowserModel()
 
     var body: some View {
+        if destination.isReview {
+            reviewBrowser
+        } else {
+            fullBrowser
+        }
+    }
+
+    /// 段评页面直接展示书源网页本身：不叠加应用内导航键，
+    /// 关闭使用 sheet 下滑手势；高度由 ReaderView 固定为半屏。
+    private var reviewBrowser: some View {
+        BrowserWebView(destination: destination, model: model)
+            .background(Color(.systemBackground))
+            .ignoresSafeArea(.container, edges: .bottom)
+    }
+
+    private var fullBrowser: some View {
         NavigationStack {
             BrowserWebView(destination: destination, model: model)
                 .ignoresSafeArea(edges: .bottom)

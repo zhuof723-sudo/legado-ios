@@ -248,7 +248,7 @@ struct SearchView: View {
         pushHistory(key)
         guard let vm = viewModel else { return }
         vm.keyword = key
-        Task { await vm.search() }
+        vm.startSearch()
     }
 
     private func pushHistory(_ key: String) {

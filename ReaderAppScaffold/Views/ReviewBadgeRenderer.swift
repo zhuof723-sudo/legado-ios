@@ -1,7 +1,9 @@
 import UIKit
 
-/// 绘制与参考阅读器一致的行内段评数量气泡。
-/// 气泡作为 NSTextAttachment 参与排版，背景、数量和点击区域属于同一个对象。
+/// 绘制阅读器里的段评数量徽标。
+/// 目标样式是参考 App 的“猫头/云头”轮廓：上半部有两只小耳朵，
+/// 主体是圆角胶囊，整体只描边不填充，数字居中。
+/// 气泡作为 NSTextAttachment 参与排版，形状、数量和点击区域属于同一个对象。
 enum ReviewBadgeRenderer {
     private static let cache = NSCache<NSString, UIImage>()
 
@@ -12,19 +14,21 @@ enum ReviewBadgeRenderer {
         let key = "\(display)|\(Int(finiteSize.rounded()))|\(color)" as NSString
         if let image = cache.object(forKey: key) { return image }
 
-        let fontSize = max(8, finiteSize * 0.60)
+        let fontSize = max(7, finiteSize * 0.54)
         let font = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
             .foregroundColor: color
         ]
         let textSize = (display as NSString).size(withAttributes: attributes)
-        let height = ceil(max(15, finiteSize * 0.92))
-        let horizontalPadding = max(4, finiteSize * 0.28)
-        let bubbleWidth = max(height, ceil(textSize.width) + horizontalPadding * 2)
-        let leadingGap = ceil(finiteSize * 0.22)
-        let tailHeight = max(2, finiteSize * 0.12)
-        let canvas = CGSize(width: leadingGap + bubbleWidth, height: height + tailHeight)
+        let bodyHeight = ceil(max(14, finiteSize * 0.80))
+        let horizontalPadding = max(7, finiteSize * 0.36)
+        let bodyWidth = max(
+            bodyHeight * 1.38,
+            ceil(textSize.width) + horizontalPadding * 2
+        )
+        let earHeight = ceil(bodyHeight * 0.25)
+        let canvas = CGSize(width: bodyWidth + 2, height: bodyHeight + earHeight + 2)
 
         let format = UIGraphicsImageRendererFormat()
         format.opaque = false
@@ -32,32 +36,78 @@ enum ReviewBadgeRenderer {
         let image = UIGraphicsImageRenderer(size: canvas, format: format).image { _ in
             let scale = max(UIScreen.main.scale, 1)
             let lineWidth = 1 / scale
-            let rect = CGRect(
-                x: leadingGap + lineWidth / 2,
-                y: lineWidth / 2,
-                width: bubbleWidth - lineWidth,
-                height: height - lineWidth
+            let bodyRect = CGRect(
+                x: 1,
+                y: earHeight + 1,
+                width: bodyWidth,
+                height: bodyHeight
             )
-            let path = UIBezierPath(roundedRect: rect, cornerRadius: rect.height * 0.4)
-            let tailX = rect.minX + rect.width * 0.26
-            let tail = UIBezierPath()
-            tail.move(to: CGPoint(x: tailX, y: rect.maxY - 1))
-            tail.addLine(to: CGPoint(x: tailX, y: rect.maxY + tailHeight))
-            tail.addLine(to: CGPoint(x: tailX + tailHeight * 1.5, y: rect.maxY - 1))
-            tail.close()
-            path.append(tail)
-            color.setStroke()
+            let path = catHeadPath(bodyRect: bodyRect, lineWidth: lineWidth)
             path.lineWidth = lineWidth
             path.lineJoinStyle = .round
+            path.lineCapStyle = .round
+            color.setStroke()
+            UIColor.clear.setFill()
+            path.fill()
             path.stroke()
 
             let origin = CGPoint(
-                x: rect.minX + (rect.width - textSize.width) / 2,
-                y: rect.minY + (rect.height - textSize.height) / 2
+                x: bodyRect.midX - textSize.width / 2,
+                y: bodyRect.midY - textSize.height / 2
             )
             (display as NSString).draw(at: origin, withAttributes: attributes)
         }
         cache.setObject(image, forKey: key)
         return image
+    }
+
+    /// 用一条闭合路径画出猫头轮廓，避免耳朵和主体之间出现内部描边。
+    private static func catHeadPath(bodyRect: CGRect, lineWidth: CGFloat) -> UIBezierPath {
+        let body = bodyRect.insetBy(dx: lineWidth / 2, dy: lineWidth / 2)
+        let left = body.minX
+        let right = body.maxX
+        let top = body.minY
+        let bottom = body.maxY
+        let width = body.width
+        let radius = min(body.height * 0.48, width * 0.5)
+        let earHeight = min(body.height * 0.46, width * 0.20)
+
+        let leftEarOuterX = left + width * 0.07
+        let leftEarPeakX = left + width * 0.23
+        let leftEarInnerX = left + width * 0.39
+        let rightEarInnerX = right - width * 0.39
+        let rightEarPeakX = right - width * 0.23
+        let rightEarOuterX = right - width * 0.07
+
+        let path = UIBezierPath()
+        path.move(to: CGPoint(x: leftEarOuterX, y: top))
+        path.addLine(to: CGPoint(x: leftEarPeakX, y: top - earHeight))
+        path.addLine(to: CGPoint(x: leftEarInnerX, y: top))
+        path.addLine(to: CGPoint(x: rightEarInnerX, y: top))
+        path.addLine(to: CGPoint(x: rightEarPeakX, y: top - earHeight))
+        path.addLine(to: CGPoint(x: rightEarOuterX, y: top))
+
+        // 右上到右下：把正文主体的圆角连进同一条轮廓。
+        path.addQuadCurve(
+            to: CGPoint(x: right, y: top + radius),
+            controlPoint: CGPoint(x: right, y: top)
+        )
+        path.addLine(to: CGPoint(x: right, y: bottom - radius))
+        path.addQuadCurve(
+            to: CGPoint(x: right - radius, y: bottom),
+            controlPoint: CGPoint(x: right, y: bottom)
+        )
+        path.addLine(to: CGPoint(x: left + radius, y: bottom))
+        path.addQuadCurve(
+            to: CGPoint(x: left, y: bottom - radius),
+            controlPoint: CGPoint(x: left, y: bottom)
+        )
+        path.addLine(to: CGPoint(x: left, y: top + radius))
+        path.addQuadCurve(
+            to: CGPoint(x: leftEarOuterX, y: top),
+            controlPoint: CGPoint(x: left, y: top)
+        )
+        path.close()
+        return path
     }
 }

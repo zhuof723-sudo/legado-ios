@@ -115,8 +115,11 @@ public func withTimeout<T: Sendable>(
             try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
             throw TimeoutError.timedOut(seconds: seconds)
         }
-        let result = try await group.next()!
+        // 任务组在取消状态下 next() 可能返回 nil（子任务全部被取消、无结果），
+        // 不能强解包，否则多书源搜索中只要取消一次就会崩溃。
+        let result = try await group.next()
         group.cancelAll()
+        guard let result else { throw CancellationError() }
         return result
     }
 }

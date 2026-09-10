@@ -4,30 +4,34 @@ import UIKit
 // MARK: - 翻页动画类型
 
 enum PageAnimationType: Int, CaseIterable, Identifiable {
-    case slide = 0        // 滑动翻页（默认，最流畅）
-    case cover = 1        // 覆盖翻页
-    case simulation = 2   // 仿真翻页
-    case scroll = 3       // 滚动翻页
-    case none = 4         // 无动画
+    // 保留旧存储值：0=旧滑动 -> 平移分页；2=旧仿真 -> 卷曲；
+    // 3=旧滚动 -> 自由滚动；4=旧无动画 -> 快速淡入淡出。
+    // 旧的“覆盖”模式已按需求移除，读取到 1 时回退到平移分页。
+    case pageScroll = 0    // UIPageViewController(.scroll)
+    case pageCurl = 2      // UIPageViewController(.pageCurl, doubleSided)
+    case freeScroll = 3    // UIScrollView + UITextView 连续滚动
+    case fade = 4          // UIKit CATransition 快速淡入淡出
 
     var id: Int { rawValue }
     var name: String {
         switch self {
-        case .slide: return "滑动"
-        case .cover: return "覆盖"
-        case .simulation: return "仿真"
-        case .scroll: return "滚动"
-        case .none: return "无动画"
+        case .freeScroll: return "自由滚动"
+        case .pageScroll: return "平移滑动"
+        case .pageCurl: return "书本仿真"
+        case .fade: return "淡入淡出"
         }
     }
     var icon: String {
         switch self {
-        case .slide: return "rectangle.portrait.and.arrow.right"
-        case .cover: return "rectangle.stack"
-        case .simulation: return "book.pages"
-        case .scroll: return "arrow.up.and.down"
-        case .none: return "pause"
+        case .freeScroll: return "arrow.up.and.down"
+        case .pageScroll: return "rectangle.portrait.and.arrow.right"
+        case .pageCurl: return "book.pages"
+        case .fade: return "circle.lefthalf.filled"
         }
+    }
+    /// 设置面板中的展示顺序。
+    static var preferredOrder: [PageAnimationType] {
+        [.freeScroll, .pageScroll, .pageCurl, .fade]
     }
 }
 
@@ -101,7 +105,7 @@ final class ReaderConfig: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        self.pageAnim = defaults.object(forKey: Keys.pageAnim) as? Int ?? PageAnimationType.slide.rawValue
+        self.pageAnim = defaults.object(forKey: Keys.pageAnim) as? Int ?? PageAnimationType.pageScroll.rawValue
         self.fontSize = defaults.object(forKey: Keys.fontSize) as? Double ?? 18
         self.bold = defaults.object(forKey: Keys.bold) as? Bool ?? false
         self.lineSpacing = defaults.object(forKey: Keys.lineSpacing) as? Double ?? 6
@@ -115,7 +119,7 @@ final class ReaderConfig: ObservableObject {
         self.autoReadSpeed = defaults.object(forKey: Keys.autoReadSpeed) as? Double ?? 3.5
     }
 
-    var currentPageAnim: PageAnimationType { PageAnimationType(rawValue: pageAnim) ?? .slide }
+    var currentPageAnim: PageAnimationType { PageAnimationType(rawValue: pageAnim) ?? .pageScroll }
 
     var currentTheme: ReaderTheme {
         if nightMode {

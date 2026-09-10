@@ -177,642 +177,26 @@ protocol PageReaderContainer: AnyObject {
     func updatePages(_ newPages: [String], keepIndex: Int)
 }
 
-// MARK: - 水平滑动翻页（UIScrollView + pagingEnabled，最流畅）
+// MARK: - 共用页面构造
 
-final class HorizontalSlideReader: UIViewController, PageReaderContainer, UIScrollViewDelegate {
-    var pages: [String] = []
-    let config: ReaderConfig
-    var currentIndex: Int = 0
-    var onPageChanged: ((Int) -> Void)?
-    var reviewEnabled: Bool = false
-    var onReviewTap: ((Int) -> Void)?
-    var reviewCounts: [Int: Int] = [:]
-    var inlineReviewMarkers: [InlineReviewMarker] = []
-    var onInlineReviewTap: ((Int) -> Void)?
-
-    private let scrollView = UIScrollView()
-    private let stackView = UIStackView()
-    private var pageViews: [PageContentView] = []
-    private var isProgrammaticScroll = false
-    private var needsInitialOffset = true
-    private var lastBoundsSize: CGSize = .zero
-    private var pendingAnimatedIndex: Int?
-
-    init(pages: [String], config: ReaderConfig, initialIndex: Int) {
-        self.pages = pages
-        self.config = config
-        self.currentIndex = initialIndex
-        super.init(nibName: nil, bundle: nil)
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        view.backgroundColor = .clear
-        setupScrollView()
-        reloadPages()
-    }
-
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        let size = scrollView.bounds.size
-        guard size.width > 0, size.height > 0 else { return }
-
-        // 只在首次布局或旋转/尺寸变化时校准位置。布局过程中不能持续重置
-        // contentOffset，否则用户拖拽时会被抢回当前页，表现为翻页卡顿或跳回。
-        if needsInitialOffset || lastBoundsSize != size {
-            let targetIndex = pendingAnimatedIndex ?? currentIndex
-            let safeIndex = min(max(targetIndex, 0), max(pages.count - 1, 0))
-            isProgrammaticScroll = true
-            scrollView.setContentOffset(
-                CGPoint(x: CGFloat(safeIndex) * size.width, y: 0),
-                animated: false
-            )
-            isProgrammaticScroll = false
-            needsInitialOffset = false
-            lastBoundsSize = size
-        }
-    }
-
-    private func setupScrollView() {
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.delegate = self
-        scrollView.isPagingEnabled = true
-        scrollView.showsHorizontalScrollIndicator = false
-        scrollView.showsVerticalScrollIndicator = false
-        scrollView.alwaysBounceHorizontal = true
-        scrollView.alwaysBounceVertical = false
-        scrollView.bounces = true
-        scrollView.scrollsToTop = false
-        scrollView.contentInset = .zero
-        scrollView.contentInsetAdjustmentBehavior = .never
-
-        stackView.translatesAutoresizingMaskIntoConstraints = false
-        stackView.axis = .horizontal
-        stackView.spacing = 0
-        stackView.alignment = .fill
-        // 每个页面有明确的宽度约束，使用 fill 避免 fillEqually 与宽度约束冲突。
-        stackView.distribution = .fill
-
-        view.addSubview(scrollView)
-        scrollView.addSubview(stackView)
-
-        NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: view.topAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            stackView.topAnchor.constraint(equalTo: scrollView.topAnchor),
-            stackView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
-            stackView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
-            stackView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
-            stackView.heightAnchor.constraint(equalTo: scrollView.heightAnchor)
-        ])
-    }
-
-    private func reloadPages() {
-        stackView.arrangedSubviews.forEach {
-            stackView.removeArrangedSubview($0)
-            $0.removeFromSuperview()
-        }
-        pageViews.removeAll()
-        pendingAnimatedIndex = nil
-        needsInitialOffset = true
-        lastBoundsSize = .zero
-
-        for text in pages {
-            let pageView = PageContentView(text: text, config: config)
-            pageView.reviewEnabled = reviewEnabled
-            pageView.onReviewTap = onReviewTap
-            pageView.reviewCounts = reviewCounts
-            pageView.inlineReviewMarkers = inlineReviewMarkers
-            pageView.onInlineReviewTap = onInlineReviewTap
-            pageView.translatesAutoresizingMaskIntoConstraints = false
-            stackView.addArrangedSubview(pageView)
-            pageView.widthAnchor.constraint(equalTo: scrollView.widthAnchor).isActive = true
-            pageViews.append(pageView)
-        }
-
-        view.setNeedsLayout()
-        view.layoutIfNeeded()
-
-        let safeIndex = min(max(currentIndex, 0), max(pages.count - 1, 0))
-        currentIndex = safeIndex
-        if scrollView.bounds.width > 0 {
-            isProgrammaticScroll = true
-            scrollView.setContentOffset(
-                CGPoint(x: CGFloat(safeIndex) * scrollView.bounds.width, y: 0),
-                animated: false
-            )
-            isProgrammaticScroll = false
-            needsInitialOffset = false
-            lastBoundsSize = scrollView.bounds.size
-        }
-    }
-
-    func refreshAppearance() {
-        pageViews.forEach { $0.refreshAppearance() }
-    }
-
-    func updatePages(_ newPages: [String], keepIndex: Int) {
-        pages = newPages
-        let safeIndex = min(max(keepIndex, 0), max(newPages.count - 1, 0))
-        currentIndex = safeIndex
-        reloadPages()
-    }
-
-    func goToPage(_ index: Int, animated: Bool) {
-        guard index >= 0, index < pages.count else { return }
-        guard scrollView.bounds.width > 0 else {
-            currentIndex = index
-            pendingAnimatedIndex = nil
-            return
-        }
-        guard index != currentIndex || abs(scrollView.contentOffset.x - CGFloat(index) * scrollView.bounds.width) > 1 else {
-            return
-        }
-
-        currentIndex = index
-        pendingAnimatedIndex = animated ? index : nil
-        isProgrammaticScroll = true
-        let targetX = CGFloat(index) * scrollView.bounds.width
-        scrollView.setContentOffset(CGPoint(x: targetX, y: 0), animated: animated)
-        if !animated {
-            isProgrammaticScroll = false
-        }
-    }
-
-    // MARK: - UIScrollViewDelegate
-
-    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
-        isProgrammaticScroll = false
-        pendingAnimatedIndex = nil
-        guard !pages.isEmpty else { return }
-        let pageWidth = scrollView.bounds.width
-        guard pageWidth > 0 else { return }
-        let page = Int(round(scrollView.contentOffset.x / pageWidth))
-        let clampedPage = min(max(page, 0), pages.count - 1)
-        if clampedPage != currentIndex {
-            currentIndex = clampedPage
-            onPageChanged?(currentIndex)
-        }
-    }
-
-    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
-        pendingAnimatedIndex = nil
-        guard !pages.isEmpty else { return }
-        let pageWidth = scrollView.bounds.width
-        guard pageWidth > 0 else { return }
-        let page = Int(round(scrollView.contentOffset.x / pageWidth))
-        let clampedPage = min(max(page, 0), pages.count - 1)
-        if clampedPage != currentIndex {
-            currentIndex = clampedPage
-            onPageChanged?(currentIndex)
-        }
-    }
-
-    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        if !decelerate {
-            pendingAnimatedIndex = nil
-            guard !pages.isEmpty else { return }
-            let pageWidth = scrollView.bounds.width
-            guard pageWidth > 0 else { return }
-            let page = Int(round(scrollView.contentOffset.x / pageWidth))
-            let clampedPage = min(max(page, 0), pages.count - 1)
-            if clampedPage != currentIndex {
-                currentIndex = clampedPage
-                onPageChanged?(currentIndex)
-            }
-        }
-    }
+private func configureReaderPage(
+    _ pageView: PageContentView,
+    reviewEnabled: Bool,
+    onReviewTap: ((Int) -> Void)?,
+    reviewCounts: [Int: Int],
+    inlineReviewMarkers: [InlineReviewMarker],
+    onInlineReviewTap: ((Int) -> Void)?
+) {
+    pageView.reviewEnabled = reviewEnabled
+    pageView.onReviewTap = onReviewTap
+    pageView.reviewCounts = reviewCounts
+    pageView.inlineReviewMarkers = inlineReviewMarkers
+    pageView.onInlineReviewTap = onInlineReviewTap
 }
 
-// MARK: - 覆盖翻页（新页面从边缘覆盖旧页面）
+// MARK: - 1. 自由垂直滚动：UIScrollView + UITextView
 
-final class CoverPageReader: UIViewController, PageReaderContainer, UIGestureRecognizerDelegate {
-    var pages: [String] = []
-    let config: ReaderConfig
-    var currentIndex: Int = 0
-    var onPageChanged: ((Int) -> Void)?
-    var reviewEnabled: Bool = false
-    var onReviewTap: ((Int) -> Void)?
-    var reviewCounts: [Int: Int] = [:]
-    var inlineReviewMarkers: [InlineReviewMarker] = []
-    var onInlineReviewTap: ((Int) -> Void)?
-
-    private var currentPageView: PageContentView?
-    private var isTransitioning = false
-    private var interactiveOldPage: PageContentView?
-    private var interactiveNextPage: PageContentView?
-    private var interactiveDirection = 0
-    private var interactiveTargetIndex = 0
-
-    init(pages: [String], config: ReaderConfig, initialIndex: Int) {
-        self.pages = pages
-        self.config = config
-        self.currentIndex = initialIndex
-        super.init(nibName: nil, bundle: nil)
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        view.backgroundColor = .clear
-        installPanGesture()
-        if !pages.isEmpty {
-            showPage(at: min(max(currentIndex, 0), pages.count - 1), animated: false, direction: 1)
-        }
-    }
-
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        if !isTransitioning, let page = currentPageView {
-            page.frame = view.bounds
-        }
-    }
-
-    private func installPanGesture() {
-        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
-        pan.maximumNumberOfTouches = 1
-        pan.cancelsTouchesInView = false
-        pan.delegate = self
-        view.addGestureRecognizer(pan)
-    }
-
-    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
-        let velocity = pan.velocity(in: view)
-        // 只把明显的左右手势当作翻页，避免上下滚动/拖动文字时触发覆盖动画。
-        return abs(velocity.x) > abs(velocity.y) * 1.15
-    }
-
-    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
-        let translation = gesture.translation(in: view)
-        let width = max(view.bounds.width, 1)
-
-        switch gesture.state {
-        case .began:
-            guard !isTransitioning else { return }
-            let velocity = gesture.velocity(in: view).x
-            let translationX = gesture.translation(in: view).x
-            let direction = (velocity != 0 ? velocity : translationX) < 0 ? 1 : -1
-            let target = currentIndex + direction
-            guard target >= 0, target < pages.count else {
-                gesture.isEnabled = false
-                gesture.isEnabled = true
-                return
-            }
-
-            interactiveOldPage = currentPageView
-            interactiveNextPage = makePage(at: target)
-            interactiveDirection = direction
-            interactiveTargetIndex = target
-            isTransitioning = true
-
-            // UINavigationController push/pop 的层级关系：
-            // 前进时新页在最上层；后退时旧页在最上层滑出。
-            if direction > 0 {
-                view.addSubview(interactiveNextPage!)
-            } else if let old = interactiveOldPage {
-                view.insertSubview(interactiveNextPage!, belowSubview: old)
-            } else {
-                view.addSubview(interactiveNextPage!)
-            }
-            applyInteractiveProgress(0)
-
-        case .changed:
-            guard interactiveOldPage != nil, interactiveNextPage != nil else { return }
-            let progress: CGFloat
-            if interactiveDirection > 0 {
-                progress = min(max(-translation.x / width, 0), 1)
-            } else {
-                progress = min(max(translation.x / width, 0), 1)
-            }
-            applyInteractiveProgress(progress)
-
-        case .ended, .cancelled, .failed:
-            guard interactiveOldPage != nil,
-                  interactiveNextPage != nil else {
-                isTransitioning = false
-                return
-            }
-            let progress: CGFloat
-            if interactiveDirection > 0 {
-                progress = min(max(-translation.x / width, 0), 1)
-            } else {
-                progress = min(max(translation.x / width, 0), 1)
-            }
-            let finish = progress > 0.28 || abs(gesture.velocity(in: view).x) > 650
-            completeInteractivePan(
-                progress: progress,
-                finish: finish,
-                cancelled: gesture.state != .ended
-            )
-
-        default:
-            break
-        }
-    }
-
-    /// 手势进度映射到 UINavigationController push/pop 的位移：
-    /// 前进：新页从右侧完整滑入，旧页向左视差移动 30%。
-    /// 后退：旧页滑回右侧， underneath 页从 -30% 回到原位。
-    private func applyInteractiveProgress(_ progress: CGFloat) {
-        guard let old = interactiveOldPage,
-              let next = interactiveNextPage else { return }
-        let width = max(view.bounds.width, 1)
-        let parallax = width * 0.30
-
-        if interactiveDirection > 0 {
-            next.frame = view.bounds.offsetBy(dx: width * (1 - progress), dy: 0)
-            old.frame = view.bounds.offsetBy(dx: -parallax * progress, dy: 0)
-            next.layer.shadowOpacity = Float(0.16 * progress)
-        } else {
-            next.frame = view.bounds.offsetBy(dx: -parallax * progress, dy: 0)
-            old.frame = view.bounds.offsetBy(dx: width * progress, dy: 0)
-            old.layer.shadowOpacity = Float(0.16 * progress)
-        }
-    }
-
-    private func completeInteractivePan(progress: CGFloat, finish: Bool, cancelled: Bool) {
-        guard let old = interactiveOldPage,
-              let next = interactiveNextPage else {
-            isTransitioning = false
-            return
-        }
-        let shouldFinish = finish && !cancelled
-        let target = interactiveTargetIndex
-
-        if shouldFinish {
-            applyInteractiveProgress(1)
-            let animationDuration = progress < 0.08 ? 0.28 : 0.18
-            UIView.animate(
-                withDuration: animationDuration,
-                delay: 0,
-                options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
-            ) {
-                self.applyInteractiveProgress(1)
-            } completion: { [weak self] _ in
-                guard let self else { return }
-                old.removeFromSuperview()
-                next.frame = self.view.bounds
-                next.layer.shadowOpacity = 0
-                self.currentPageView = next
-                self.currentIndex = target
-                self.onPageChanged?(target)
-                self.interactiveOldPage = nil
-                self.interactiveNextPage = nil
-                self.interactiveDirection = 0
-                self.isTransitioning = false
-            }
-        } else {
-            UIView.animate(
-                withDuration: 0.20,
-                delay: 0,
-                options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
-            ) {
-                self.applyInteractiveProgress(0)
-            } completion: { [weak self] _ in
-                guard let self else { return }
-                next.removeFromSuperview()
-                old.frame = self.view.bounds
-                old.layer.shadowOpacity = 0
-                self.currentPageView = old
-                self.interactiveOldPage = nil
-                self.interactiveNextPage = nil
-                self.interactiveDirection = 0
-                self.isTransitioning = false
-            }
-        }
-    }
-
-    private func makePage(at index: Int) -> PageContentView {
-        let page = PageContentView(text: pages[index], config: config)
-        page.reviewEnabled = reviewEnabled
-        page.onReviewTap = onReviewTap
-        page.reviewCounts = reviewCounts
-        page.inlineReviewMarkers = inlineReviewMarkers
-        page.onInlineReviewTap = onInlineReviewTap
-        page.frame = view.bounds
-        page.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        page.layer.shadowColor = UIColor.black.cgColor
-        page.layer.shadowRadius = 12
-        page.layer.shadowOffset = .zero
-        page.layer.shadowOpacity = 0
-        return page
-    }
-
-    private func showPage(at index: Int, animated: Bool, direction: Int) {
-        guard index >= 0, index < pages.count else { return }
-        let next = makePage(at: index)
-        let old = currentPageView
-        let width = max(view.bounds.width, 1)
-
-        if !animated || old == nil || view.bounds.width <= 1 {
-            old?.removeFromSuperview()
-            next.frame = view.bounds
-            view.addSubview(next)
-            currentPageView = next
-            currentIndex = index
-            isTransitioning = false
-            return
-        }
-
-        isTransitioning = true
-        // 与 UINavigationController push/pop 一致：
-        // 前进是上层页从右侧进入 + 旧页 30% 视差；后退方向相反。
-        if direction >= 0 {
-            next.frame = view.bounds.offsetBy(dx: width, dy: 0)
-            view.addSubview(next)
-            next.layer.shadowOpacity = 0.16
-            UIView.animate(
-                withDuration: 0.32,
-                delay: 0,
-                options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
-            ) {
-                next.frame = self.view.bounds
-                old?.frame = self.view.bounds.offsetBy(dx: -width * 0.30, dy: 0)
-            } completion: { [weak self] _ in
-                guard let self else { return }
-                old?.removeFromSuperview()
-                next.frame = self.view.bounds
-                next.layer.shadowOpacity = 0
-                self.currentPageView = next
-                self.currentIndex = index
-                self.isTransitioning = false
-                self.onPageChanged?(index)
-            }
-        } else {
-            next.frame = view.bounds.offsetBy(dx: -width * 0.30, dy: 0)
-            view.insertSubview(next, belowSubview: old!)
-            old?.layer.shadowOpacity = 0.16
-            UIView.animate(
-                withDuration: 0.32,
-                delay: 0,
-                options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
-            ) {
-                next.frame = self.view.bounds
-                old?.frame = self.view.bounds.offsetBy(dx: width, dy: 0)
-            } completion: { [weak self] _ in
-                guard let self else { return }
-                old?.removeFromSuperview()
-                next.layer.shadowOpacity = 0
-                next.frame = self.view.bounds
-                self.currentPageView = next
-                self.currentIndex = index
-                self.isTransitioning = false
-                self.onPageChanged?(index)
-            }
-        }
-    }
-
-    func refreshAppearance() {
-        currentPageView?.refreshAppearance()
-        interactiveOldPage?.refreshAppearance()
-        interactiveNextPage?.refreshAppearance()
-    }
-
-    func updatePages(_ newPages: [String], keepIndex: Int) {
-        pages = newPages
-        guard !newPages.isEmpty else {
-            currentPageView?.removeFromSuperview()
-            currentPageView = nil
-            currentIndex = 0
-            return
-        }
-        let safeIndex = min(max(keepIndex, 0), newPages.count - 1)
-        showPage(at: safeIndex, animated: false, direction: 1)
-    }
-
-    func goToPage(_ index: Int, animated: Bool) {
-        guard index >= 0, index < pages.count, index != currentIndex, !isTransitioning else { return }
-        let direction = index > currentIndex ? 1 : -1
-        showPage(at: index, animated: animated, direction: direction)
-    }
-}
-
-// MARK: - 仿真翻页（UIPageViewController pageCurl）
-
-private final class IndexedPageViewController: UIViewController {
-    let pageIndex: Int
-    let pageView: PageContentView
-
-    init(index: Int, pageView: PageContentView) {
-        self.pageIndex = index
-        self.pageView = pageView
-        super.init(nibName: nil, bundle: nil)
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        view.backgroundColor = UIColor(pageView.config.currentTheme.background)
-        pageView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(pageView)
-        NSLayoutConstraint.activate([
-            pageView.topAnchor.constraint(equalTo: view.topAnchor),
-            pageView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            pageView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            pageView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        ])
-    }
-}
-
-final class CurlPageReader: UIPageViewController, PageReaderContainer, UIPageViewControllerDataSource, UIPageViewControllerDelegate {
-    var pages: [String] = []
-    let config: ReaderConfig
-    var currentIndex: Int = 0
-    var onPageChanged: ((Int) -> Void)?
-    var reviewEnabled: Bool = false
-    var onReviewTap: ((Int) -> Void)?
-    var reviewCounts: [Int: Int] = [:]
-    var inlineReviewMarkers: [InlineReviewMarker] = []
-    var onInlineReviewTap: ((Int) -> Void)?
-
-    init(pages: [String], config: ReaderConfig, initialIndex: Int) {
-        self.pages = pages
-        self.config = config
-        self.currentIndex = initialIndex
-        super.init(transitionStyle: .pageCurl, navigationOrientation: .horizontal, options: nil)
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        dataSource = self
-        delegate = self
-        isDoubleSided = false
-        view.backgroundColor = UIColor(config.currentTheme.background)
-        if !pages.isEmpty {
-            let initial = min(currentIndex, pages.count - 1)
-            setViewControllers([makeVC(at: initial)], direction: .forward, animated: false)
-            currentIndex = initial
-        }
-    }
-
-    func refreshAppearance() {
-        viewControllers?.compactMap { $0 as? IndexedPageViewController }
-            .forEach { $0.pageView.refreshAppearance() }
-    }
-
-    func updatePages(_ newPages: [String], keepIndex: Int) {
-        pages = newPages
-        let safeIndex = min(max(keepIndex, 0), max(newPages.count - 1, 0))
-        currentIndex = safeIndex
-        if !newPages.isEmpty {
-            setViewControllers([makeVC(at: safeIndex)], direction: .forward, animated: false)
-        }
-    }
-
-    func goToPage(_ index: Int, animated: Bool) {
-        guard index >= 0, index < pages.count, index != currentIndex else { return }
-        let direction: UIPageViewController.NavigationDirection = index > currentIndex ? .forward : .reverse
-        setViewControllers([makeVC(at: index)], direction: direction, animated: animated) { [weak self] _ in
-            self?.currentIndex = index
-            self?.onPageChanged?(index)
-        }
-    }
-
-    private func makeVC(at index: Int) -> UIViewController {
-        guard index >= 0, index < pages.count else {
-            return UIViewController()
-        }
-        let pageView = PageContentView(text: pages[index], config: config)
-        pageView.reviewEnabled = reviewEnabled
-        pageView.onReviewTap = onReviewTap
-        pageView.reviewCounts = reviewCounts
-        pageView.inlineReviewMarkers = inlineReviewMarkers
-        pageView.onInlineReviewTap = onInlineReviewTap
-        return IndexedPageViewController(index: index, pageView: pageView)
-    }
-
-    func pageViewController(_ pageViewController: UIPageViewController, viewControllerBefore viewController: UIViewController) -> UIViewController? {
-        guard let indexed = viewController as? IndexedPageViewController else { return nil }
-        let index = indexed.pageIndex - 1
-        return index >= 0 ? makeVC(at: index) : nil
-    }
-
-    func pageViewController(_ pageViewController: UIPageViewController, viewControllerAfter viewController: UIViewController) -> UIViewController? {
-        guard let indexed = viewController as? IndexedPageViewController else { return nil }
-        let index = indexed.pageIndex + 1
-        return index < pages.count ? makeVC(at: index) : nil
-    }
-
-    func pageViewController(_ pageViewController: UIPageViewController, didFinishAnimating finished: Bool, previousViewControllers: [UIViewController], transitionCompleted completed: Bool) {
-        guard completed,
-              let indexed = pageViewController.viewControllers?.first as? IndexedPageViewController else { return }
-        currentIndex = indexed.pageIndex
-        onPageChanged?(indexed.pageIndex)
-    }
-}
-
-// MARK: - 垂直滚动翻页
-
-final class VerticalScrollReader: UIViewController, PageReaderContainer, UIScrollViewDelegate {
+final class FreeScrollReader: UIViewController, PageReaderContainer, UIScrollViewDelegate {
     var pages: [String] = []
     let config: ReaderConfig
     var currentIndex: Int = 0
@@ -852,8 +236,6 @@ final class VerticalScrollReader: UIViewController, PageReaderContainer, UIScrol
         let size = scrollView.bounds.size
         guard size.width > 0, size.height > 0, !pages.isEmpty else { return }
 
-        // 只在首次布局或屏幕尺寸变化时校准位置。不要在每次布局时
-        // 重置 contentOffset，否则滚动中的页面会被自动拉回，形成跳动。
         if needsInitialOffset || lastBoundsSize != size {
             let targetIndex = pendingAnimatedIndex ?? currentIndex
             let safeIndex = min(max(targetIndex, 0), pages.count - 1)
@@ -869,8 +251,7 @@ final class VerticalScrollReader: UIViewController, PageReaderContainer, UIScrol
     private func setupScrollView() {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.delegate = self
-        // 自由滚动：关闭分页吸附，松手后保留用户实际拖拽位置。
-        // bounces=false 防止滚动链和边界回弹把正文位置拉回。
+        // 自由连续滚动：关闭分页吸附，松手后保留用户实际拖拽位置。
         scrollView.isPagingEnabled = false
         scrollView.decelerationRate = .normal
         scrollView.isDirectionalLockEnabled = true
@@ -881,27 +262,14 @@ final class VerticalScrollReader: UIViewController, PageReaderContainer, UIScrol
         scrollView.alwaysBounceVertical = false
         scrollView.alwaysBounceHorizontal = false
         scrollView.scrollsToTop = false
-        // 对应网页阅读器的 overflow-anchor: none / overscroll-behavior-y: contain：
-        // 禁止滚动链和自动锚定把正文位置向上拉回。
-        scrollView.contentInset = UIEdgeInsets(
-            top: 0,
-            left: 0,
-            bottom: bottomContentPadding,
-            right: 0
-        )
-        scrollView.verticalScrollIndicatorInsets = UIEdgeInsets(
-            top: 0,
-            left: 0,
-            bottom: bottomContentPadding,
-            right: 0
-        )
+        scrollView.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: bottomContentPadding, right: 0)
+        scrollView.verticalScrollIndicatorInsets = UIEdgeInsets(top: 0, left: 0, bottom: bottomContentPadding, right: 0)
         scrollView.contentInsetAdjustmentBehavior = .never
 
         stackView.translatesAutoresizingMaskIntoConstraints = false
         stackView.axis = .vertical
         stackView.spacing = 0
         stackView.alignment = .fill
-        // 页面有明确的高度约束，使用 fill 避免 fillEqually 造成约束冲突。
         stackView.distribution = .fill
 
         view.addSubview(scrollView)
@@ -929,11 +297,14 @@ final class VerticalScrollReader: UIViewController, PageReaderContainer, UIScrol
 
         for text in pages {
             let pageView = PageContentView(text: text, config: config)
-            pageView.reviewEnabled = reviewEnabled
-            pageView.onReviewTap = onReviewTap
-            pageView.reviewCounts = reviewCounts
-            pageView.inlineReviewMarkers = inlineReviewMarkers
-            pageView.onInlineReviewTap = onInlineReviewTap
+            configureReaderPage(
+                pageView,
+                reviewEnabled: reviewEnabled,
+                onReviewTap: onReviewTap,
+                reviewCounts: reviewCounts,
+                inlineReviewMarkers: inlineReviewMarkers,
+                onInlineReviewTap: onInlineReviewTap
+            )
             pageView.translatesAutoresizingMaskIntoConstraints = false
             stackView.addArrangedSubview(pageView)
             pageView.heightAnchor.constraint(equalTo: scrollView.heightAnchor).isActive = true
@@ -978,8 +349,6 @@ final class VerticalScrollReader: UIViewController, PageReaderContainer, UIScrol
         let targetY = pageOffset(for: index)
         guard abs(scrollView.contentOffset.y - targetY) > 1 else { return }
 
-        // 向下翻页始终增加 contentOffset.y；不用负方向或依赖锚点修正，
-        // 避免正文在动画过程中向上跳动。
         pendingAnimatedIndex = animated ? index : nil
         scrollView.setContentOffset(CGPoint(x: 0, y: targetY), animated: animated)
         if !animated {
@@ -1000,10 +369,6 @@ final class VerticalScrollReader: UIViewController, PageReaderContainer, UIScrol
         if !decelerate { notifyCurrentPage() }
     }
 
-    func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        // 只在自然滚动结束时通知外部，避免拖动过程中连续触发 SwiftUI 重绘。
-    }
-
     private func pageOffset(for index: Int) -> CGFloat {
         CGFloat(index) * scrollView.bounds.height
     }
@@ -1021,9 +386,154 @@ final class VerticalScrollReader: UIViewController, PageReaderContainer, UIScrol
     }
 }
 
-// MARK: - 无动画翻页
+// MARK: - UIPageViewController 页面包装
 
-final class NonePageReader: UIViewController, PageReaderContainer, UIGestureRecognizerDelegate {
+private final class IndexedPageViewController: UIViewController {
+    let pageIndex: Int
+    let pageView: PageContentView
+
+    init(index: Int, pageView: PageContentView) {
+        self.pageIndex = index
+        self.pageView = pageView
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = UIColor(pageView.config.currentTheme.background)
+        pageView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(pageView)
+        NSLayoutConstraint.activate([
+            pageView.topAnchor.constraint(equalTo: view.topAnchor),
+            pageView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            pageView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            pageView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+    }
+}
+
+// MARK: - 2/3. 原生平移滑动与书本卷曲
+
+final class NativePageReader: UIPageViewController, PageReaderContainer, UIPageViewControllerDataSource, UIPageViewControllerDelegate {
+    var pages: [String] = []
+    let config: ReaderConfig
+    var currentIndex: Int = 0
+    var onPageChanged: ((Int) -> Void)?
+    var reviewEnabled: Bool = false
+    var onReviewTap: ((Int) -> Void)?
+    var reviewCounts: [Int: Int] = [:]
+    var inlineReviewMarkers: [InlineReviewMarker] = []
+    var onInlineReviewTap: ((Int) -> Void)?
+
+    init(
+        pages: [String],
+        config: ReaderConfig,
+        initialIndex: Int,
+        transitionStyle: UIPageViewController.TransitionStyle,
+        doubleSided: Bool
+    ) {
+        self.pages = pages
+        self.config = config
+        self.currentIndex = initialIndex
+        super.init(transitionStyle: transitionStyle, navigationOrientation: .horizontal, options: nil)
+        isDoubleSided = doubleSided
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        dataSource = self
+        delegate = self
+        view.backgroundColor = UIColor(config.currentTheme.background)
+        if !pages.isEmpty {
+            let initial = min(max(currentIndex, 0), pages.count - 1)
+            setViewControllers([makeViewController(at: initial)], direction: .forward, animated: false)
+            currentIndex = initial
+        }
+    }
+
+    func refreshAppearance() {
+        viewControllers?.compactMap { $0 as? IndexedPageViewController }
+            .forEach { $0.pageView.refreshAppearance() }
+    }
+
+    func updatePages(_ newPages: [String], keepIndex: Int) {
+        pages = newPages
+        let safeIndex = min(max(keepIndex, 0), max(newPages.count - 1, 0))
+        currentIndex = safeIndex
+        if !newPages.isEmpty {
+            setViewControllers([makeViewController(at: safeIndex)], direction: .forward, animated: false)
+        }
+    }
+
+    func goToPage(_ index: Int, animated: Bool) {
+        guard index >= 0, index < pages.count, index != currentIndex else { return }
+        let direction: UIPageViewController.NavigationDirection = index > currentIndex ? .forward : .reverse
+        setViewControllers(
+            [makeViewController(at: index)],
+            direction: direction,
+            animated: animated
+        ) { [weak self] _ in
+            self?.finishTransition(to: index)
+        }
+    }
+
+    private func makeViewController(at index: Int) -> UIViewController {
+        guard index >= 0, index < pages.count else { return UIViewController() }
+        let pageView = PageContentView(text: pages[index], config: config)
+        configureReaderPage(
+            pageView,
+            reviewEnabled: reviewEnabled,
+            onReviewTap: onReviewTap,
+            reviewCounts: reviewCounts,
+            inlineReviewMarkers: inlineReviewMarkers,
+            onInlineReviewTap: onInlineReviewTap
+        )
+        return IndexedPageViewController(index: index, pageView: pageView)
+    }
+
+    private func finishTransition(to index: Int) {
+        guard currentIndex != index else { return }
+        currentIndex = index
+        onPageChanged?(index)
+    }
+
+    func pageViewController(
+        _ pageViewController: UIPageViewController,
+        viewControllerBefore viewController: UIViewController
+    ) -> UIViewController? {
+        guard let indexed = viewController as? IndexedPageViewController else { return nil }
+        let index = indexed.pageIndex - 1
+        return index >= 0 ? makeViewController(at: index) : nil
+    }
+
+    func pageViewController(
+        _ pageViewController: UIPageViewController,
+        viewControllerAfter viewController: UIViewController
+    ) -> UIViewController? {
+        guard let indexed = viewController as? IndexedPageViewController else { return nil }
+        let index = indexed.pageIndex + 1
+        return index < pages.count ? makeViewController(at: index) : nil
+    }
+
+    func pageViewController(
+        _ pageViewController: UIPageViewController,
+        didFinishAnimating finished: Bool,
+        previousViewControllers: [UIViewController],
+        transitionCompleted completed: Bool
+    ) {
+        guard completed,
+              let indexed = pageViewController.viewControllers?.first as? IndexedPageViewController else { return }
+        finishTransition(to: indexed.pageIndex)
+    }
+}
+
+// MARK: - 4. 快速淡入淡出（UIKit CATransition）
+
+final class FadePageReader: UIViewController, PageReaderContainer, UIGestureRecognizerDelegate {
     var pages: [String] = []
     let config: ReaderConfig
     var currentIndex: Int = 0
@@ -1035,6 +545,7 @@ final class NonePageReader: UIViewController, PageReaderContainer, UIGestureReco
     var onInlineReviewTap: ((Int) -> Void)?
 
     private var currentPageView: PageContentView?
+    private var isTransitioning = false
 
     init(pages: [String], config: ReaderConfig, initialIndex: Int) {
         self.pages = pages
@@ -1047,83 +558,88 @@ final class NonePageReader: UIViewController, PageReaderContainer, UIGestureReco
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .clear
-        installNoAnimationGestures()
+        view.backgroundColor = UIColor(config.currentTheme.background)
+        installPanGesture()
         if !pages.isEmpty {
-            showPage(at: min(currentIndex, pages.count - 1))
+            showPage(at: min(max(currentIndex, 0), pages.count - 1), animated: false)
         }
     }
 
-    private func installNoAnimationGestures() {
-        let pan = UIPanGestureRecognizer(target: self, action: #selector(handleNoAnimationPan(_:)))
-        pan.delegate = self
+    private func installPanGesture() {
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        pan.maximumNumberOfTouches = 1
         pan.cancelsTouchesInView = false
+        pan.delegate = self
         view.addGestureRecognizer(pan)
     }
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
         let velocity = pan.velocity(in: view)
+        // 每种模式只有自己的手势；这里只响应明显的水平滑动。
         return abs(velocity.x) > abs(velocity.y) * 1.15
     }
 
-    @objc private func handleNoAnimationPan(_ gesture: UIPanGestureRecognizer) {
+    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
         guard gesture.state == .ended else { return }
         let velocity = gesture.velocity(in: view).x
         let translation = gesture.translation(in: view).x
         guard abs(velocity) > 250 || abs(translation) > 50 else { return }
         if velocity < 0 || translation < 0 {
-            goToPage(currentIndex + 1, animated: false)
+            goToPage(currentIndex + 1, animated: true)
         } else {
-            goToPage(currentIndex - 1, animated: false)
+            goToPage(currentIndex - 1, animated: true)
         }
     }
 
-    private func showPage(at index: Int) {
-        guard index >= 0, index < pages.count else { return }
+    private func makePage(at index: Int) -> PageContentView {
         let pageView = PageContentView(text: pages[index], config: config)
-        pageView.reviewEnabled = reviewEnabled
-        pageView.onReviewTap = onReviewTap
-        pageView.reviewCounts = reviewCounts
-        pageView.inlineReviewMarkers = inlineReviewMarkers
-        pageView.onInlineReviewTap = onInlineReviewTap
-        pageView.translatesAutoresizingMaskIntoConstraints = false
+        configureReaderPage(
+            pageView,
+            reviewEnabled: reviewEnabled,
+            onReviewTap: onReviewTap,
+            reviewCounts: reviewCounts,
+            inlineReviewMarkers: inlineReviewMarkers,
+            onInlineReviewTap: onInlineReviewTap
+        )
+        pageView.frame = view.bounds
+        pageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        return pageView
+    }
 
-        // “无动画”不是硬切：用 0.14s 快速交叉淡入淡出，
-        // 视觉上仍接近 iOS 的轻量过渡，但不会拖慢连续翻页。
-        if let old = currentPageView, view.bounds.width > 1, view.bounds.height > 1 {
-            pageView.alpha = 0
-            view.addSubview(pageView)
-            NSLayoutConstraint.activate([
-                pageView.topAnchor.constraint(equalTo: view.topAnchor),
-                pageView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-                pageView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-                pageView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-            ])
-            currentPageView = pageView
+    private func showPage(at index: Int, animated: Bool) {
+        guard index >= 0, index < pages.count else { return }
+        let next = makePage(at: index)
+        let old = currentPageView
+
+        guard animated, old != nil, view.bounds.width > 1, view.bounds.height > 1, !isTransitioning else {
+            old?.removeFromSuperview()
+            view.addSubview(next)
+            currentPageView = next
             currentIndex = index
-            UIView.animate(
-                withDuration: 0.14,
-                delay: 0,
-                options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
-            ) {
-                pageView.alpha = 1
-                old.alpha = 0
-            } completion: { _ in
-                old.removeFromSuperview()
-                old.alpha = 1
-            }
-        } else {
-            view.addSubview(pageView)
-            NSLayoutConstraint.activate([
-                pageView.topAnchor.constraint(equalTo: view.topAnchor),
-                pageView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-                pageView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-                pageView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-            ])
-            currentPageView = pageView
-            currentIndex = index
+            isTransitioning = false
+            return
         }
+
+        isTransitioning = true
+        let transition = CATransition()
+        transition.type = CATransitionType.fade
+        transition.duration = 0.25
+        transition.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        transition.fillMode = .both
+        transition.isRemovedOnCompletion = true
+
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in
+            old?.removeFromSuperview()
+            self?.currentPageView = next
+            self?.currentIndex = index
+            self?.isTransitioning = false
+            self?.onPageChanged?(index)
+        }
+        view.layer.add(transition, forKey: "reader.pageFade")
+        view.addSubview(next)
+        CATransaction.commit()
     }
 
     func refreshAppearance() {
@@ -1132,14 +648,19 @@ final class NonePageReader: UIViewController, PageReaderContainer, UIGestureReco
 
     func updatePages(_ newPages: [String], keepIndex: Int) {
         pages = newPages
-        let safeIndex = min(max(keepIndex, 0), max(newPages.count - 1, 0))
-        showPage(at: safeIndex)
+        guard !newPages.isEmpty else {
+            currentPageView?.removeFromSuperview()
+            currentPageView = nil
+            currentIndex = 0
+            return
+        }
+        let safeIndex = min(max(keepIndex, 0), newPages.count - 1)
+        showPage(at: safeIndex, animated: false)
     }
 
     func goToPage(_ index: Int, animated: Bool) {
         guard index >= 0, index < pages.count, index != currentIndex else { return }
-        showPage(at: index)
-        onPageChanged?(index)
+        showPage(at: index, animated: animated)
     }
 }
 
@@ -1178,8 +699,7 @@ struct PageReaderViewRepresentable: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
         guard let reader = uiViewController as? PageReaderContainer else { return }
 
-        // 每个页面自己持有背景；配置变化时同步刷新所有正在显示的页面，
-        // 保证覆盖/仿真翻页使用的 transform 层始终是完整的“背景+文字”页面。
+        // 每个页面自己持有背景；配置变化时同步刷新所有正在显示的页面。
         reader.refreshAppearance()
 
         // 先更新回调和页面配置，再重载页面；否则 updatePages 期间发生的页码变化
@@ -1200,33 +720,32 @@ struct PageReaderViewRepresentable: UIViewControllerRepresentable {
         if reader.pages != pages {
             reader.updatePages(pages, keepIndex: currentIndex)
         } else if reader.currentIndex != currentIndex {
-            // 外部状态变化（底部按钮、进度滑块、自动阅读）必须驱动真实的
-            // UIKit 容器，否则只会改变计数而不会播放翻页动画。
             reader.goToPage(currentIndex, animated: true)
         }
     }
 
     private func makeReader(for anim: PageAnimationType) -> PageReaderContainer {
         switch anim {
-        case .slide:
-            return HorizontalSlideReader(pages: pages, config: config, initialIndex: currentIndex)
-        case .cover:
-            return CoverPageReader(pages: pages, config: config, initialIndex: currentIndex)
-        case .simulation:
-            return CurlPageReader(pages: pages, config: config, initialIndex: currentIndex)
-        case .scroll:
-            return VerticalScrollReader(pages: pages, config: config, initialIndex: currentIndex)
-        case .none:
-            return NonePageReader(pages: pages, config: config, initialIndex: currentIndex)
+        case .freeScroll:
+            return FreeScrollReader(pages: pages, config: config, initialIndex: currentIndex)
+        case .pageScroll:
+            return NativePageReader(
+                pages: pages,
+                config: config,
+                initialIndex: currentIndex,
+                transitionStyle: .scroll,
+                doubleSided: false
+            )
+        case .pageCurl:
+            return NativePageReader(
+                pages: pages,
+                config: config,
+                initialIndex: currentIndex,
+                transitionStyle: .pageCurl,
+                doubleSided: true
+            )
+        case .fade:
+            return FadePageReader(pages: pages, config: config, initialIndex: currentIndex)
         }
-    }
-}
-
-// MARK: - Array safe subscript
-
-private extension Array {
-    subscript(safe index: Int) -> Element? {
-        guard index >= 0, index < count else { return nil }
-        return self[index]
     }
 }
