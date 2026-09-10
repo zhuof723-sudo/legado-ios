@@ -42,7 +42,7 @@ struct ReviewListView: View {
         }
         .background(Color(.systemBackground))
         .cornerRadius(16, corners: [.topLeft, .topRight])
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.fraction(0.5)])
         .presentationDragIndicator(.visible)
         .onAppear {
             loadReviews()

@@ -7,18 +7,31 @@ struct BrowserDestination: Identifiable {
     let url: URL
     let title: String
     let injectedJavaScript: String?
+    /// 段评页面固定在半屏展示，正文保留在上半屏。
+    let isReview: Bool
 
-    init(url: URL, title: String? = nil, injectedJavaScript: String? = nil) {
+    init(
+        url: URL,
+        title: String? = nil,
+        injectedJavaScript: String? = nil,
+        isReview: Bool = false
+    ) {
         self.url = url
         self.title = title?.isEmpty == false ? title! : (url.host ?? "浏览器")
         self.injectedJavaScript = injectedJavaScript
+        self.isReview = isReview
     }
 
-    init?(urlString: String, title: String? = nil, injectedJavaScript: String? = nil) {
+    init?(
+        urlString: String,
+        title: String? = nil,
+        injectedJavaScript: String? = nil,
+        isReview: Bool = false
+    ) {
         guard let url = URL(string: urlString),
               let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https" || scheme == "data" else { return nil }
-        self.init(url: url, title: title, injectedJavaScript: injectedJavaScript)
+        self.init(url: url, title: title, injectedJavaScript: injectedJavaScript, isReview: isReview)
     }
 }
 

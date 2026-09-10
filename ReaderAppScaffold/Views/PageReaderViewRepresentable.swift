@@ -406,6 +406,7 @@ final class CoverPageReader: UIViewController, PageReaderContainer, UIGestureRec
     private var interactiveOldPage: PageContentView?
     private var interactiveNextPage: PageContentView?
     private var interactiveDirection = 0
+    private var interactiveTargetIndex = 0
 
     init(pages: [String], config: ReaderConfig, initialIndex: Int) {
         self.pages = pages
@@ -463,66 +464,127 @@ final class CoverPageReader: UIViewController, PageReaderContainer, UIGestureRec
                 gesture.isEnabled = true
                 return
             }
-            let next = makePage(at: target)
-            let old = currentPageView
-            interactiveOldPage = old
-            interactiveNextPage = next
+
+            interactiveOldPage = currentPageView
+            interactiveNextPage = makePage(at: target)
             interactiveDirection = direction
+            interactiveTargetIndex = target
             isTransitioning = true
-            // 下一页先铺在底层，当前页向左右滑走，形成截图中的“左右覆盖”效果。
-            next.frame = view.bounds
-            if let old {
-                old.layer.shadowColor = UIColor.black.cgColor
-                old.layer.shadowOpacity = 0.22
-                old.layer.shadowRadius = 14
-                old.layer.shadowOffset = CGSize(width: 0, height: 0)
-                view.insertSubview(next, belowSubview: old)
+
+            // UINavigationController push/pop 的层级关系：
+            // 前进时新页在最上层；后退时旧页在最上层滑出。
+            if direction > 0 {
+                view.addSubview(interactiveNextPage!)
+            } else if let old = interactiveOldPage {
+                view.insertSubview(interactiveNextPage!, belowSubview: old)
             } else {
-                view.addSubview(next)
+                view.addSubview(interactiveNextPage!)
             }
+            applyInteractiveProgress(0)
 
         case .changed:
-            guard let old = interactiveOldPage, interactiveNextPage != nil else { return }
-            let offset = translation.x
-            old.frame = view.bounds.offsetBy(dx: offset, dy: 0)
-            old.layer.shadowOpacity = 0.22
+            guard interactiveOldPage != nil, interactiveNextPage != nil else { return }
+            let progress: CGFloat
+            if interactiveDirection > 0 {
+                progress = min(max(-translation.x / width, 0), 1)
+            } else {
+                progress = min(max(translation.x / width, 0), 1)
+            }
+            applyInteractiveProgress(progress)
 
         case .ended, .cancelled, .failed:
-            guard let old = interactiveOldPage, let next = interactiveNextPage else {
+            guard let old = interactiveOldPage,
+                  let next = interactiveNextPage else {
                 isTransitioning = false
                 return
             }
-            let progress = min(max((interactiveDirection > 0 ? -translation.x : translation.x) / width, 0), 1)
+            let progress: CGFloat
+            if interactiveDirection > 0 {
+                progress = min(max(-translation.x / width, 0), 1)
+            } else {
+                progress = min(max(translation.x / width, 0), 1)
+            }
             let finish = progress > 0.28 || abs(gesture.velocity(in: view).x) > 650
-            let direction = interactiveDirection
-            let target = currentIndex + direction
-            // 下一页已经在旧页下面；左右滑走的是当前页。
-            let finalX = finish ? (direction > 0 ? -width : width) : 0
-            UIView.animate(withDuration: 0.22, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
-                old.frame = self.view.bounds.offsetBy(dx: finalX, dy: 0)
-                old.layer.shadowOpacity = finish ? 0 : 0.22
-            } completion: { [weak self, weak old, weak next] _ in
+            completeInteractivePan(
+                progress: progress,
+                finish: finish,
+                cancelled: gesture.state != .ended
+            )
+
+        default:
+            break
+        }
+    }
+
+    /// 手势进度映射到 UINavigationController push/pop 的位移：
+    /// 前进：新页从右侧完整滑入，旧页向左视差移动 30%。
+    /// 后退：旧页滑回右侧， underneath 页从 -30% 回到原位。
+    private func applyInteractiveProgress(_ progress: CGFloat) {
+        guard let old = interactiveOldPage,
+              let next = interactiveNextPage else { return }
+        let width = max(view.bounds.width, 1)
+        let parallax = width * 0.30
+
+        if interactiveDirection > 0 {
+            next.frame = view.bounds.offsetBy(dx: width * (1 - progress), dy: 0)
+            old.frame = view.bounds.offsetBy(dx: -parallax * progress, dy: 0)
+            next.layer.shadowOpacity = CGFloat(0.16 * progress)
+        } else {
+            next.frame = view.bounds.offsetBy(dx: -parallax * progress, dy: 0)
+            old.frame = view.bounds.offsetBy(dx: width * progress, dy: 0)
+            old.layer.shadowOpacity = CGFloat(0.16 * progress)
+        }
+    }
+
+    private func completeInteractivePan(progress: CGFloat, finish: Bool, cancelled: Bool) {
+        guard let old = interactiveOldPage,
+              let next = interactiveNextPage else {
+            isTransitioning = false
+            return
+        }
+        let shouldFinish = finish && !cancelled
+        let target = interactiveTargetIndex
+
+        if shouldFinish {
+            applyInteractiveProgress(1)
+            let animationDuration = progress < 0.08 ? 0.28 : 0.18
+            UIView.animate(
+                withDuration: animationDuration,
+                delay: 0,
+                options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
+            ) {
+                self.applyInteractiveProgress(1)
+            } completion: { [weak self] _ in
                 guard let self else { return }
-                if finish {
-                    old?.removeFromSuperview()
-                    next?.frame = self.view.bounds
-                    self.currentPageView = next
-                    self.currentIndex = target
-                    self.onPageChanged?(target)
-                } else {
-                    next?.removeFromSuperview()
-                    old?.frame = self.view.bounds
-                    old?.layer.shadowOpacity = 0
-                    self.currentPageView = old
-                }
+                old.removeFromSuperview()
+                next.frame = self.view.bounds
+                next.layer.shadowOpacity = 0
+                self.currentPageView = next
+                self.currentIndex = target
+                self.onPageChanged?(target)
                 self.interactiveOldPage = nil
                 self.interactiveNextPage = nil
                 self.interactiveDirection = 0
                 self.isTransitioning = false
             }
-
-        default:
-            break
+        } else {
+            UIView.animate(
+                withDuration: 0.20,
+                delay: 0,
+                options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
+            ) {
+                self.applyInteractiveProgress(0)
+            } completion: { [weak self] _ in
+                guard let self else { return }
+                next.removeFromSuperview()
+                old.frame = self.view.bounds
+                old.layer.shadowOpacity = 0
+                self.currentPageView = old
+                self.interactiveOldPage = nil
+                self.interactiveNextPage = nil
+                self.interactiveDirection = 0
+                self.isTransitioning = false
+            }
         }
     }
 
@@ -535,6 +597,10 @@ final class CoverPageReader: UIViewController, PageReaderContainer, UIGestureRec
         page.onInlineReviewTap = onInlineReviewTap
         page.frame = view.bounds
         page.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        page.layer.shadowColor = UIColor.black.cgColor
+        page.layer.shadowRadius = 12
+        page.layer.shadowOffset = .zero
+        page.layer.shadowOpacity = 0
         return page
     }
 
@@ -555,40 +621,50 @@ final class CoverPageReader: UIViewController, PageReaderContainer, UIGestureRec
         }
 
         isTransitioning = true
-        // 非交互式覆盖：下一页铺在底层，当前页向左右滑出，
-        // 与手势拖拽及参考图中的左右覆盖效果保持一致。
-        next.frame = view.bounds
-        if let old {
-            old.layer.shadowColor = UIColor.black.cgColor
-            old.layer.shadowOpacity = 0.22
-            old.layer.shadowRadius = 14
-            old.layer.shadowOffset = .zero
-            view.insertSubview(next, belowSubview: old)
-        } else {
+        // 与 UINavigationController push/pop 一致：
+        // 前进是上层页从右侧进入 + 旧页 30% 视差；后退方向相反。
+        if direction >= 0 {
+            next.frame = view.bounds.offsetBy(dx: width, dy: 0)
             view.addSubview(next)
-        }
-        UIView.animate(
-            withDuration: 0.30,
-            delay: 0,
-            options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
-        ) {
-            old?.frame = self.view.bounds.offsetBy(dx: direction > 0 ? -width : width, dy: 0)
-            old?.layer.shadowOpacity = 0
-        } completion: { [weak self, weak old, weak next] finished in
-            guard let self, let next else { return }
-            guard finished else {
-                next.removeFromSuperview()
-                old?.frame = self.view.bounds
-                old?.layer.shadowOpacity = 0
+            next.layer.shadowOpacity = 0.16
+            UIView.animate(
+                withDuration: 0.32,
+                delay: 0,
+                options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
+            ) {
+                next.frame = self.view.bounds
+                old?.frame = self.view.bounds.offsetBy(dx: -width * 0.30, dy: 0)
+            } completion: { [weak self] _ in
+                guard let self else { return }
+                old?.removeFromSuperview()
+                next.frame = self.view.bounds
+                next.layer.shadowOpacity = 0
+                self.currentPageView = next
+                self.currentIndex = index
                 self.isTransitioning = false
-                return
+                self.onPageChanged?(index)
             }
-            old?.removeFromSuperview()
-            next.frame = self.view.bounds
-            self.currentPageView = next
-            self.currentIndex = index
-            self.isTransitioning = false
-            self.onPageChanged?(index)
+        } else {
+            next.frame = view.bounds.offsetBy(dx: -width * 0.30, dy: 0)
+            view.insertSubview(next, belowSubview: old!)
+            old?.layer.shadowOpacity = 0.16
+            UIView.animate(
+                withDuration: 0.32,
+                delay: 0,
+                options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
+            ) {
+                next.frame = self.view.bounds
+                old?.frame = self.view.bounds.offsetBy(dx: width, dy: 0)
+            } completion: { [weak self] _ in
+                guard let self else { return }
+                old?.removeFromSuperview()
+                next.layer.shadowOpacity = 0
+                next.frame = self.view.bounds
+                self.currentPageView = next
+                self.currentIndex = index
+                self.isTransitioning = false
+                self.onPageChanged?(index)
+            }
         }
     }
 
@@ -670,7 +746,7 @@ final class CurlPageReader: UIPageViewController, PageReaderContainer, UIPageVie
         dataSource = self
         delegate = self
         isDoubleSided = false
-        view.backgroundColor = .clear
+        view.backgroundColor = UIColor(config.currentTheme.background)
         if !pages.isEmpty {
             let initial = min(currentIndex, pages.count - 1)
             setViewControllers([makeVC(at: initial)], direction: .forward, animated: false)
@@ -1004,24 +1080,50 @@ final class NonePageReader: UIViewController, PageReaderContainer, UIGestureReco
     }
 
     private func showPage(at index: Int) {
-        currentPageView?.removeFromSuperview()
-
-        let pageView = PageContentView(text: pages[safe: index] ?? "", config: config)
+        guard index >= 0, index < pages.count else { return }
+        let pageView = PageContentView(text: pages[index], config: config)
         pageView.reviewEnabled = reviewEnabled
         pageView.onReviewTap = onReviewTap
         pageView.reviewCounts = reviewCounts
         pageView.inlineReviewMarkers = inlineReviewMarkers
         pageView.onInlineReviewTap = onInlineReviewTap
         pageView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(pageView)
-        NSLayoutConstraint.activate([
-            pageView.topAnchor.constraint(equalTo: view.topAnchor),
-            pageView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            pageView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            pageView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        ])
-        currentPageView = pageView
-        currentIndex = index
+
+        // “无动画”不是硬切：用 0.14s 快速交叉淡入淡出，
+        // 视觉上仍接近 iOS 的轻量过渡，但不会拖慢连续翻页。
+        if let old = currentPageView, view.bounds.width > 1, view.bounds.height > 1 {
+            pageView.alpha = 0
+            view.addSubview(pageView)
+            NSLayoutConstraint.activate([
+                pageView.topAnchor.constraint(equalTo: view.topAnchor),
+                pageView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                pageView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                pageView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            ])
+            currentPageView = pageView
+            currentIndex = index
+            UIView.animate(
+                withDuration: 0.14,
+                delay: 0,
+                options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
+            ) {
+                pageView.alpha = 1
+                old.alpha = 0
+            } completion: { _ in
+                old.removeFromSuperview()
+                old.alpha = 1
+            }
+        } else {
+            view.addSubview(pageView)
+            NSLayoutConstraint.activate([
+                pageView.topAnchor.constraint(equalTo: view.topAnchor),
+                pageView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                pageView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                pageView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            ])
+            currentPageView = pageView
+            currentIndex = index
+        }
     }
 
     func refreshAppearance() {

@@ -196,37 +196,55 @@ public enum ReaderContentFormatter {
     }
 
     private static func attributeValue(_ name: String, in tag: String) -> String? {
-        let lowerTag = tag.lowercased()
+        // 全部使用 UTF-16 索引解析。不能在 lowercased(tag) 里拿 String.Index
+        // 再访问原始 tag：某些字符大小写转换后长度会变化，会触发越界崩溃。
+        let ns = tag as NSString
         let lowerName = name.lowercased()
-        guard let nameRange = lowerTag.range(of: lowerName) else { return nil }
-        var index = nameRange.upperBound
-        while index < lowerTag.endIndex,
-              lowerTag[index].isWhitespace { index = lowerTag.index(after: index) }
-        guard index < lowerTag.endIndex, lowerTag[index] == "=" else { return nil }
-        index = lowerTag.index(after: index)
-        while index < lowerTag.endIndex,
-              lowerTag[index].isWhitespace { index = lowerTag.index(after: index) }
-        guard index < tag.endIndex else { return nil }
-        let quote = tag[index]
-        guard quote == "\"" || quote == "'" else { return nil }
-        index = tag.index(after: index)
+        var searchStart = 0
+        while searchStart < ns.length {
+            let searchRange = NSRange(location: searchStart, length: ns.length - searchStart)
+            let found = ns.range(of: lowerName, options: [.caseInsensitive], range: searchRange)
+            guard found.location != NSNotFound else { return nil }
 
-        var value = ""
-        var escaped = false
-        while index < tag.endIndex {
-            let character = tag[index]
-            if escaped {
-                value.append(character)
-                escaped = false
-            } else if character == "\\" {
-                value.append(character)
-                escaped = true
-            } else if character == quote {
-                return value
-            } else {
-                value.append(character)
+            var index = found.location + found.length
+            // 只接受“属性名 = 值”的形态，避免命中 URL 内的子串。
+            while index < ns.length {
+                let character = ns.character(at: index)
+                guard character == 0x20 || character == 0x09 else { break }
+                index += 1
             }
-            index = tag.index(after: index)
+            guard index < ns.length, ns.character(at: index) == 0x3D else {
+                searchStart = found.location + max(found.length, 1)
+                continue
+            }
+            index += 1
+            while index < ns.length {
+                let character = ns.character(at: index)
+                guard character == 0x20 || character == 0x09 else { break }
+                index += 1
+            }
+            guard index < ns.length else { return nil }
+
+            let quote = ns.character(at: index)
+            guard quote == 0x22 || quote == 0x27 else {
+                searchStart = found.location + max(found.length, 1)
+                continue
+            }
+            index += 1
+            let valueStart = index
+            while index < ns.length {
+                let character = ns.character(at: index)
+                if character == 0x5C {
+                    // 保留源里的反斜杠语义，跳过被转义的引号。
+                    index += 2
+                    continue
+                }
+                if character == quote {
+                    return ns.substring(with: NSRange(location: valueStart, length: index - valueStart))
+                }
+                index += 1
+            }
+            return nil
         }
         return nil
     }

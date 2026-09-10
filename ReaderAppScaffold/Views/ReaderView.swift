@@ -140,7 +140,13 @@ struct ReaderView: View {
             )
         }
         .sheet(item: $browserDestination) { destination in
-            InAppBrowserView(destination: destination)
+            if destination.isReview {
+                InAppBrowserView(destination: destination)
+                    .presentationDetents([.fraction(0.5)])
+                    .presentationDragIndicator(.visible)
+            } else {
+                InAppBrowserView(destination: destination)
+            }
         }
         .onChange(of: viewModel.currentIndex) { _, _ in
             // 切章后总是从新章第一页开始；只有向前切章时才由
@@ -167,10 +173,10 @@ struct ReaderView: View {
         guard let marker = viewModel.currentReviewMarkers.first(where: { $0.id == markerID }) else { return }
         if marker.action?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
             viewModel.executeInlineReviewAction(markerID: markerID) { url, title in
-                guard let destination = BrowserDestination(urlString: url, title: title) else { return }
+                guard let destination = BrowserDestination(urlString: url, title: title, isReview: true) else { return }
                 DispatchQueue.main.async { browserDestination = destination }
             }
-        } else if let destination = BrowserDestination(urlString: marker.source, title: marker.title) {
+        } else if let destination = BrowserDestination(urlString: marker.source, title: marker.title, isReview: true) {
             browserDestination = destination
         } else {
             selectedReviewURL = marker.source
