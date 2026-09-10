@@ -109,10 +109,13 @@ struct ReaderSettingsPanel: View {
             VStack(spacing: 4) {
                 Image(systemName: anim.icon)
                     .font(.system(size: 16, weight: .medium))
-                Text(anim.name).font(.caption2)
+                Text(anim.name)
+                    .font(.caption2)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
             .foregroundStyle(isActive ? Theme.accent : .primary.opacity(0.6))
-            .frame(width: 56, height: 50)
+            .frame(width: 64, height: 50)
             .glassCard(RoundedRectangle(cornerRadius: 10), interactive: true)
         }
         .buttonStyle(.plain)

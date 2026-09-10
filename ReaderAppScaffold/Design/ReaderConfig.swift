@@ -4,34 +4,36 @@ import UIKit
 // MARK: - 翻页动画类型
 
 enum PageAnimationType: Int, CaseIterable, Identifiable {
-    // 保留旧存储值：0=旧滑动 -> 平移分页；2=旧仿真 -> 卷曲；
-    // 3=旧滚动 -> 自由滚动；4=旧无动画 -> 快速淡入淡出。
-    // 旧的“覆盖”模式已按需求移除，读取到 1 时回退到平移分页。
-    case pageScroll = 0    // UIPageViewController(.scroll)
+    // 存储值约定：0=平移；1=滑动（覆盖式，旧覆盖值重新启用）；
+    // 2=仿真；3=上下滚动；4=无动画（旧“淡入淡出”即占此值，语义回归无动画）。
     case pageCurl = 2      // UIPageViewController(.pageCurl, doubleSided)
-    case freeScroll = 3    // UIScrollView + UITextView 连续滚动
-    case fade = 4          // UIKit CATransition 快速淡入淡出
+    case cover = 1         // 新页从右侧滑入覆盖旧页（跟手）
+    case pageScroll = 0    // UIPageViewController(.scroll)
+    case freeScroll = 3    // UIScrollView 竖向连续滚动
+    case none = 4          // 无动画，瞬时切换
 
     var id: Int { rawValue }
     var name: String {
         switch self {
-        case .freeScroll: return "自由滚动"
-        case .pageScroll: return "平移滑动"
-        case .pageCurl: return "书本仿真"
-        case .fade: return "淡入淡出"
+        case .pageCurl: return "仿真"
+        case .cover: return "滑动"
+        case .pageScroll: return "平移"
+        case .freeScroll: return "上下滚动"
+        case .none: return "无动画"
         }
     }
     var icon: String {
         switch self {
-        case .freeScroll: return "arrow.up.and.down"
-        case .pageScroll: return "rectangle.portrait.and.arrow.right"
         case .pageCurl: return "book.pages"
-        case .fade: return "circle.lefthalf.filled"
+        case .cover: return "rectangle.portrait.righthalf.filled"
+        case .pageScroll: return "rectangle.portrait.and.arrow.right"
+        case .freeScroll: return "arrow.up.and.down"
+        case .none: return "circle.lefthalf.filled"
         }
     }
-    /// 设置面板中的展示顺序。
+    /// 设置面板中的展示顺序：仿真，滑动，平移，上下滚动，无动画。
     static var preferredOrder: [PageAnimationType] {
-        [.freeScroll, .pageScroll, .pageCurl, .fade]
+        [.pageCurl, .cover, .pageScroll, .freeScroll, .none]
     }
 }
 
