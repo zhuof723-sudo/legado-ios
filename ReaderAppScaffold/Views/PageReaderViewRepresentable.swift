@@ -493,8 +493,8 @@ final class CoverPageReader: UIViewController, PageReaderContainer, UIGestureRec
             applyInteractiveProgress(progress)
 
         case .ended, .cancelled, .failed:
-            guard let old = interactiveOldPage,
-                  let next = interactiveNextPage else {
+            guard interactiveOldPage != nil,
+                  interactiveNextPage != nil else {
                 isTransitioning = false
                 return
             }
@@ -528,11 +528,11 @@ final class CoverPageReader: UIViewController, PageReaderContainer, UIGestureRec
         if interactiveDirection > 0 {
             next.frame = view.bounds.offsetBy(dx: width * (1 - progress), dy: 0)
             old.frame = view.bounds.offsetBy(dx: -parallax * progress, dy: 0)
-            next.layer.shadowOpacity = CGFloat(0.16 * progress)
+            next.layer.shadowOpacity = Float(0.16 * progress)
         } else {
             next.frame = view.bounds.offsetBy(dx: -parallax * progress, dy: 0)
             old.frame = view.bounds.offsetBy(dx: width * progress, dy: 0)
-            old.layer.shadowOpacity = CGFloat(0.16 * progress)
+            old.layer.shadowOpacity = Float(0.16 * progress)
         }
     }
 
