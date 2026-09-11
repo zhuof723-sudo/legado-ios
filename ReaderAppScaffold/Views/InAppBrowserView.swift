@@ -96,6 +96,9 @@ final class InAppBrowserModel: NSObject, ObservableObject, WKNavigationDelegate,
 private struct BrowserWebView: UIViewRepresentable {
     let destination: BrowserDestination
     @ObservedObject var model: InAppBrowserModel
+    /// 段评深色页配黑色底：WKWebView 及其 scrollView 的底层颜色，
+    /// 防止网页内容较短或滚动到底时安全区露出白底。
+    var blackBase: Bool = false
 
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
@@ -109,6 +112,11 @@ private struct BrowserWebView: UIViewRepresentable {
         webView.uiDelegate = model
         webView.allowsBackForwardNavigationGestures = true
         webView.scrollView.contentInsetAdjustmentBehavior = .automatic
+        if blackBase {
+            webView.backgroundColor = .black
+            webView.isOpaque = false
+            webView.scrollView.backgroundColor = .black
+        }
         model.attach(webView)
         webView.load(URLRequest(url: destination.url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 30))
         return webView
@@ -132,11 +140,11 @@ struct InAppBrowserView: View {
 
     /// 段评页面直接展示书源网页本身：不叠加应用内导航键，
     /// 关闭使用 sheet 下滑手势；高度由 ReaderView 固定为半屏。
-    /// 段评网页本身是深色主题，sheet 背景跟随设为纯黑，
-    /// 避免底部安全区露出一截白色。
+    /// 段评网页本身是深色主题：WebView 底层与 sheet 表面都刷黑，
+    /// 滚动到底/安全区不再露白。
     private var reviewBrowser: some View {
-        BrowserWebView(destination: destination, model: model)
-            .background(Color(.systemBackground))
+        BrowserWebView(destination: destination, model: model, blackBase: true)
+            .background(Color.black)
             .presentationBackground(Color.black)
     }
 
