@@ -7,7 +7,7 @@ struct BrowserDestination: Identifiable {
     let url: URL
     let title: String
     let injectedJavaScript: String?
-    /// 段评页面可在约 55% 与 90% 可用高度之间拖拽展开，关闭使用 sheet 下滑手势。
+    /// 段评页面默认约占可用高度 65%，向上拖拽可展开至约 90%。
     let isReview: Bool
 
     init(

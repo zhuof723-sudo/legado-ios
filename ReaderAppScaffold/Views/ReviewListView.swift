@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - 评论列表弹窗
 
 /// 段评列表视图，展示某一段的所有评论。
-/// 由外层 sheet 提供 55% / 90% 两个相对高度，视图本身不锁定像素或 detent。
+/// 由外层 sheet 提供 65% / 90% 两个相对高度，视图本身不锁定像素或 detent。
 struct ReviewListView: View {
     let paragraphText: String
     let paragraphIndex: Int
@@ -16,7 +16,7 @@ struct ReviewListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 顶部拖拽条 + 标题
+            // 系统 sheet 顶部自带拖拽条；正文区域只处理内容滚动。
             header
 
             // 段落引用
