@@ -4,7 +4,7 @@ import LegadoRuleEngine
 
 // MARK: - 单页内容视图
 
-final class PageContentView: UIView, UITextViewDelegate {
+final class PageContentView: UIView, UITextViewDelegate, UIGestureRecognizerDelegate {
     let text: String
     let config: ReaderConfig
     /// 是否启用段评按钮
@@ -221,7 +221,7 @@ protocol PageReaderContainer: AnyObject {
     /// 正文内嵌段评图 marker。
     var inlineReviewMarkers: [InlineReviewMarker] { get set }
     /// 点击内嵌段评图。
-    var onInlineReviewTap: ((Int) -> Void)?
+    var onInlineReviewTap: ((Int) -> Void)? { get set }
     /// 点击页面上除段评入口以外的任意位置（收起段评弹层）。
     var onOutsideTap: ((CGPoint) -> Void)? { get set }
     /// 刷新每个独立页面的背景和文字样式。
@@ -232,7 +232,7 @@ protocol PageReaderContainer: AnyObject {
 
 // MARK: - 共用页面构造
 
-private func configureReaderPage(
+func configureReaderPage(
     _ pageView: PageContentView,
     reviewEnabled: Bool,
     onReviewTap: ((Int) -> Void)?,

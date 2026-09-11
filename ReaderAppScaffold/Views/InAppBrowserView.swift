@@ -2,7 +2,7 @@ import SwiftUI
 import WebKit
 import Combine
 
-struct BrowserDestination: Identifiable {
+struct BrowserDestination: Identifiable, Equatable {
     let id = UUID()
     let url: URL
     let title: String
