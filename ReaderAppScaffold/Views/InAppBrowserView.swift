@@ -132,9 +132,12 @@ struct InAppBrowserView: View {
 
     /// 段评页面直接展示书源网页本身：不叠加应用内导航键，
     /// 关闭使用 sheet 下滑手势；高度由 ReaderView 固定为半屏。
+    /// 段评网页本身是深色主题，sheet 背景跟随设为纯黑，
+    /// 避免底部安全区露出一截白色。
     private var reviewBrowser: some View {
         BrowserWebView(destination: destination, model: model)
             .background(Color(.systemBackground))
+            .presentationBackground(Color.black)
     }
 
     private var fullBrowser: some View {
