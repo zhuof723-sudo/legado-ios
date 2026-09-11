@@ -33,6 +33,8 @@ struct ReaderView: View {
     @State private var selectedReviewURL: String? = nil
     @State private var reviewCounts: [Int: Int] = [:]
     @State private var browserDestination: BrowserDestination?
+    /// 有段评弹层（列表或网页）正在展示时，点击正文任意处收起它。
+    @State private var isReviewPresented = false
 
     init(
         viewModel: ReaderViewModel,
@@ -76,22 +78,34 @@ struct ReaderView: View {
                         currentIndex: $pageIndex,
                         reviewEnabled: viewModel.reviewEnabled,
                         onReviewTap: { paragraphIndex in
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                             selectedReviewURL = nil
                             presentReview(for: paragraphIndex)
                         },
                         reviewCounts: reviewCounts,
                         inlineReviewMarkers: viewModel.currentReviewMarkers,
                         onInlineReviewTap: { markerID in
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                             handleInlineReviewTap(markerID)
+                        },
+                        onOutsideTap: { location in
+                            // 点击正文除段评入口外的任意位置：收起段评弹层，
+                            // 没有弹层时维持原有的翻页/呼出菜单逻辑。
+                            guard isReviewPresented else {
+                                handlePageTap(location, width: geo.size.width)
+                                return
+                            }
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            showReviewList = false
+                            browserDestination = nil
                         }
                     )
                     .id("\(config.pageAnim)_\(config.themeId)_\(config.nightMode)_reviews\(viewModel.currentReviewMarkers.map { "\($0.id):\($0.paragraphIndex):\($0.source)" }.joined(separator: "|").hashValue)")
                     // 页面边距由 PageContentView 内部承担；这样每个被翻页
                     // transform 的页面包含完整背景和文字，不会留下固定的父背景。
                     .contentShape(Rectangle())
-                    .onTapGesture(count: 1, coordinateSpace: .local) { location in
-                        handlePageTap(location, width: geo.size.width)
-                    }
+                    // 点击分发由 PageContentView 内部手势统一处理（段评入口 /
+                    // 外点回调），这里不再叠加 onTapGesture 避免双重触发。
                 } else if viewModel.isLoadingContent || viewModel.isLoadingToc {
                     ProgressView()
                 } else if let err = viewModel.errorMessage {
@@ -149,6 +163,8 @@ struct ReaderView: View {
             .presentationBackgroundInteraction(.enabled(upThrough: .fraction(0.65)))
             .onAppear { reviewSheetDetent = .fraction(0.65) }
         }
+        .onChange(of: showReviewList) { _, shown in isReviewPresented = shown || browserDestination != nil }
+        .onChange(of: browserDestination) { _, dest in isReviewPresented = showReviewList || dest != nil }
         .sheet(item: $browserDestination) { destination in
             if destination.isReview {
                 InAppBrowserView(destination: destination)
