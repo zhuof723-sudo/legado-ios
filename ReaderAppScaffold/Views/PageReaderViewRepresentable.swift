@@ -551,6 +551,430 @@ final class NativePageReader: UIPageViewController, PageReaderContainer, UIPageV
     }
 }
 
+// MARK: - 4. React-style 仿真翻页（折叠裁剪 + 透视 + 背面 + 阴影）
+
+private enum ReactFlipDirection {
+    case forward
+    case backward
+}
+
+/// 参考 StPageFlip / react-pageflip 的页面折叠模型。
+///
+/// 与简单的左右平移不同，这里每次翻页都维护：
+/// 1. 当前页的静态裁剪区域；
+/// 2. 当前页正在翻起的多边形区域；
+/// 3. 下一页/上一页的底层页面；
+/// 4. 带 m34 透视的 3D 折叠层；
+/// 5. 折痕渐变阴影。
+///
+/// PageContentView 本身是完整页面，所以未来加入背景图后，快照、裁剪、旋转
+/// 都会自动把背景和文字作为一个整体处理。
+final class ReactStylePageFlipReader: UIViewController, PageReaderContainer, UIGestureRecognizerDelegate {
+    var pages: [String] = []
+    let config: ReaderConfig
+    var currentIndex: Int = 0
+    var onPageChanged: ((Int) -> Void)?
+    var reviewEnabled: Bool = false
+    var onReviewTap: ((Int) -> Void)?
+    var reviewCounts: [Int: Int] = [:]
+    var inlineReviewMarkers: [InlineReviewMarker] = []
+    var onInlineReviewTap: ((Int) -> Void)?
+
+    private var currentPageView: PageContentView?
+    private var pendingPageView: PageContentView?
+    private var pendingIndex = 0
+    private var flipDirection: ReactFlipDirection?
+    private var flipContainer: UIView?
+    private var flippingSnapshot: UIView?
+    private var flippingBackSnapshot: UIView?
+    private var foldShadowLayer: CAGradientLayer?
+    private var flipProgress: CGFloat = 0
+    private var flipTouchY: CGFloat = 0
+
+    private var displayLink: CADisplayLink?
+    private var animationStartTime: CFTimeInterval = 0
+    private var animationStartProgress: CGFloat = 0
+    private var animationTargetProgress: CGFloat = 0
+    private var animationDuration: CFTimeInterval = 0
+
+    private var isFlipping: Bool { flipDirection != nil }
+
+    init(pages: [String], config: ReaderConfig, initialIndex: Int) {
+        self.pages = pages
+        self.config = config
+        self.currentIndex = initialIndex
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    deinit {
+        displayLink?.invalidate()
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = UIColor(config.currentTheme.background)
+        view.clipsToBounds = true
+        installPanGesture()
+        if !pages.isEmpty {
+            showPage(at: min(max(currentIndex, 0), pages.count - 1))
+        }
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard !isFlipping else { return }
+        currentPageView?.frame = view.bounds
+    }
+
+    private func installPanGesture() {
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        pan.maximumNumberOfTouches = 1
+        pan.cancelsTouchesInView = false
+        pan.delegate = self
+        view.addGestureRecognizer(pan)
+    }
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
+        guard !isFlipping else { return false }
+        let velocity = pan.velocity(in: view)
+        return abs(velocity.x) > abs(velocity.y) * 1.15
+    }
+
+    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        let width = max(view.bounds.width, 1)
+        let translation = gesture.translation(in: view)
+        let location = gesture.location(in: view)
+
+        switch gesture.state {
+        case .began:
+            flipTouchY = min(max(location.y, 0), view.bounds.height)
+
+        case .changed:
+            if flipDirection == nil {
+                let velocity = gesture.velocity(in: view).x
+                let horizontal = abs(translation.x) > 6 ? translation.x : velocity
+                let direction: ReactFlipDirection = horizontal < 0 ? .forward : .backward
+                guard beginFlip(
+                    to: direction == .forward ? currentIndex + 1 : currentIndex - 1,
+                    direction: direction,
+                    touchY: location.y
+                ) else { return }
+            }
+            guard let direction = flipDirection else { return }
+            flipTouchY = min(max(location.y, 0), view.bounds.height)
+            let rawProgress: CGFloat
+            switch direction {
+            case .forward:
+                rawProgress = -translation.x / width
+            case .backward:
+                rawProgress = translation.x / width
+            }
+            applyFlip(progress: min(max(rawProgress, 0), 1))
+
+        case .ended, .cancelled, .failed:
+            guard let direction = flipDirection else { return }
+            let velocity = gesture.velocity(in: view).x
+            let progress = flipProgress
+            let shouldFinish: Bool
+            switch direction {
+            case .forward:
+                shouldFinish = gesture.state == .ended && (progress > 0.34 || velocity < -650)
+            case .backward:
+                shouldFinish = gesture.state == .ended && (progress > 0.34 || velocity > 650)
+            }
+            animateFlip(to: shouldFinish ? 1 : 0, duration: shouldFinish ? 0.24 : 0.20)
+
+        default:
+            break
+        }
+    }
+
+    private func makePage(at index: Int) -> PageContentView {
+        let page = PageContentView(text: pages[index], config: config)
+        configureReaderPage(
+            page,
+            reviewEnabled: reviewEnabled,
+            onReviewTap: onReviewTap,
+            reviewCounts: reviewCounts,
+            inlineReviewMarkers: inlineReviewMarkers,
+            onInlineReviewTap: onInlineReviewTap
+        )
+        page.frame = view.bounds
+        page.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        return page
+    }
+
+    private func beginFlip(
+        to index: Int,
+        direction: ReactFlipDirection,
+        touchY: CGFloat
+    ) -> Bool {
+        guard !isFlipping,
+              index >= 0,
+              index < pages.count,
+              let current = currentPageView,
+              view.bounds.width > 1,
+              view.bounds.height > 1 else { return false }
+
+        view.layoutIfNeeded()
+        displayLink?.invalidate()
+        displayLink = nil
+        current.layer.mask = nil
+
+        let next = makePage(at: index)
+        next.isUserInteractionEnabled = false
+        view.insertSubview(next, belowSubview: current)
+
+        guard let snapshot = current.snapshotView(afterScreenUpdates: true) else {
+            next.removeFromSuperview()
+            return false
+        }
+
+        let container = UIView(frame: view.bounds)
+        container.backgroundColor = .clear
+        container.isUserInteractionEnabled = false
+        container.layer.allowsEdgeAntialiasing = true
+        container.layer.isDoubleSided = true
+        snapshot.frame = container.bounds
+        snapshot.layer.isDoubleSided = false
+
+        // 翻起后的背面使用当前页的复制体，保持纸张背面与整张背景一致；
+        // 通过局部 180° 旋转，在父页面翻到背面时重新朝向阅读者。
+        let backSnapshot = current.snapshotView(afterScreenUpdates: true)
+        backSnapshot?.frame = container.bounds
+        backSnapshot?.layer.isDoubleSided = false
+        backSnapshot?.layer.transform = CATransform3DMakeRotation(.pi, 0, 1, 0)
+        backSnapshot?.alpha = 0.98
+        if let backSnapshot {
+            container.addSubview(backSnapshot)
+            flippingBackSnapshot = backSnapshot
+        }
+        container.addSubview(snapshot)
+        view.addSubview(container)
+
+        let shadow = CAGradientLayer()
+        shadow.colors = [
+            UIColor.black.withAlphaComponent(0.02).cgColor,
+            UIColor.black.withAlphaComponent(0.26).cgColor,
+            UIColor.clear.cgColor
+        ]
+        shadow.locations = [0, 0.45, 1]
+        shadow.startPoint = direction == .forward
+            ? CGPoint(x: 1, y: 0.5)
+            : CGPoint(x: 0, y: 0.5)
+        shadow.endPoint = direction == .forward
+            ? CGPoint(x: 0, y: 0.5)
+            : CGPoint(x: 1, y: 0.5)
+        container.layer.addSublayer(shadow)
+
+        pendingPageView = next
+        pendingIndex = index
+        flipDirection = direction
+        flipContainer = container
+        flippingSnapshot = snapshot
+        foldShadowLayer = shadow
+        flipProgress = 0
+        flipTouchY = min(max(touchY, 0), view.bounds.height)
+        applyFlip(progress: 0)
+        return true
+    }
+
+    /// 更新 StPageFlip 风格的折叠几何。
+    private func applyFlip(progress: CGFloat) {
+        guard let direction = flipDirection,
+              let current = currentPageView,
+              let container = flipContainer,
+              let snapshot = flippingSnapshot else { return }
+
+        let p = min(max(progress, 0), 1)
+        flipProgress = p
+
+        let width = max(view.bounds.width, 1)
+        let height = max(view.bounds.height, 1)
+        let foldX: CGFloat = direction == .forward ? width * (1 - p) : width * p
+        let normalizedY = (flipTouchY - height / 2) / max(height, 1)
+        let bend = normalizedY * min(width * 0.22, 120) * sin(.pi * p)
+        let topX = min(max(foldX + bend, 0), width)
+        let bottomX = min(max(foldX - bend, 0), width)
+
+        let staticPath = UIBezierPath()
+        let turningPath = UIBezierPath()
+        if direction == .forward {
+            staticPath.move(to: CGPoint(x: 0, y: 0))
+            staticPath.addLine(to: CGPoint(x: topX, y: 0))
+            staticPath.addLine(to: CGPoint(x: bottomX, y: height))
+            staticPath.addLine(to: CGPoint(x: 0, y: height))
+            staticPath.close()
+
+            turningPath.move(to: CGPoint(x: topX, y: 0))
+            turningPath.addLine(to: CGPoint(x: width, y: 0))
+            turningPath.addLine(to: CGPoint(x: width, y: height))
+            turningPath.addLine(to: CGPoint(x: bottomX, y: height))
+            turningPath.close()
+        } else {
+            staticPath.move(to: CGPoint(x: topX, y: 0))
+            staticPath.addLine(to: CGPoint(x: width, y: 0))
+            staticPath.addLine(to: CGPoint(x: width, y: height))
+            staticPath.addLine(to: CGPoint(x: bottomX, y: height))
+            staticPath.close()
+
+            turningPath.move(to: CGPoint(x: 0, y: 0))
+            turningPath.addLine(to: CGPoint(x: topX, y: 0))
+            turningPath.addLine(to: CGPoint(x: bottomX, y: height))
+            turningPath.addLine(to: CGPoint(x: 0, y: height))
+            turningPath.close()
+        }
+
+        setMask(on: current, path: staticPath.cgPath)
+        setMask(on: snapshot, path: turningPath.cgPath)
+        if let backSnapshot = flippingBackSnapshot {
+            setMask(on: backSnapshot, path: turningPath.cgPath)
+        }
+
+        let anchorX = min(max(foldX / width, 0), 1)
+        let anchorY = min(max(flipTouchY / height, 0.18), 0.82)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        container.bounds = CGRect(origin: .zero, size: view.bounds.size)
+        container.layer.anchorPoint = CGPoint(x: anchorX, y: anchorY)
+        container.layer.position = CGPoint(x: foldX, y: flipTouchY)
+
+        var transform = CATransform3DIdentity
+        transform.m34 = -1 / max(width * 2.2, 1)
+        let angle: CGFloat = direction == .forward ? -.pi * p : .pi * p
+        let axisZ = normalizedY * 0.28
+        transform = CATransform3DRotate(transform, angle, 0, 1, axisZ)
+        transform = CATransform3DRotate(transform, normalizedY * 0.10 * p, 0, 0, 1)
+        container.layer.transform = transform
+
+        let shadowWidth = max(16, width * 0.045)
+        let shadowX = min(max(foldX - shadowWidth / 2, 0), max(width - shadowWidth, 0))
+        foldShadowLayer?.frame = CGRect(x: shadowX, y: 0, width: shadowWidth, height: height)
+        foldShadowLayer?.opacity = Float(sin(Double.pi * Double(p)) * 0.95)
+        CATransaction.commit()
+    }
+
+    private func setMask(on view: UIView, path: CGPath) {
+        let mask = (view.layer.mask as? CAShapeLayer) ?? CAShapeLayer()
+        mask.frame = view.bounds
+        mask.path = path
+        view.layer.mask = mask
+    }
+
+    private func animateFlip(to target: CGFloat, duration: TimeInterval) {
+        guard flipDirection != nil else { return }
+        displayLink?.invalidate()
+        animationStartTime = CACurrentMediaTime()
+        animationStartProgress = flipProgress
+        animationTargetProgress = target
+        animationDuration = max(duration, 0.01)
+        let link = CADisplayLink(target: self, selector: #selector(handleFlipDisplayLink(_:)))
+        displayLink = link
+        link.add(to: .main, forMode: .common)
+    }
+
+    @objc private func handleFlipDisplayLink(_ link: CADisplayLink) {
+        guard flipDirection != nil else {
+            link.invalidate()
+            displayLink = nil
+            return
+        }
+        let elapsed = link.timestamp - animationStartTime
+        let t = min(max(elapsed / animationDuration, 0), 1)
+        let eased: CGFloat
+        if t < 0.5 {
+            eased = CGFloat(2 * t * t)
+        } else {
+            let shifted = -2 * t + 2
+            eased = CGFloat(1 - shifted * shifted / 2)
+        }
+        let value = animationStartProgress
+            + (animationTargetProgress - animationStartProgress) * eased
+        applyFlip(progress: value)
+        if t >= 1 {
+            link.invalidate()
+            displayLink = nil
+            finishFlip(committed: animationTargetProgress > 0.5, notify: true)
+        }
+    }
+
+    private func finishFlip(committed: Bool, notify: Bool) {
+        displayLink?.invalidate()
+        displayLink = nil
+
+        let current = currentPageView
+        let next = pendingPageView
+        let target = pendingIndex
+        current?.layer.mask = nil
+        flippingSnapshot?.layer.mask = nil
+        flippingBackSnapshot?.layer.mask = nil
+        flipContainer?.removeFromSuperview()
+
+        if committed, let next {
+            current?.removeFromSuperview()
+            next.frame = view.bounds
+            next.isUserInteractionEnabled = true
+            currentPageView = next
+            currentIndex = target
+            if notify { onPageChanged?(target) }
+        } else {
+            next?.removeFromSuperview()
+            current?.frame = view.bounds
+            current?.isUserInteractionEnabled = true
+        }
+
+        pendingPageView = nil
+        flipDirection = nil
+        flipContainer = nil
+        flippingSnapshot = nil
+        flippingBackSnapshot = nil
+        foldShadowLayer = nil
+        flipProgress = 0
+    }
+
+    private func showPage(at index: Int) {
+        guard index >= 0, index < pages.count else { return }
+        let page = makePage(at: index)
+        currentPageView?.removeFromSuperview()
+        view.addSubview(page)
+        currentPageView = page
+        currentIndex = index
+    }
+
+    func refreshAppearance() {
+        view.backgroundColor = UIColor(config.currentTheme.background)
+        currentPageView?.refreshAppearance()
+        pendingPageView?.refreshAppearance()
+    }
+
+    func updatePages(_ newPages: [String], keepIndex: Int) {
+        if isFlipping { finishFlip(committed: false, notify: false) }
+        pages = newPages
+        guard !newPages.isEmpty else {
+            currentPageView?.removeFromSuperview()
+            currentPageView = nil
+            currentIndex = 0
+            return
+        }
+        showPage(at: min(max(keepIndex, 0), newPages.count - 1))
+    }
+
+    func goToPage(_ index: Int, animated: Bool) {
+        guard index >= 0, index < pages.count, index != currentIndex, !isFlipping else { return }
+        if !animated || view.bounds.width <= 1 || view.bounds.height <= 1 {
+            showPage(at: index)
+            onPageChanged?(index)
+            return
+        }
+        let direction: ReactFlipDirection = index > currentIndex ? .forward : .backward
+        guard beginFlip(to: index, direction: direction, touchY: view.bounds.midY) else { return }
+        animateFlip(to: 1, duration: 0.42)
+    }
+}
+
 // MARK: - 4. 滑动（新页面覆盖式滑入，跟手）
 
 final class SlidePageReader: UIViewController, PageReaderContainer, UIGestureRecognizerDelegate {
@@ -1027,13 +1451,7 @@ struct PageReaderViewRepresentable: UIViewControllerRepresentable {
     private func makeReader(for anim: PageAnimationType) -> PageReaderContainer {
         switch anim {
         case .pageCurl:
-            return NativePageReader(
-                pages: pages,
-                config: config,
-                initialIndex: currentIndex,
-                transitionStyle: .pageCurl,
-                doubleSided: true
-            )
+            return ReactStylePageFlipReader(pages: pages, config: config, initialIndex: currentIndex)
         case .cover:
             return SlidePageReader(pages: pages, config: config, initialIndex: currentIndex)
         case .pageScroll:

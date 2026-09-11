@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - 评论列表弹窗
 
 /// 段评列表视图，展示某一段的所有评论。
-/// 参考微信读书/起点读书的段评 UI 设计：底部弹出，半屏高度，评论列表 + 输入框。
+/// 由外层 sheet 提供 55% / 90% 两个相对高度，视图本身不锁定像素或 detent。
 struct ReviewListView: View {
     let paragraphText: String
     let paragraphIndex: Int
@@ -42,8 +42,6 @@ struct ReviewListView: View {
         }
         .background(Color(.systemBackground))
         .cornerRadius(16, corners: [.topLeft, .topRight])
-        .presentationDetents([.fraction(0.5)])
-        .presentationDragIndicator(.visible)
         .onAppear {
             loadReviews()
         }

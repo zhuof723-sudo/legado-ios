@@ -26,6 +26,8 @@ struct ReaderView: View {
     @State private var showToc = false
     // 段评相关
     @State private var showReviewList = false
+    @State private var reviewSheetDetent: PresentationDetent = .fraction(0.55)
+    @State private var reviewBrowserDetent: PresentationDetent = .fraction(0.55)
     @State private var selectedParagraphIndex = 0
     @State private var selectedParagraphText = ""
     @State private var selectedReviewURL: String? = nil
@@ -138,12 +140,26 @@ struct ReaderView: View {
                     )
                 }
             )
+            .presentationDetents(
+                [.fraction(0.55), .fraction(0.90)],
+                selection: $reviewSheetDetent
+            )
+            .presentationDragIndicator(.visible)
+            .presentationContentInteraction(.resizes)
+            .presentationBackgroundInteraction(.enabled(upThrough: .fraction(0.55)))
+            .onAppear { reviewSheetDetent = .fraction(0.55) }
         }
         .sheet(item: $browserDestination) { destination in
             if destination.isReview {
                 InAppBrowserView(destination: destination)
-                    .presentationDetents([.fraction(0.5)])
+                    .presentationDetents(
+                        [.fraction(0.55), .fraction(0.90)],
+                        selection: $reviewBrowserDetent
+                    )
                     .presentationDragIndicator(.visible)
+                    .presentationContentInteraction(.resizes)
+                    .presentationBackgroundInteraction(.enabled(upThrough: .fraction(0.55)))
+                    .onAppear { reviewBrowserDetent = .fraction(0.55) }
             } else {
                 InAppBrowserView(destination: destination)
             }

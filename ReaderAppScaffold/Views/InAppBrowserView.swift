@@ -7,7 +7,7 @@ struct BrowserDestination: Identifiable {
     let url: URL
     let title: String
     let injectedJavaScript: String?
-    /// 段评页面固定在半屏展示，正文保留在上半屏。
+    /// 段评页面可在约 55% 与 90% 可用高度之间拖拽展开，关闭使用 sheet 下滑手势。
     let isReview: Bool
 
     init(
@@ -135,7 +135,6 @@ struct InAppBrowserView: View {
     private var reviewBrowser: some View {
         BrowserWebView(destination: destination, model: model)
             .background(Color(.systemBackground))
-            .ignoresSafeArea(.container, edges: .bottom)
     }
 
     private var fullBrowser: some View {
