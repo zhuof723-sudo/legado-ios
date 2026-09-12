@@ -38,19 +38,21 @@ final class PageContentView: UIView, UITextViewDelegate, UIGestureRecognizerDele
     init(page: ReaderPage, config: ReaderConfig) {
         self.page = page
         self.config = config
-        self.textContainer = NSTextContainer(size: CGSize(
+        let container = NSTextContainer(size: CGSize(
             width: 1,
             height: CGFloat.greatestFiniteMagnitude
         ))
-        self.textContainer.lineFragmentPadding = 0
-        self.textContainer.lineBreakMode = NSLineBreakMode.byWordWrapping
-        self.textContainer.widthTracksTextView = true
-        self.textContainer.heightTracksTextView = false
-        super.init(frame: .zero)
-
-        layoutManager.addTextContainer(textContainer)
+        container.lineFragmentPadding = 0
+        container.lineBreakMode = NSLineBreakMode.byWordWrapping
+        container.widthTracksTextView = true
+        container.heightTracksTextView = false
+        self.textContainer = container
+        // 先接好 TextKit1 链条，再让 UITextView 挂上来（Yuedu 同款做法），
+        // 避免 UITextView 收到“无主”container 时自建 NSLayoutManager。
+        layoutManager.addTextContainer(container)
         textStorage.addLayoutManager(layoutManager)
-        textView = UITextView(frame: .zero, textContainer: textContainer)
+        self.textView = UITextView(frame: .zero, textContainer: container)
+        super.init(frame: .zero)
 
         setupViews()
     }
