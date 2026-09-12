@@ -178,7 +178,7 @@ final class PageContentView: UIView, UITextViewDelegate, UIGestureRecognizerDele
 /// 容器层的公共回调解包：把 SwiftUI 闭包分发给每张书页。
 struct ReaderPageCallbacks {
     var onReviewTap: ((Int) -> Void)?
-    var reviewCounts: [Int: Int]
+    var reviewCounts: [Int: Int] = [:]
     var onInlineReviewTap: ((Int) -> Void)?
     var onOutsideTap: ((CGPoint) -> Void)?
 }
@@ -267,9 +267,12 @@ final class FreeScrollFlowController: UIViewController, UITextViewDelegate, UIGe
         super.viewDidLoad()
         view.backgroundColor = UIColor(config.currentTheme.background)
 
-        let container = NSTextContainer(size: CGSize(width: 1, height: .greatestFiniteMagnitude))
+        let container = NSTextContainer(size: CGSize(
+            width: 1,
+            height: CGFloat.greatestFiniteMagnitude
+        ))
         container.lineFragmentPadding = 0
-        container.lineBreakMode = .byWordWrapping
+        container.lineBreakMode = NSLineBreakMode.byWordWrapping
         container.heightTracksTextView = false
 
         let storage = NSTextStorage(attributedString: chapterText)
@@ -314,7 +317,7 @@ final class FreeScrollFlowController: UIViewController, UITextViewDelegate, UIGe
     func recomputePageOrigins(pageWidth: CGFloat, pageHeight: CGFloat) {
         guard pageWidth > 1 else { return }
         let container = textView.textContainer
-        container.size = CGSize(width: pageWidth, height: .greatestFiniteMagnitude)
+        container.size = CGSize(width: pageWidth, height: CGFloat.greatestFiniteMagnitude)
 
         textView.layoutManager.ensureLayout(for: container)
         var origins: [CGFloat] = []
