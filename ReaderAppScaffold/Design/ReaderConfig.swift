@@ -5,8 +5,8 @@ import UIKit
 
 enum PageAnimationType: Int, CaseIterable, Identifiable {
     // 存储值约定：0=平移；1=滑动（覆盖式，旧覆盖值重新启用）；
-    // 2=仿真；3=上下滚动；4=无动画（旧“淡入淡出”即占此值，语义回归无动画）。
-    case pageCurl = 2      // UIPageViewController(.pageCurl, doubleSided)
+    // 2=仿真（现为全屏左右滑动平移，raw 兼容旧设置）；3=上下滚动；4=无动画。
+    case pageCurl = 2      // 历史"仿真"档位：现为 .scroll 平移（全屏沉浸）
     case cover = 1         // 新页从右侧滑入覆盖旧页（跟手）
     case pageScroll = 0    // UIPageViewController(.scroll)
     case freeScroll = 3    // UIScrollView 竖向连续滚动
@@ -15,8 +15,8 @@ enum PageAnimationType: Int, CaseIterable, Identifiable {
     var id: Int { rawValue }
     var name: String {
         switch self {
-        case .pageCurl: return "仿真"
-        case .cover: return "滑动"
+        case .pageCurl: return "滑动(全屏)"
+        case .cover: return "滑动(覆盖)"
         case .pageScroll: return "平移"
         case .freeScroll: return "上下滚动"
         case .none: return "无动画"
@@ -24,14 +24,14 @@ enum PageAnimationType: Int, CaseIterable, Identifiable {
     }
     var icon: String {
         switch self {
-        case .pageCurl: return "book.pages"
+        case .pageCurl: return "rectangle.portrait.lefthalf.righthalf.filled"
         case .cover: return "rectangle.portrait.righthalf.filled"
         case .pageScroll: return "rectangle.portrait.and.arrow.right"
         case .freeScroll: return "arrow.up.and.down"
         case .none: return "circle.lefthalf.filled"
         }
     }
-    /// 设置面板中的展示顺序：仿真，滑动，平移，上下滚动，无动画。
+    /// 设置面板中的展示顺序：滑动(全屏)，滑动(覆盖)，平移，上下滚动，无动画。
     static var preferredOrder: [PageAnimationType] {
         [.pageCurl, .cover, .pageScroll, .freeScroll, .none]
     }

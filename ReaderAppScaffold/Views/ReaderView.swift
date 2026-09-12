@@ -61,9 +61,13 @@ struct ReaderView: View {
 
     var body: some View {
         GeometryReader { geo in
+            // 全屏沉浸：分页尺寸按整块屏幕计算（含状态栏与 Home 指示条区域），
+            // 翻页视图通过 ignoresSafeArea 铺满全屏，翻页效果覆盖到最顶和最底。
+            let fullWidth = geo.size.width + geo.safeAreaInsets.leading + geo.safeAreaInsets.trailing
+            let fullHeight = geo.size.height + geo.safeAreaInsets.top + geo.safeAreaInsets.bottom
             let pageSize = CGSize(
-                width: max(geo.size.width - config.paddingH * 2, 1),
-                height: max(geo.size.height - config.paddingTop - config.paddingBottom, 1)
+                width: max(fullWidth - config.paddingH * 2, 1),
+                height: max(fullHeight - config.paddingTop - config.paddingBottom, 1)
             )
             let paginationKey = "\(viewModel.currentContent.hashValue)|\(Int(config.fontSize))|\(config.lineSpacing)|\(config.bold)|\(config.paragraphSpacing)|\(config.paragraphIndent)|"
                 + "\(Int(pageSize.width))x\(Int(pageSize.height))|\(viewModel.currentIndex)"
@@ -101,8 +105,9 @@ struct ReaderView: View {
                         }
                     )
                     .id("\(config.pageAnim)_\(config.themeId)_\(config.nightMode)_reviews\(viewModel.currentReviewMarkers.map { "\($0.id):\($0.paragraphIndex):\($0.source)" }.joined(separator: "|").hashValue)")
-                    // 页面边距由 PageContentView 内部承担；这样每个被翻页
-                    // transform 的页面包含完整背景和文字，不会留下固定的父背景。
+                    // 全屏铺满：忽略安全区，翻页折角/滑动效果延伸到
+                    // 状态栏顶部与 Home 指示条底部（要求 3/4）。
+                    .ignoresSafeArea(.container, edges: .all)
                     .contentShape(Rectangle())
                     // 点击分发由 PageContentView 内部手势统一处理（段评入口 /
                     // 外点回调），这里不再叠加 onTapGesture 避免双重触发。
@@ -131,7 +136,8 @@ struct ReaderView: View {
                 }
             }
         }
-        .statusBarHidden(false)
+        .statusBarHidden(!showControls)
+        .persistentSystemOverlays(.hidden)
         .preferredColorScheme(config.nightMode ? .dark : .light)
         .toolbar(.hidden, for: .tabBar)
         .onDisappear { speech.stop() }
@@ -245,18 +251,6 @@ struct ReaderView: View {
                         insertion: .move(edge: .bottom).combined(with: .opacity),
                         removal: .move(edge: .bottom).combined(with: .opacity)
                     ))
-            } else if !pages.isEmpty {
-                HStack {
-                    Text("\(pageIndex + 1)/\(pages.count)")
-                    Spacer()
-                    Text(viewModel.currentChapterTitle ?? "")
-                        .lineLimit(1)
-                }
-                .font(.caption2)
-                .foregroundStyle(textColor.opacity(0.55))
-                .padding(.horizontal, 18)
-                .padding(.bottom, 8)
-                .transition(.opacity)
             }
         }
         .padding(.horizontal, 16)
