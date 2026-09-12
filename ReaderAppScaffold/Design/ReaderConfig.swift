@@ -15,7 +15,7 @@ enum PageAnimationType: Int, CaseIterable, Identifiable {
     var id: Int { rawValue }
     var name: String {
         switch self {
-        case .pageCurl: return "滑动(全屏)"
+        case .pageCurl: return "仿真(卷页)"
         case .cover: return "滑动(覆盖)"
         case .pageScroll: return "平移"
         case .freeScroll: return "上下滚动"

@@ -1139,14 +1139,14 @@ struct PageReaderViewRepresentable: UIViewControllerRepresentable {
     private func makeReader(for anim: PageAnimationType) -> PageReaderContainer {
         switch anim {
         case .pageCurl:
-            // 全屏沉浸方案：左右滑动平移（系统 .scroll 手感），无折角。
-            // raw 值保持 2 不变，用户旧设置自动迁移到滑动效果。
+            // 档位2：系统 UIPageViewController .pageCurl + 双面页 ——
+            // iPhone 自带 Books App 同款书页翻卷，带纸张弯曲弧度与折痕阴影。
             return NativePageReader(
                 pages: pages,
                 config: config,
                 initialIndex: currentIndex,
-                transitionStyle: .scroll,
-                doubleSided: false
+                transitionStyle: .pageCurl,
+                doubleSided: true
             )
         case .cover:
             return SlidePageReader(pages: pages, config: config, initialIndex: currentIndex)
