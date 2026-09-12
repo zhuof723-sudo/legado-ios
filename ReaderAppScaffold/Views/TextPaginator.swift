@@ -1,23 +1,50 @@
 import UIKit
-import CoreText
+import LegadoRuleEngine
 
-/// 用 CoreText 的标准分页手法：反复用 `CTFramesetterCreateFrame` 在给定尺寸的矩形里
-/// 排版，每次问它"这次实际排进去多少字"(`CTFrameGetVisibleStringRange`)，
-/// 剩下的文字接着排下一页，直到排完。这是最贴近"真实渲染结果"的分页方式——
-/// 不是按字数估算，是真的量出来的，字体、行距、页面尺寸变了重新跑一遍就行。
-public enum TextPaginator {
-    public static func paginate(
-        text: String,
+/// 排版完成的一页。分页与显示共用同一份 NSAttributedString——
+/// 量页和渲染走同一条 TextKit1 管线，段评气泡的宽度在分页时就已参与测量，
+/// 显示端原样上屏不再二次拼装，从根上消除“分页量宽”与“渲染量宽”
+/// 不一致导致的字体错位。
+struct ReaderPage: Equatable {
+    /// 本页显示内容（含段评气泡 attachment、链接与颜色）。
+    let attributed: NSAttributedString
+    /// TTS / 纯文本场景使用（剥掉气泡与 💬 角标）。
+    let plainText: String
+    /// 分页批次标识（即 paginationKey），用于低成本相等比较。
+    let buildKey: String
+    /// 页首第一个有效字符在整章中的 UTF-16 偏移。
+    let startOffset: Int
+
+    init(attributed: NSAttributedString, plainText: String, buildKey: String, startOffset: Int) {
+        self.attributed = attributed
+        self.plainText = plainText
+        self.buildKey = buildKey
+        self.startOffset = startOffset
+    }
+
+    static func == (lhs: ReaderPage, rhs: ReaderPage) -> Bool {
+        lhs.buildKey == rhs.buildKey && lhs.startOffset == rhs.startOffset && lhs.plainText == rhs.plainText
+    }
+}
+
+/// 章节分页器：构建整章显示用的富文本（含段评入口），再用 TextKit1 切页。
+enum ReaderPageComposer {
+    static func compose(
+        content: String,
+        markers: [InlineReviewMarker],
+        legacyReviewLinks: Bool,
+        reviewCounts: [Int: Int],
         font: UIFont,
+        textColor: UIColor,
+        badgeColor: UIColor,
         lineSpacing: CGFloat,
-        paragraphSpacing: CGFloat = 0,
-        firstLineIndent: CGFloat = 0,
-        alignment: NSTextAlignment = .justified,
-        pageSize: CGSize
-    ) -> [String] {
-        guard !text.isEmpty, pageSize.width > 1, pageSize.height > 1 else {
-            return text.isEmpty ? [] : [text]
-        }
+        paragraphSpacing: CGFloat,
+        firstLineIndent: CGFloat,
+        alignment: NSTextAlignment,
+        pageSize: CGSize,
+        buildKey: String
+    ) -> [ReaderPage]? {
+        guard !content.isEmpty, pageSize.width > 1, pageSize.height > 1 else { return [] }
 
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = lineSpacing
@@ -26,34 +53,105 @@ public enum TextPaginator {
         paragraphStyle.alignment = alignment
         paragraphStyle.firstLineHeadIndent = firstLineIndent
 
-        let attributed = NSAttributedString(string: text, attributes: [
+        let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
+            .foregroundColor: textColor,
             .paragraphStyle: paragraphStyle
-        ])
+        ]
 
-        let framesetter = CTFramesetterCreateWithAttributedString(attributed as CFAttributedString)
-        let path = CGPath(rect: CGRect(origin: .zero, size: pageSize), transform: nil)
-        let fullLength = attributed.length
+        // 段评入口在分页前就构建好：气泡宽度、💬 角标都会真实参与排版测量。
+        let full: NSAttributedString
+        if !markers.isEmpty {
+            full = ReviewLinkHelper.buildInlineReviewContent(
+                text: content,
+                markers: markers,
+                attributes: attributes,
+                reviewCounts: reviewCounts,
+                badgeColor: badgeColor
+            )
+        } else if legacyReviewLinks {
+            full = ReviewLinkHelper.buildLegacyReviewContent(
+                text: content,
+                attributes: attributes,
+                reviewCounts: reviewCounts
+            )
+        } else {
+            full = NSAttributedString(string: content, attributes: attributes)
+        }
 
-        var pages: [String] = []
+        return paginate(full: full, pageSize: pageSize, buildKey: buildKey)
+    }
+
+    /// TextKit1 分页。PageContentView / FreeScrollReader 里的 UITextView 都被
+    /// 强制成 TextKit1（访问 layoutManager），这里用同一个 NSLayoutManager 量页，
+    /// 字体、行距、段距、气泡宽度全部与最终渲染一致。
+    private static func paginate(full: NSAttributedString, pageSize: CGSize, buildKey: String) -> [ReaderPage]? {
+        let storage = NSTextStorage(attributedString: full)
+        let layoutManager = NSLayoutManager()
+        storage.addLayoutManager(layoutManager)
+
+        func makeContainer() -> NSTextContainer {
+            let container = NSTextContainer(size: pageSize)
+            container.lineFragmentPadding = 0
+            container.lineBreakMode = .byWordWrapping
+            return container
+        }
+
+        layoutManager.addTextContainer(makeContainer())
+        let pageRect = CGRect(origin: .zero, size: pageSize)
+        let nsText = full.string as NSString
         var location = 0
-        let ns = text as NSString
+        var pages: [ReaderPage] = []
 
-        while location < fullLength {
-            let frame = CTFramesetterCreateFrame(framesetter, CFRange(location: location, length: 0), path, nil)
-            let visibleRange = CTFrameGetVisibleStringRange(frame)
+        while location < storage.length {
+            if Task.isCancelled { return nil }
 
-            // 极端情况（页面小到连一行都放不下）防止死循环：至少往前推进1个字符
-            let length = max(visibleRange.length, 1)
-            let safeLength = min(length, fullLength - location)
-            let range = NSRange(location: location, length: safeLength)
-            // 去除分页结果开头的换行符（避免下一页以空行开头）
-            var pageText = ns.substring(with: range)
-            if pageText.hasPrefix("\n") {
-                pageText = String(pageText.dropFirst())
+            let container = layoutManager.textContainers.last!
+            var glyphRange = layoutManager.glyphRange(forBoundingRect: pageRect, in: container)
+
+            // glyphRange(forBoundingRect:) 按“相交”取值：页面底部只露出半行的
+            // 也要裁掉，否则这半行会同时出现在两页，显示端再排一次时被顶出页面。
+            while glyphRange.length > 0 {
+                var lineGlyphs = NSRange()
+                let lineRect = layoutManager.lineFragmentRect(
+                    forGlyphAt: NSMaxRange(glyphRange) - 1,
+                    effectiveRange: &lineGlyphs,
+                    withoutAdditionalLayout: true
+                )
+                if lineRect.maxY <= pageSize.height + 0.5 { break }
+                let overflow = NSMaxRange(glyphRange) - lineGlyphs.location
+                if overflow <= 0 || overflow > glyphRange.length { break }
+                glyphRange.length -= overflow
             }
-            pages.append(pageText)
-            location += safeLength
+
+            var charRange = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
+            if charRange.length <= 0 || NSMaxRange(charRange) <= location {
+                // 极端情况（页面小到一行都放不下）：至少推进 1 个字符防死循环。
+                charRange = NSRange(location: location, length: 1)
+            }
+
+            let end = NSMaxRange(charRange)
+            var start = charRange.location
+            // 页首不留空行（与旧 CoreText 分页行为一致）
+            while start < end,
+                  nsText.character(at: start) == 0x0A || nsText.character(at: start) == 0x0D {
+                start += 1
+            }
+
+            if start < end {
+                let pageContent = full.attributedSubstring(from: NSRange(location: start, length: end - start))
+                pages.append(ReaderPage(
+                    attributed: pageContent,
+                    plainText: ReviewLinkHelper.extractPlainText(from: pageContent),
+                    buildKey: buildKey,
+                    startOffset: start
+                ))
+            }
+
+            location = end
+            if location < storage.length {
+                layoutManager.addTextContainer(makeContainer())
+            }
         }
         return pages
     }

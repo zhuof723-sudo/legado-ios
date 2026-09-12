@@ -12,8 +12,9 @@ struct LocalReaderView: View {
     @StateObject private var speech = ReaderSpeechController()
     @AppStorage("reader.autoRead") private var autoRead = false
 
-    @State private var pages: [String] = []
+    @State private var pages: [ReaderPage] = []
     @State private var paginatedForKey = ""
+    @State private var paginationTaskID: UUID?
     @State private var pageIndex = 0
     @State private var pendingJumpToLastPage = false
     @State private var showControls = false
@@ -37,29 +38,43 @@ struct LocalReaderView: View {
 
     var body: some View {
         GeometryReader { geo in
+            // 全屏沉浸（与在线阅读器一致）：分页尺寸含安全区，翻页效果铺满全屏。
+            let fullWidth = geo.size.width + geo.safeAreaInsets.leading + geo.safeAreaInsets.trailing
+            let fullHeight = geo.size.height + geo.safeAreaInsets.top + geo.safeAreaInsets.bottom
             let pageSize = CGSize(
-                width: max(geo.size.width - config.paddingH * 2, 1),
-                height: max(geo.size.height - config.paddingTop - config.paddingBottom, 1)
+                width: max(fullWidth - config.paddingH * 2, 1),
+                height: max(fullHeight - config.paddingTop - config.paddingBottom, 1)
             )
-            let key = "\(viewModel.currentContent.hashValue)|\(Int(config.fontSize))|\(config.lineSpacing)|\(config.bold)|\(config.paragraphSpacing)|\(config.paragraphIndent)|"
-                + "\(Int(pageSize.width))x\(Int(pageSize.height))|\(viewModel.currentIndex)"
+            let paginationKey = [
+                "len\(viewModel.currentContent.count)-\(viewModel.currentContent.hashValue)",
+                "f\(Int(config.fontSize))",
+                "ls\(Int(config.lineSpacing))",
+                "ps\(Int(config.paragraphSpacing))",
+                "in\(config.paragraphIndent)",
+                "b\(config.bold ? 1 : 0)",
+                "pg\(Int(pageSize.width))x\(Int(pageSize.height))",
+                "ch\(viewModel.currentIndex)"
+            ].joined(separator: "|")
 
             ZStack {
                 bgColor.ignoresSafeArea()
 
-                if paginatedForKey == key, !pages.isEmpty {
+                if paginatedForKey == paginationKey, !pages.isEmpty {
                     PageReaderViewRepresentable(
                         pages: pages,
                         config: config,
-                        currentIndex: $pageIndex
+                        currentIndex: $pageIndex,
+                        onOutsideTap: { location in
+                            handlePageTap(location, width: geo.size.width)
+                        }
                     )
-                    .id("\(config.pageAnim)_\(config.themeId)_\(config.nightMode)")
-                    // 页面边距由 PageContentView 内部承担；每个页面因此是
-                    // 背景+文字的完整独立翻页层。
+                    // 主题/夜间切换走 refreshAppearance 热刷新；
+                    // 只有翻页模式切换才通过 identity 重建容器。
+                    .ignoresSafeArea(.container, edges: .all)
                     .contentShape(Rectangle())
-                    .onTapGesture(count: 1, coordinateSpace: .local) { location in
-                        handlePageTap(location, width: geo.size.width)
-                    }
+                    .id(config.pageAnim)
+                    // 点击分发由 PageContentView 内部手势统一处理，
+                    // 这里不再叠加 onTapGesture 避免双重触发。
                 } else {
                     ProgressView()
                 }
@@ -67,8 +82,8 @@ struct LocalReaderView: View {
                 chrome
                     .zIndex(20)
             }
-            .task(id: key) {
-                await repaginate(key: key, pageSize: pageSize)
+            .task(id: paginationKey) {
+                await repaginate(key: paginationKey, pageSize: pageSize)
             }
             .task(id: autoRead) {
                 guard autoRead else { return }
@@ -95,10 +110,10 @@ struct LocalReaderView: View {
         }
         .onChange(of: viewModel.currentIndex) { _, _ in
             if !pendingJumpToLastPage { pageIndex = 0 }
-            if speech.isSpeaking, pageIndex < pages.count { speech.speak(pages[pageIndex]) }
+            if speech.isSpeaking, pageIndex < pages.count { speech.speak(pages[pageIndex].plainText) }
         }
         .onChange(of: pageIndex) { _, _ in
-            if speech.isSpeaking, pageIndex < pages.count { speech.speak(pages[pageIndex]) }
+            if speech.isSpeaking, pageIndex < pages.count { speech.speak(pages[pageIndex].plainText) }
         }
     }
 
@@ -203,7 +218,7 @@ struct LocalReaderView: View {
                 Spacer()
                 immersiveToolButton(speech.isSpeaking ? "headphones.circle.fill" : "headphones", "TTS") {
                     guard pageIndex < pages.count else { return }
-                    speech.toggle(pages[pageIndex])
+                    speech.toggle(pages[pageIndex].plainText)
                 }
                 Spacer()
                 immersiveToolButton("gearshape", "设置") { showSettings = true }
@@ -295,29 +310,47 @@ struct LocalReaderView: View {
         guard !viewModel.currentContent.isEmpty else {
             pages = []; paginatedForKey = key; return
         }
+
+        // 单飞分页：快速拖动滑杆时旧任务自动作废。
+        let taskID = UUID()
+        paginationTaskID = taskID
+
         let font = config.uiFont
+        let textColor = UIColor(config.currentTheme.textColor)
+        let badgeColor = UIColor.secondaryLabel
         let lSpacing = config.lineSpacing
         let pSpacing = config.paragraphSpacing
         let indent = config.indentPixels
         let content = viewModel.currentContent
         let alignment = config.coreTextAlignment
+        let chapterIndex = viewModel.currentIndex
 
-        // 使用 detached 任务避免阻塞主线程，但需检查取消状态
         let result = await Task.detached(priority: .userInitiated) {
-            TextPaginator.paginate(
-                text: content,
+            ReaderPageComposer.compose(
+                content: content,
+                markers: [],
+                legacyReviewLinks: false,
+                reviewCounts: [:],
                 font: font,
+                textColor: textColor,
+                badgeColor: badgeColor,
                 lineSpacing: lSpacing,
                 paragraphSpacing: pSpacing,
                 firstLineIndent: indent,
                 alignment: alignment,
-                pageSize: pageSize
+                pageSize: pageSize,
+                buildKey: key
             )
         }.value
 
-        // 检查任务是否已取消，避免设置过期的状态
-        guard !Task.isCancelled else { return }
+        guard taskID == paginationTaskID else { return }
+        guard chapterIndex == viewModel.currentIndex else { return }
 
+        guard let result, !result.isEmpty else {
+            pages = []
+            paginatedForKey = key
+            return
+        }
         pages = result
         if pendingJumpToLastPage {
             pageIndex = max(0, result.count - 1)

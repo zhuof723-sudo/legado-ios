@@ -36,38 +36,18 @@ public enum ReviewLinkHelper {
         return Int(components[1].replacingOccurrences(of: "-", with: ""))
     }
 
-    /// 给普通纯文本段落添加兼容段评入口。
-    public static func attachReviewLinks(
-        to text: String,
-        attributes: [NSAttributedString.Key: Any],
-        reviewCounts: [Int: Int] = [:]
-    ) -> NSAttributedString {
-        let paragraphs = text.components(separatedBy: "\n")
-        let result = NSMutableAttributedString()
-        for (index, paragraph) in paragraphs.enumerated() {
-            result.append(NSAttributedString(string: paragraph, attributes: attributes))
-            if index < paragraphs.count - 1 {
-                var linkAttributes = attributes
-                linkAttributes[.link] = reviewURL(for: index)
-                linkAttributes[.foregroundColor] = UIColor.systemGray
-                let count = reviewCounts[index] ?? 0
-                let title = count > 0 ? "  💬\(min(count, 999))" : reviewButtonText
-                result.append(NSAttributedString(string: title, attributes: linkAttributes))
-                result.append(NSAttributedString(string: "\n", attributes: attributes))
-            }
-        }
-        return result
-    }
+    // MARK: - 富文本构建（分页前调用，附件宽度参与排版测量）
 
-    /// 将正文中私有区 marker 替换成可点击的段评图标，并保留普通文本。
-    /// 这里不能用 NSRegularExpression 扫 U+E000...U+F8FF：ICU 不接受
-    /// `[\u{E000}-...]` 这种 Swift 风格十六进制范围，旧版会在这一行直接 SIGTRAP；
-    /// 而使用 ICU 的 `[\uE000-\uFFFF]` 又会把中文正文一起匹配掉。
-    public static func attachInlineReviewLinks(
-        to text: String,
+    /// 构建带内嵌段评气泡的整章富文本。
+    /// PUA 占位符（U+E000...U+F8FF）在这里替换为 NSTextAttachment 气泡；
+    /// 由于发生在分页之前，气泡的真实宽度会参与每一页的排版测量，
+    /// 页面不会因“量页窄、渲染宽”而被 UITextView 顶出可见区。
+    public static func buildInlineReviewContent(
+        text: String,
         markers: [InlineReviewMarker],
         attributes: [NSAttributedString.Key: Any],
-        reviewCounts: [Int: Int] = [:]
+        reviewCounts: [Int: Int],
+        badgeColor: UIColor
     ) -> NSAttributedString {
         var map: [Int: InlineReviewMarker] = [:]
         map.reserveCapacity(markers.count)
@@ -95,27 +75,12 @@ public enum ReviewLinkHelper {
             }
             let id = Int(scalarValue) - 0xE000
             if let marker = map[id] {
-                let fallbackCount = reviewCounts[marker.paragraphIndex] ?? 0
-                let countText = marker.count.isEmpty
-                    ? (fallbackCount > 0 ? "\(min(fallbackCount, 999))" : "")
-                    : marker.count
-                let image = ReviewBadgeRenderer.bubble(
-                    count: countText,
-                    pointSize: (attributes[.font] as? UIFont)?.pointSize ?? 17,
-                    color: UIColor.secondaryLabel
-                )
-                let attachment = NSTextAttachment()
-                attachment.image = image
-                attachment.bounds = CGRect(
-                    x: 0,
-                    y: ((attributes[.font] as? UIFont)?.descender ?? -3) - max(2, image.size.height * 0.04),
-                    width: image.size.width,
-                    height: image.size.height
-                )
-                let markerString = NSMutableAttributedString(attachment: attachment)
-                markerString.addAttribute(.link, value: markerURL(for: marker.id), range: NSRange(location: 0, length: markerString.length))
-                markerString.addAttribute(.accessibilityTextCustom, value: marker.title, range: NSRange(location: 0, length: markerString.length))
-                result.append(markerString)
+                result.append(makeBubbleString(
+                    marker: marker,
+                    fallbackCount: reviewCounts[marker.paragraphIndex] ?? 0,
+                    attributes: attributes,
+                    badgeColor: badgeColor
+                ))
             }
             index += 1
             cursor = index
@@ -126,10 +91,71 @@ public enum ReviewLinkHelper {
         return result
     }
 
+    /// 兼容模式的整章富文本：普通段落 + 末尾 💬 角标（无内嵌段评图的书源）。
+    public static func buildLegacyReviewContent(
+        text: String,
+        attributes: [NSAttributedString.Key: Any],
+        reviewCounts: [Int: Int]
+    ) -> NSAttributedString {
+        let paragraphs = text.components(separatedBy: "\n")
+        let result = NSMutableAttributedString()
+        for (index, paragraph) in paragraphs.enumerated() {
+            result.append(NSAttributedString(string: paragraph, attributes: attributes))
+            if index < paragraphs.count - 1 {
+                var linkAttributes = attributes
+                linkAttributes[.link] = reviewURL(for: index)
+                linkAttributes[.foregroundColor] = UIColor.systemGray
+                let count = reviewCounts[index] ?? 0
+                let title = count > 0 ? "  💬\(min(count, 999))" : reviewButtonText
+                result.append(NSAttributedString(string: title, attributes: linkAttributes))
+                result.append(NSAttributedString(string: "\n", attributes: attributes))
+            }
+        }
+        return result
+    }
+
+    private static func makeBubbleString(
+        marker: InlineReviewMarker,
+        fallbackCount: Int,
+        attributes: [NSAttributedString.Key: Any],
+        badgeColor: UIColor
+    ) -> NSAttributedString {
+        let countText = marker.count.isEmpty
+            ? (fallbackCount > 0 ? "\(min(fallbackCount, 999))" : "")
+            : marker.count
+        let pointSize = (attributes[.font] as? UIFont)?.pointSize ?? 17
+        let image = ReviewBadgeRenderer.bubble(
+            count: countText,
+            pointSize: pointSize,
+            color: badgeColor
+        )
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        attachment.bounds = CGRect(
+            x: 0,
+            y: ((attributes[.font] as? UIFont)?.descender ?? -3) - max(2, image.size.height * 0.04),
+            width: image.size.width,
+            height: image.size.height
+        )
+        let bubble = NSMutableAttributedString(attachment: attachment)
+        bubble.addAttribute(
+            .link,
+            value: markerURL(for: marker.id),
+            range: NSRange(location: 0, length: bubble.length)
+        )
+        bubble.addAttribute(
+            .accessibilityTextCustom,
+            value: marker.title,
+            range: NSRange(location: 0, length: bubble.length)
+        )
+        return bubble
+    }
+
     public static func extractPlainText(from attributedText: NSAttributedString) -> String {
         let plain = NSMutableAttributedString(attributedString: attributedText)
         plain.removeAttribute(.link, range: NSRange(location: 0, length: plain.length))
         return plain.string
             .replacingOccurrences(of: "\\s*💬[0-9]*", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\u{FFFC}", with: "")
     }
 }

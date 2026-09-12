@@ -17,8 +17,9 @@ struct ReaderView: View {
     @StateObject private var speech = ReaderSpeechController()
     @AppStorage("reader.autoRead") private var autoRead = false
 
-    @State private var pages: [String] = []
+    @State private var pages: [ReaderPage] = []
     @State private var paginatedForKey = ""
+    @State private var paginationTaskID: UUID?
     @State private var pageIndex = 0
     @State private var pendingJumpToLastPage = false
     @State private var showControls = false
@@ -69,8 +70,25 @@ struct ReaderView: View {
                 width: max(fullWidth - config.paddingH * 2, 1),
                 height: max(fullHeight - config.paddingTop - config.paddingBottom, 1)
             )
-            let paginationKey = "\(viewModel.currentContent.hashValue)|\(Int(config.fontSize))|\(config.lineSpacing)|\(config.bold)|\(config.paragraphSpacing)|\(config.paragraphIndent)|"
-                + "\(Int(pageSize.width))x\(Int(pageSize.height))|\(viewModel.currentIndex)"
+            let contentIdentity = "len\(viewModel.currentContent.count)-\(viewModel.currentContent.hashValue)"
+            let markerKey = viewModel.currentReviewMarkers
+                .map { "\($0.id):\($0.paragraphIndex):\($0.source):\($0.count):\($0.action ?? "")" }
+                .joined(separator: ",")
+            let reviewKey = reviewCounts.isEmpty
+                ? "0"
+                : reviewCounts.keys.sorted().map { "\($0)=\(reviewCounts[$0] ?? 0)" }.joined(separator: ",")
+            let paginationKey = [
+                contentIdentity, // 结构化正文身份：不再对长正文做 O(n) hash
+                "f\(Int(config.fontSize))",
+                "ls\(Int(config.lineSpacing))",
+                "ps\(Int(config.paragraphSpacing))",
+                "in\(config.paragraphIndent)",
+                "b\(config.bold ? 1 : 0)",
+                "pg\(Int(pageSize.width))x\(Int(pageSize.height))",
+                "mk\(markerKey)",
+                "rv\(reviewKey)",
+                "ch\(viewModel.currentIndex)"
+            ].joined(separator: "|")
 
             ZStack {
                 config.currentTheme.background.ignoresSafeArea()
@@ -80,14 +98,13 @@ struct ReaderView: View {
                         pages: pages,
                         config: config,
                         currentIndex: $pageIndex,
-                        reviewEnabled: viewModel.reviewEnabled,
+                        legacyReviewEnabled: viewModel.reviewEnabled,
                         onReviewTap: { paragraphIndex in
                             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                             selectedReviewURL = nil
                             presentReview(for: paragraphIndex)
                         },
                         reviewCounts: reviewCounts,
-                        inlineReviewMarkers: viewModel.currentReviewMarkers,
                         onInlineReviewTap: { markerID in
                             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                             handleInlineReviewTap(markerID)
@@ -104,11 +121,15 @@ struct ReaderView: View {
                             browserDestination = nil
                         }
                     )
-                    .id("\(config.pageAnim)_\(config.themeId)_\(config.nightMode)_reviews\(viewModel.currentReviewMarkers.map { "\($0.id):\($0.paragraphIndex):\($0.source)" }.joined(separator: "|").hashValue)")
+                    // 主题/夜间/动画档位已交给 refreshAppearance 热刷新，
+                    // 不再通过 .id 强制重建整个 UIKit 容器（消除断崖闪烁）。
                     // 全屏铺满：忽略安全区，翻页折角/滑动效果延伸到
-                    // 状态栏顶部与 Home 指示条底部（要求 3/4）。
+                    // 状态栏顶部与 Home 指示条底部。
                     .ignoresSafeArea(.container, edges: .all)
                     .contentShape(Rectangle())
+                    // 主题/夜间切换走 refreshAppearance 热刷新；
+                    // 只有翻页模式切换才通过 identity 重建容器。
+                    .id(config.pageAnim)
                     // 点击分发由 PageContentView 内部手势统一处理（段评入口 /
                     // 外点回调），这里不再叠加 onTapGesture 避免双重触发。
                 } else if viewModel.isLoadingContent || viewModel.isLoadingToc {
@@ -191,10 +212,10 @@ struct ReaderView: View {
             // pendingJumpToLastPage 把页码恢复到上一章末页。
             if !pendingJumpToLastPage { pageIndex = 0 }
             saveProgress()
-            if speech.isSpeaking, pageIndex < pages.count { speech.speak(pages[pageIndex]) }
+            if speech.isSpeaking, pageIndex < pages.count { speech.speak(pages[pageIndex].plainText) }
         }
         .onChange(of: pageIndex) { _, _ in
-            if speech.isSpeaking, pageIndex < pages.count { speech.speak(pages[pageIndex]) }
+            if speech.isSpeaking, pageIndex < pages.count { speech.speak(pages[pageIndex].plainText) }
         }
     }
 
@@ -328,7 +349,7 @@ struct ReaderView: View {
                 Spacer()
                 immersiveToolButton(speech.isSpeaking ? "headphones.circle.fill" : "headphones", "TTS") {
                     guard pageIndex < pages.count else { return }
-                    speech.toggle(pages[pageIndex])
+                    speech.toggle(pages[pageIndex].plainText)
                 }
                 Spacer()
                 immersiveToolButton("gearshape", "设置") { showSettings = true }
@@ -388,26 +409,51 @@ struct ReaderView: View {
             paginatedForKey = key
             return
         }
+
+        // 单飞分页：同一时刻只有一个分页任务生效，旧任务自然作废，
+        // 拖动字号/行距滑杆时不再并发竞争，也不阻塞主线程。
+        let taskID = UUID()
+        paginationTaskID = taskID
+
         let font = config.uiFont
+        let textColor = UIColor(config.currentTheme.textColor)
+        let badgeColor = UIColor.secondaryLabel
         let lSpacing = config.lineSpacing
         let pSpacing = config.paragraphSpacing
         let indent = config.indentPixels
         let alignment = config.coreTextAlignment
+        let markers = viewModel.currentReviewMarkers
+        let legacy = viewModel.reviewEnabled
+        let counts = reviewCounts
+        let chapterIndex = viewModel.currentIndex
 
         let result = await Task.detached(priority: .userInitiated) {
-            TextPaginator.paginate(
-                text: content,
+            ReaderPageComposer.compose(
+                content: content,
+                markers: markers,
+                legacyReviewLinks: legacy,
+                reviewCounts: counts,
                 font: font,
+                textColor: textColor,
+                badgeColor: badgeColor,
                 lineSpacing: lSpacing,
                 paragraphSpacing: pSpacing,
                 firstLineIndent: indent,
                 alignment: alignment,
-                pageSize: pageSize
+                pageSize: pageSize,
+                buildKey: key
             )
         }.value
 
-        guard !Task.isCancelled else { return }
-        guard content == viewModel.currentContent else { return }
+        // 任务已被更新的一轮取代（如快速拖动滑杆），丢弃本次结果。
+        guard taskID == paginationTaskID else { return }
+        guard content == viewModel.currentContent, chapterIndex == viewModel.currentIndex else { return }
+
+        guard let result, !result.isEmpty else {
+            pages = []
+            paginatedForKey = key
+            return
+        }
         pages = result
         if pendingJumpToLastPage {
             pageIndex = max(0, result.count - 1)
