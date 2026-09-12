@@ -110,10 +110,11 @@ final class ReaderConfig: ObservableObject {
         self.pageAnim = defaults.object(forKey: Keys.pageAnim) as? Int ?? PageAnimationType.pageScroll.rawValue
         self.fontSize = defaults.object(forKey: Keys.fontSize) as? Double ?? 18
         self.bold = defaults.object(forKey: Keys.bold) as? Bool ?? false
-        self.lineSpacing = defaults.object(forKey: Keys.lineSpacing) as? Double ?? 6
-        self.paragraphSpacing = defaults.object(forKey: Keys.paragraphSpacing) as? Double ?? 10
+        // 参考项目默认排版：行距倍数 1.65(字号18 → 11.7pt)、段距 0.8×字号(14.4)、左右边距 24。
+        self.lineSpacing = defaults.object(forKey: Keys.lineSpacing) as? Double ?? 12
+        self.paragraphSpacing = defaults.object(forKey: Keys.paragraphSpacing) as? Double ?? 14
         self.paragraphIndent = defaults.object(forKey: Keys.paragraphIndent) as? Int ?? 2
-        self.paddingH = defaults.object(forKey: Keys.paddingH) as? Double ?? 20
+        self.paddingH = defaults.object(forKey: Keys.paddingH) as? Double ?? 24
         self.paddingTop = defaults.object(forKey: Keys.paddingTop) as? Double ?? 50
         self.paddingBottom = defaults.object(forKey: Keys.paddingBottom) as? Double ?? 40
         self.themeId = defaults.object(forKey: Keys.themeId) as? String ?? "beige"

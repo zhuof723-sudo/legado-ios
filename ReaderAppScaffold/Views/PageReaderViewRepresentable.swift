@@ -610,7 +610,12 @@ final class SlidePageReader: UIViewController, PageReaderContainer, UIGestureRec
     private var interactiveNextPage: PageContentView?
     private var interactiveDirection = 0
     private var interactiveTargetIndex = 0
-    private let seamShadow = CAGradientLayer()
+    /// 覆盖动画三件套（参考项目 CoreTextPagedView 同款）：
+    /// 新页快照(带屏幕圆角) / 其下方投影 / 后退时的旧页渐暗层。
+    private let coverIncomingImageView = UIImageView()
+    private let coverShadowView = UIView()
+    private let coverDimView = UIView()
+    private var coverOverlayInstalled = false
 
     init(pages: [String], config: ReaderConfig, initialIndex: Int) {
         self.pages = pages
@@ -635,9 +640,6 @@ final class SlidePageReader: UIViewController, PageReaderContainer, UIGestureRec
         super.viewDidLayoutSubviews()
         if !isTransitioning, let page = currentPageView {
             page.frame = view.bounds
-            if page.layer.shadowOpacity > 0 {
-                seamShadow.frame = CGRect(x: -26, y: 0, width: 26, height: view.bounds.height)
-            }
         }
     }
 
@@ -654,6 +656,50 @@ final class SlidePageReader: UIViewController, PageReaderContainer, UIGestureRec
         let velocity = pan.velocity(in: view)
         // 只把明显的左右手势当作翻页，避免上下滚动/拖动文字时触发覆盖动画。
         return abs(velocity.x) > abs(velocity.y) * 1.15
+    }
+
+    /// 屏幕物理圆角（参考项目取 displayCornerRadius 的做法）。
+    private var screenCornerRadius: CGFloat {
+        let r = (UIScreen.main.value(forKey: "displayCornerRadius") as? CGFloat) ?? 0
+        return r > 0 ? r : 12
+    }
+
+    /// 搭建覆盖层：新页快照（圆角裁切）+ 下方投影 + 旧页渐暗层。
+    private func setupCoverOverlay() {
+        guard !coverOverlayInstalled else { return }
+        coverOverlayInstalled = true
+        let radius = screenCornerRadius
+
+        coverShadowView.backgroundColor = .clear
+        coverShadowView.layer.shadowColor = UIColor.black.cgColor
+        coverShadowView.layer.shadowOpacity = 0.3
+        coverShadowView.layer.shadowRadius = 14
+        coverShadowView.layer.shadowOffset = .zero
+
+        coverIncomingImageView.contentMode = .scaleAspectFill
+        coverIncomingImageView.clipsToBounds = true
+        coverIncomingImageView.layer.cornerRadius = radius
+
+        coverDimView.backgroundColor = .black
+        coverDimView.alpha = 0
+        coverDimView.isUserInteractionEnabled = false
+    }
+
+    /// 从页面内容页截快照。
+    private func snapshotImage(of pageView: UIView) -> UIImage? {
+        pageView.layoutIfNeeded()
+        return UIGraphicsImageRenderer(bounds: pageView.bounds).image { _ in
+            pageView.drawHierarchy(in: pageView.bounds, afterScreenUpdates: true)
+        }
+    }
+
+    /// 收起覆盖动画层（快照/投影/渐暗），恢复静止显示。
+    private func removeCoverOverlay() {
+        coverIncomingImageView.removeFromSuperview()
+        coverShadowView.removeFromSuperview()
+        coverDimView.removeFromSuperview()
+        coverShadowView.addSubview(coverIncomingImageView) // 复位层级供下次使用
+        coverDimView.alpha = 0
     }
 
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
@@ -679,13 +725,23 @@ final class SlidePageReader: UIViewController, PageReaderContainer, UIGestureRec
             interactiveTargetIndex = target
             isTransitioning = true
 
-            // 参考图一：两页始终全宽平移，上一层左缘压一条柔和接缝阴影。
+            // 参考项目覆盖动画层级搭建：
+            // 前进：快照层(圆角+投影)盖在当前页上，真页暂不加视图；
+            // 后退：上一页插到当前页下层，当前页滑出时渐暗。
+            setupCoverOverlay()
             if direction > 0 {
-                view.addSubview(interactiveNextPage!)
+                guard let old = interactiveOldPage else { return }
+                let snap = snapshotImage(of: interactiveNextPage!)
+                coverIncomingImageView.image = snap
+                coverIncomingImageView.frame = view.bounds
+                coverShadowView.frame = view.bounds
+                coverShadowView.addSubview(coverIncomingImageView)
+                view.addSubview(coverShadowView)
+                _ = old
             } else if let old = interactiveOldPage {
                 view.insertSubview(interactiveNextPage!, belowSubview: old)
-            } else {
-                view.addSubview(interactiveNextPage!)
+                coverDimView.frame = view.bounds
+                view.addSubview(coverDimView)
             }
             applyInteractiveProgress(0)
 
@@ -723,47 +779,27 @@ final class SlidePageReader: UIViewController, PageReaderContainer, UIGestureRec
         }
     }
 
-    /// 参考图一的滑动几何：两页做同步的刚性整页平移（像两块整板推开），
-    /// 上层页左边缘带一条柔和的接缝阴影；下层页保持静止不被视差位移。
+    /// 参考项目 CoreTextPagedView 的覆盖动画：
+    /// 前进：新页（快照，带屏幕圆角+投影）从右侧整页滑入盖住静止当前页；
+    /// 后退：当前页向右滑出，下层上一页原位露出，同时旧页逐渐变暗。
     private func applyInteractiveProgress(_ progress: CGFloat) {
         guard let old = interactiveOldPage,
               let next = interactiveNextPage else { return }
         let width = max(view.bounds.width, 1)
 
         if interactiveDirection > 0 {
-            // 前进：新页从右侧滑入盖住静止的当前页。
-            next.frame = view.bounds.offsetBy(dx: width * (1 - progress), dy: 0)
+            // 前进：新页整页滑入（快照层跟随移动），当前页静止。
             old.frame = view.bounds
-            setSeamShadow(on: next, progress: progress)
+            coverShadowView.frame = next.frame.offsetBy(dx: width * (1 - progress), dy: 0)
+            coverIncomingImageView.frame = coverShadowView.frame
+            coverShadowView.alpha = 1
         } else {
-            // 后退：当前页向右滑出，露出静止在下层的上一页。
-            old.frame = view.bounds.offsetBy(dx: width * progress, dy: 0)
+            // 后退：当前页整页滑出 + 渐暗；下层上一页静止。
             next.frame = view.bounds
-            setSeamShadow(on: old, progress: progress)
+            old.frame = view.bounds.offsetBy(dx: width * progress, dy: 0)
+            coverDimView.frame = view.bounds
+            coverDimView.alpha = 0.25 * progress
         }
-    }
-
-    /// 在滑动页左缘贴一条水平渐变阴影（黑色向透明），模拟参考图中
-    /// 两页衔接处淡淡的投影；接缝永远跟着滑动页边缘移动。
-    private func setSeamShadow(on topPage: PageContentView, progress: CGFloat) {
-        seamShadow.removeFromSuperlayer()
-        guard progress > 0.001 else { return }
-        seamShadow.frame = CGRect(
-            x: topPage.frame.minX - 26, y: 0, width: 26, height: view.bounds.height
-        )
-        seamShadow.colors = [
-            UIColor.black.withAlphaComponent(0).cgColor,
-            UIColor.black.withAlphaComponent(0.16).cgColor
-        ]
-        seamShadow.startPoint = CGPoint(x: 0, y: 0.5)
-        seamShadow.endPoint = CGPoint(x: 1, y: 0.5)
-        view.layer.insertSublayer(seamShadow, above: subviewLayer(below: topPage))
-    }
-
-    /// 拿到滑动页下面那层（页面或根视图）作为阴影的插入锚点。
-    private func subviewLayer(below page: UIView) -> CALayer? {
-        guard let idx = view.subviews.firstIndex(of: page), idx > 0 else { return view.layer }
-        return view.subviews[idx - 1].layer
     }
 
     private func completeInteractivePan(progress: CGFloat, finish: Bool, cancelled: Bool) {
@@ -785,8 +821,10 @@ final class SlidePageReader: UIViewController, PageReaderContainer, UIGestureRec
             } completion: { [weak self] _ in
                 guard let self else { return }
                 old.removeFromSuperview()
+                // 快照层退场后让真页上台（此前只在下层等待）。
+                if next.superview == nil { self.view.addSubview(next) }
                 next.frame = self.view.bounds
-                self.seamShadow.removeFromSuperlayer()
+                self.removeCoverOverlay()
                 self.currentPageView = next
                 self.currentIndex = target
                 self.onPageChanged?(target)
@@ -806,7 +844,7 @@ final class SlidePageReader: UIViewController, PageReaderContainer, UIGestureRec
                 guard let self else { return }
                 next.removeFromSuperview()
                 old.frame = self.view.bounds
-                self.seamShadow.removeFromSuperlayer()
+                self.removeCoverOverlay()
                 self.currentPageView = old
                 self.interactiveOldPage = nil
                 self.interactiveNextPage = nil
@@ -849,42 +887,49 @@ final class SlidePageReader: UIViewController, PageReaderContainer, UIGestureRec
         }
 
         isTransitioning = true
-        // 程序化翻页与参考图一致：整页平移覆盖，接缝阴影跟随移动页左缘。
+        // 程序化翻页与手势一致：覆盖式整页平移（圆角快照+投影/渐暗）。
+        setupCoverOverlay()
         if direction >= 0 {
-            next.frame = view.bounds.offsetBy(dx: width, dy: 0)
-            view.addSubview(next)
-            setSeamShadow(on: next, progress: 1)
+            let snap = snapshotImage(of: next)
+            coverIncomingImageView.image = snap
+            coverIncomingImageView.frame = view.bounds.offsetBy(dx: width, dy: 0)
+            coverShadowView.frame = coverIncomingImageView.frame
+            coverShadowView.addSubview(coverIncomingImageView)
+            view.addSubview(coverShadowView)
             UIView.animate(
                 withDuration: 0.30,
                 delay: 0,
                 options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
             ) {
-                next.frame = self.view.bounds
+                self.coverIncomingImageView.frame = self.view.bounds
+                self.coverShadowView.frame = self.view.bounds
             } completion: { [weak self] _ in
                 guard let self else { return }
                 old?.removeFromSuperview()
                 next.frame = self.view.bounds
-                self.seamShadow.removeFromSuperlayer()
+                self.view.addSubview(next)
+                self.removeCoverOverlay()
                 self.currentPageView = next
                 self.currentIndex = index
                 self.isTransitioning = false
                 self.onPageChanged?(index)
             }
         } else {
-            next.frame = view.bounds
             view.insertSubview(next, belowSubview: old!)
-            setSeamShadow(on: old!, progress: 1)
+            coverDimView.frame = view.bounds
+            view.addSubview(coverDimView)
             UIView.animate(
                 withDuration: 0.30,
                 delay: 0,
                 options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
             ) {
                 old?.frame = self.view.bounds.offsetBy(dx: width, dy: 0)
+                self.coverDimView.alpha = 0.25
             } completion: { [weak self] _ in
                 guard let self else { return }
                 old?.removeFromSuperview()
                 next.frame = self.view.bounds
-                self.seamShadow.removeFromSuperlayer()
+                self.removeCoverOverlay()
                 self.currentPageView = next
                 self.currentIndex = index
                 self.isTransitioning = false
@@ -1094,7 +1139,14 @@ struct PageReaderViewRepresentable: UIViewControllerRepresentable {
     private func makeReader(for anim: PageAnimationType) -> PageReaderContainer {
         switch anim {
         case .pageCurl:
-            return FoldPageReader(pages: pages, config: config, initialIndex: currentIndex)
+            // 参考项目同款：系统 UIPageViewController .pageCurl + 双面页（Apple Books 风格）。
+            return NativePageReader(
+                pages: pages,
+                config: config,
+                initialIndex: currentIndex,
+                transitionStyle: .pageCurl,
+                doubleSided: true
+            )
         case .cover:
             return SlidePageReader(pages: pages, config: config, initialIndex: currentIndex)
         case .pageScroll:
