@@ -104,7 +104,8 @@ public enum ReviewLinkHelper {
             if index < paragraphs.count - 1 {
                 var linkAttributes = attributes
                 linkAttributes[.link] = reviewURL(for: index)
-                linkAttributes[.foregroundColor] = UIColor.systemGray
+                // 链接文本颜色不烘焙（textColor 之外的颜色会参与 run 存储），
+                // 由显示端 linkTextAttributes 供给，主题切换随 textColor 热刷新。
                 let count = reviewCounts[index] ?? 0
                 let title = count > 0 ? "  💬\(min(count, 999))" : reviewButtonText
                 result.append(NSAttributedString(string: title, attributes: linkAttributes))

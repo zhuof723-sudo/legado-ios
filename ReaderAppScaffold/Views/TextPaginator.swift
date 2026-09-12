@@ -35,7 +35,6 @@ enum ReaderPageComposer {
         legacyReviewLinks: Bool,
         reviewCounts: [Int: Int],
         font: UIFont,
-        textColor: UIColor,
         badgeColor: UIColor,
         lineSpacing: CGFloat,
         paragraphSpacing: CGFloat,
@@ -53,9 +52,13 @@ enum ReaderPageComposer {
         paragraphStyle.alignment = alignment
         paragraphStyle.firstLineHeadIndent = firstLineIndent
 
+        // 关键：正文 run 不携带 foregroundColor——颜色不参与排版度量，
+        // 由显示端 textView.textColor 供给。这样主题/夜间切换只需改
+        // textColor（纯重绘，不重新布局），分页产物完全复用。
+        // 段评链接文本的颜色（systemGray）保留在 run 上，因为它语义上
+        // 就是链接的装饰色。
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: textColor,
             .paragraphStyle: paragraphStyle
         ]
 

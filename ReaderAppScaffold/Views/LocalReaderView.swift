@@ -29,6 +29,13 @@ struct LocalReaderView: View {
     private var bgColor: Color { config.currentTheme.background }
     private var textColor: Color { config.currentTheme.textColor }
 
+    /// 正文指纹：O(1) 长度+首尾采样，替代整章 hashValue。
+    private func contentFingerprint(_ text: String) -> String {
+        let head = text.prefix(32)
+        let tail = text.suffix(32)
+        return "\(text.count)-\(head)-\(tail)"
+    }
+
     private var brightnessBinding: Binding<Double> {
         Binding(
             get: { Double(UIScreen.main.brightness) },
@@ -46,7 +53,7 @@ struct LocalReaderView: View {
                 height: max(fullHeight - config.paddingTop - config.paddingBottom, 1)
             )
             let paginationKey = [
-                "len\(viewModel.currentContent.count)-\(viewModel.currentContent.hashValue)",
+                "c\(contentFingerprint(viewModel.currentContent))",
                 "f\(Int(config.fontSize))",
                 "ls\(Int(config.lineSpacing))",
                 "ps\(Int(config.paragraphSpacing))",
@@ -316,8 +323,7 @@ struct LocalReaderView: View {
         paginationTaskID = taskID
 
         let font = config.uiFont
-        let textColor = UIColor(config.currentTheme.textColor)
-        let badgeColor = UIColor.secondaryLabel
+        let badgeColor = UIColor.systemGray // 固定中性灰：明暗主题下同一张图，切换主题不需要重新分页
         let lSpacing = config.lineSpacing
         let pSpacing = config.paragraphSpacing
         let indent = config.indentPixels
@@ -332,7 +338,6 @@ struct LocalReaderView: View {
                 legacyReviewLinks: false,
                 reviewCounts: [:],
                 font: font,
-                textColor: textColor,
                 badgeColor: badgeColor,
                 lineSpacing: lSpacing,
                 paragraphSpacing: pSpacing,

@@ -6,6 +6,8 @@ import LegadoRuleEngine
 
 /// 单张书页。文字直接取自分页产出的 ReaderPage.attributed（TextKit1 测量与
 /// 渲染同源），上屏零改动，杜绝分页/显示排版不一致引起的字体错位。
+/// 注意：正文 run 不带 foregroundColor，颜色由 textView.textColor 供给，
+/// 主题/夜间切换只改 textColor 即可热刷新，不需要重新分页。
 final class PageContentView: UIView, UITextViewDelegate, UIGestureRecognizerDelegate {
     private let page: ReaderPage
     let config: ReaderConfig
@@ -17,7 +19,12 @@ final class PageContentView: UIView, UITextViewDelegate, UIGestureRecognizerDele
     var onOutsideTap: ((CGPoint) -> Void)?
     private let pageBackgroundImageView = UIImageView()
     private let contentView = UIView()
-    private let textView = UITextView()
+    /// 显式 TextKit1 栈：与分页器共用同一排版引擎，断行完全一致，
+    /// 也避开 iOS16+ UITextView 访问 layoutManager 触发的 TextKit2 混合模式。
+    private let textStorage = NSTextStorage()
+    private let layoutManager = NSLayoutManager()
+    private let textContainer: NSTextContainer
+    private let textView: UITextView
     /// 预留给后续阅读背景图。背景属于整张页面，而不是父级容器。
     var backgroundImage: UIImage? {
         get { pageBackgroundImageView.image }
@@ -31,13 +38,26 @@ final class PageContentView: UIView, UITextViewDelegate, UIGestureRecognizerDele
     init(page: ReaderPage, config: ReaderConfig) {
         self.page = page
         self.config = config
+        self.textContainer = NSTextContainer(size: CGSize(
+            width: 1,
+            height: CGFloat.greatestFiniteMagnitude
+        ))
+        self.textContainer.lineFragmentPadding = 0
+        self.textContainer.lineBreakMode = NSLineBreakMode.byWordWrapping
+        self.textContainer.widthTracksTextView = true
+        self.textContainer.heightTracksTextView = false
         super.init(frame: .zero)
-        setupTextView()
+
+        layoutManager.addTextContainer(textContainer)
+        textStorage.addLayoutManager(layoutManager)
+        textView = UITextView(frame: .zero, textContainer: textContainer)
+
+        setupViews()
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    private func setupTextView() {
+    private func setupViews() {
         backgroundColor = UIColor(config.currentTheme.background)
         isOpaque = true
 
@@ -74,7 +94,6 @@ final class PageContentView: UIView, UITextViewDelegate, UIGestureRecognizerDele
         textView.isSelectable = true
         textView.isScrollEnabled = false
         textView.textContainerInset = .zero
-        textView.textContainer.lineFragmentPadding = 0
         textView.showsVerticalScrollIndicator = false
         textView.showsHorizontalScrollIndicator = false
         textView.delegate = self
@@ -83,7 +102,6 @@ final class PageContentView: UIView, UITextViewDelegate, UIGestureRecognizerDele
             .foregroundColor: UIColor.systemGray,
             .underlineColor: UIColor.clear
         ]
-        _ = textView.layoutManager // 强制 TextKit1：与分页器共用同一排版引擎
 
         // 捕获阶段监听所有触摸：段评入口由 shouldInteractWith 正常处理，
         // 其余位置冒泡到 onOutsideTap 用于收起段评弹层。
@@ -115,6 +133,8 @@ final class PageContentView: UIView, UITextViewDelegate, UIGestureRecognizerDele
 
     private func applyPage(_ newPage: ReaderPage) {
         textView.attributedText = newPage.attributed
+        // 颜色不烘焙进 attributed run；textColor 是全文默认前景色，
+        // 主题切换只需改它（改色不触发重新布局，只重绘）。
         textView.textColor = UIColor(config.currentTheme.textColor)
     }
 
@@ -126,6 +146,22 @@ final class PageContentView: UIView, UITextViewDelegate, UIGestureRecognizerDele
         contentTrailingConstraint?.constant = -CGFloat(config.paddingH)
         contentBottomConstraint?.constant = -CGFloat(config.paddingBottom)
         textView.textColor = UIColor(config.currentTheme.textColor)
+    }
+
+    /// 离屏快照：翻页拖动时移动的是这张图（参考 Yuedu renderSnapshot），
+    /// 拖动期间不再逐帧合成活的 TextKit 视图，这是滑动模式跟手的关键。
+    func makeSnapshotImage() -> UIImage? {
+        setNeedsLayout()
+        layoutIfNeeded()
+        guard bounds.width > 1, bounds.height > 1 else { return nil }
+        let format = UIGraphicsImageRendererFormat()
+        format.opaque = true
+        // 2x 足够：快照只在 0.2s 动画里出现，肉眼看不出与 3x 的差别，
+        // 内存和渲染成本减半。
+        format.scale = min(UIScreen.main.scale, 2)
+        return UIGraphicsImageRenderer(bounds: bounds, format: format).image { renderer in
+            layer.render(in: renderer.cgContext)
+        }
     }
 
     // MARK: - 整页点击（区分段评入口与普通区域）
@@ -223,6 +259,7 @@ final class FreeScrollFlowController: UIViewController, UITextViewDelegate, UIGe
     private let pageOffsets: [Int]
 
     private var textView = UITextView()
+    private var containerWidth: CGFloat = 0
 
     var onOutsideTap: ((CGPoint) -> Void)?
     var onReviewTap: ((Int) -> Void)?
@@ -281,7 +318,6 @@ final class FreeScrollFlowController: UIViewController, UITextViewDelegate, UIGe
         layoutManager.addTextContainer(container)
 
         textView = UITextView(frame: .zero, textContainer: container)
-        // UITextView 初始化后仍允许配置属性（frame/textContainer 在 init 时给定）
         textView.backgroundColor = .clear
         textView.isEditable = false
         textView.isSelectable = true
@@ -296,7 +332,8 @@ final class FreeScrollFlowController: UIViewController, UITextViewDelegate, UIGe
             .foregroundColor: UIColor.systemGray,
             .underlineColor: UIColor.clear
         ]
-        _ = textView.layoutManager // TextKit1，与分页器同一排版引擎
+        // 颜色由 textColor 供给（不烘焙进 run），主题热刷新可用。
+        textView.textColor = UIColor(config.currentTheme.textColor)
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
         tap.cancelsTouchesInView = false
@@ -314,8 +351,10 @@ final class FreeScrollFlowController: UIViewController, UITextViewDelegate, UIGe
     }
 
     /// 视图几何就绪后：按当前页宽重排并计算每页起点的 Y 坐标。
-    func recomputePageOrigins(pageWidth: CGFloat, pageHeight: CGFloat) {
-        guard pageWidth > 1 else { return }
+    /// 文字颜色不参与排版，主题切换不会走到这里。
+    func recomputePageOrigins(pageWidth: CGFloat) {
+        guard pageWidth > 1, pageWidth != containerWidth else { return }
+        containerWidth = pageWidth
         let container = textView.textContainer
         container.size = CGSize(width: pageWidth, height: CGFloat.greatestFiniteMagnitude)
 
@@ -323,14 +362,18 @@ final class FreeScrollFlowController: UIViewController, UITextViewDelegate, UIGe
         var origins: [CGFloat] = []
         origins.reserveCapacity(pageOffsets.count)
         for offset in pageOffsets {
-            guard offset < chapterText.length else
-                { origins.append(origins.last ?? 0); continue }
-            let glyphIndex = textView.layoutManager.glyphIndexForCharacter(at: offset)
-            let rect = textView.layoutManager.boundingRect(
-                forGlyphRange: NSRange(location: glyphIndex, length: 0),
-                in: container
-            )
-            origins.append(max(0, rect.minY))
+            if offset < chapterText.length {
+                let glyphIndex = textView.layoutManager.glyphIndexForCharacter(at: offset)
+                let rect = textView.layoutManager.boundingRect(
+                    forGlyphRange: NSRange(location: glyphIndex, length: 0),
+                    in: container
+                )
+                origins.append(max(0, rect.minY))
+            } else if let last = origins.last {
+                origins.append(last)
+            } else {
+                origins.append(0)
+            }
         }
         pageOrigins = origins
     }
@@ -436,17 +479,14 @@ final class FreeScrollReader: UIViewController, PageReaderContainer {
         let size = view.bounds.size
         guard size.width > 0, size.height > 0, !pages.isEmpty else { return }
 
+        // 页宽变化才重算起点（rotate/分栏）；主题切换不再触发这里。
+        let pageWidth = size.width - config.paddingH * 2
         if lastBoundsSize != size {
             lastBoundsSize = size
-            applyFlowGeometry()
+            flow?.recomputePageOrigins(pageWidth: pageWidth)
         }
         if needsInitialScroll, let flow {
             let safe = min(max(currentIndex, 0), pages.count - 1)
-            flow.recomputePageOrigins(
-                pageWidth: size.width - config.paddingH * 2,
-                pageHeight: size.height - config.paddingTop - config.paddingBottom
-            )
-            // 重新计算后立即跳到目标页（不触发动画）。
             flow.scrollTo(page: safe, animated: false)
             currentIndex = safe
             needsInitialScroll = false
@@ -454,8 +494,11 @@ final class FreeScrollReader: UIViewController, PageReaderContainer {
     }
 
     private func rebuildFlow() {
-        flow?.willMove(toParent: nil)
-        flow?.removeFromParent()
+        if let old = flow {
+            old.willMove(toParent: nil)
+            old.view.removeFromSuperview()
+            old.removeFromParent()
+        }
         flow = nil
         guard !pages.isEmpty else { return }
 
@@ -479,15 +522,6 @@ final class FreeScrollReader: UIViewController, PageReaderContainer {
         view.setNeedsLayout()
     }
 
-    private func applyFlowGeometry() {
-        guard let flow else { return }
-        let size = view.bounds.size
-        flow.recomputePageOrigins(
-            pageWidth: size.width - config.paddingH * 2,
-            pageHeight: size.height - config.paddingTop - config.paddingBottom
-        )
-    }
-
     func refreshAppearance() {
         flow?.updateAppearance(
             background: UIColor(config.currentTheme.background),
@@ -509,7 +543,6 @@ final class FreeScrollReader: UIViewController, PageReaderContainer {
         if !animated { onPageChanged?(index) }
     }
 }
-
 
 // MARK: - UIPageViewController 页面包装
 
@@ -644,12 +677,16 @@ final class NativePageReader: UIPageViewController, PageReaderContainer, UIPageV
     }
 }
 
-// MARK: - 滑动（左右跟手推书页）
+// MARK: - 滑动（左右跟手推书页，快照驱动）
 
-/// 滑动翻页：屏幕就是书缝，手指推的是屏幕边缘那张真书页。
+/// 滑动翻页：屏幕就是书缝，手指推的是屏幕边缘那张书页。
 /// 左滑 = 把当前页往左推走，右边露出下一页（下一页永远在右）；
 /// 右滑 = 把上一页从左边推回来盖住当前页（上一页永远在左）。
-/// 两个方向都始终有真纸页跟手，方向由手势位移实时决定、可中途换向。
+///
+/// 性能要点（参考 Yuedu CoreTextPagedView）：拖动期间移动的是**预渲染快照**
+/// （UIGraphicsImageRenderer 一次出图），不是活的 TextKit 视图。
+/// 每帧只做 frame 位移，没有离屏文字合成，拖动因此不掉帧。
+/// 快照在方向确定时一次生成，中途换向时重建一次，均为一次性成本。
 final class SlidePageReader: UIViewController, PageReaderContainer, UIGestureRecognizerDelegate {
     var pages: [ReaderPage] = []
     let config: ReaderConfig
@@ -658,11 +695,27 @@ final class SlidePageReader: UIViewController, PageReaderContainer, UIGestureRec
     var callbacks = ReaderPageCallbacks()
 
     private var currentPageView: PageContentView?
-    private var isTransitioning = false
+
+    // 覆盖动画三件套（Yuedu 同款）：快照层(圆角) / 投影容器 / 旧页渐暗层。
+    private let coverOverlayView = UIView()
+    private let coverIncomingImageView = UIImageView()
+    private let coverShadowView = UIView()
+    private let coverDimView = UIView()
+    private var overlayInstalled = false
+
     private var interactivePage: PageContentView?
     private var interactiveDirection = 0
     private var interactiveTargetIndex = 0
+    private var isTransitioning = false
     private var isTrackingPan = false
+
+    private enum GestureConstants {
+        static let initialTranslationThreshold: CGFloat = 18.0
+        static let commitProgressRatio: CGFloat = 0.34
+        static let commitVelocityThreshold: CGFloat = 560.0
+        static let settleAnimationDuration: TimeInterval = 0.22
+        static let maxDimmingAlpha: CGFloat = 0.35
+    }
 
     init(pages: [ReaderPage], config: ReaderConfig, initialIndex: Int) {
         self.pages = pages
@@ -678,6 +731,7 @@ final class SlidePageReader: UIViewController, PageReaderContainer, UIGestureRec
         view.backgroundColor = UIColor(config.currentTheme.background)
         view.clipsToBounds = true
         installPanGesture()
+        installCoverOverlay()
         if !pages.isEmpty {
             showPage(at: min(max(currentIndex, 0), pages.count - 1), animated: false, direction: 1)
         }
@@ -705,198 +759,235 @@ final class SlidePageReader: UIViewController, PageReaderContainer, UIGestureRec
         return abs(velocity.x) > abs(velocity.y) * 1.15
     }
 
-    /// 屏幕物理圆角（参考项目取 displayCornerRadius 的做法）。
+    /// 屏幕物理圆角（Yuedu 同款 displayCornerRadius）。
     private var screenCornerRadius: CGFloat {
         let r = (UIScreen.main.value(forKey: "displayCornerRadius") as? CGFloat) ?? 0
         return r > 0 ? r : 12
     }
 
-    private var movingPage: UIView?
+    // MARK: 覆盖层搭建（一次性，常驻隐藏）
 
-    /// 保证跟手的书页视图已加入层级并铺满。
-    private func ensureMovingPage() -> UIView? {
-        guard let page = interactivePage else { return nil }
-        if page.superview == nil {
-            view.addSubview(page)
-        }
-        page.frame = view.bounds
-        if let moving = movingPage, moving !== page {
-            view.bringSubviewToFront(page)
-        }
-        return page
+    private func installCoverOverlay() {
+        guard !overlayInstalled else { return }
+        overlayInstalled = true
+
+        coverOverlayView.frame = view.bounds
+        coverOverlayView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        coverOverlayView.isHidden = true
+        coverOverlayView.backgroundColor = .clear
+        coverOverlayView.isUserInteractionEnabled = false
+        view.addSubview(coverOverlayView)
+
+        // Shadow view 在快照下面，不被裁剪，允许投影溢出到屏幕外。
+        coverShadowView.backgroundColor = .clear
+        coverShadowView.layer.shadowColor = UIColor.black.cgColor
+        coverShadowView.layer.shadowOpacity = 0.3
+        coverShadowView.layer.shadowRadius = 14
+        coverShadowView.layer.shadowOffset = .zero
+        coverShadowView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        coverOverlayView.addSubview(coverShadowView)
+
+        coverIncomingImageView.contentMode = .scaleToFill
+        coverIncomingImageView.clipsToBounds = true
+        coverIncomingImageView.layer.cornerRadius = screenCornerRadius
+        coverIncomingImageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        coverShadowView.addSubview(coverIncomingImageView)
+
+        // 渐暗层盖在“旧页快照”上（后退时旧页逐渐变暗）。
+        coverDimView.backgroundColor = .black
+        coverDimView.alpha = 0
+        coverDimView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        coverDimView.isUserInteractionEnabled = false
+        coverOverlayView.addSubview(coverDimView)
     }
 
-    private func beginInteractiveIfNeeded(direction: Int, target: Int) {
-        guard interactivePage == nil, !isTransitioning else { return }
-        guard target >= 0, target < pages.count else { return }
-        interactiveTargetIndex = target
-        interactiveDirection = direction
-        interactivePage = makePage(at: target)
-        isTrackingPan = true
-        ensureMovingPage()
-        if let moving = interactivePage {
-            movingPage = moving
-            // 跟手页带屏幕圆角与投影，像一整张真书页。
-            moving.layer.cornerRadius = screenCornerRadius
-            moving.layer.masksToBounds = true
-            moving.layer.shadowColor = UIColor.black.cgColor
-            moving.layer.shadowOpacity = 0.3
-            moving.layer.shadowRadius = 14
-            moving.layer.shadowOffset = .zero
-            moving.layer.shouldRasterize = true
-            moving.layer.rasterizationScale = UIScreen.main.scale
-        }
+    private func showOverlay() {
+        coverOverlayView.isHidden = false
     }
 
-    /// 断页换向：手指越过起点反向推时，把跟手页换成另一侧的邻居页。
-    private func switchInteractiveDirectionIfNeeded(translationX: CGFloat) {
-        guard isTrackingPan, let _ = interactivePage else { return }
-        let width = max(view.bounds.width, 1)
-        var direction = interactiveDirection
-        if translationX < 0 && interactiveDirection < 0 {
-            direction = 1
-        } else if translationX > 0 && interactiveDirection > 0 {
-            direction = -1
-        }
-        guard direction != interactiveDirection else { return }
-
-        let target = currentIndex + direction
-        guard target >= 0, target < pages.count else { return }
-
-        // 丢弃当前跟手页，换另一侧邻居页做跟手。
-        interactivePage?.removeFromSuperview()
-        interactivePage = nil
-        interactiveDirection = direction
-        interactiveTargetIndex = target
-        interactivePage = makePage(at: target)
-        ensureMovingPage()
-        movingPage = interactivePage
-        if let moving = interactivePage {
-            moving.layer.cornerRadius = screenCornerRadius
-            moving.layer.masksToBounds = true
-            moving.layer.shadowColor = UIColor.black.cgColor
-            moving.layer.shadowOpacity = 0.3
-            moving.layer.shadowRadius = 14
-            moving.layer.shadowOffset = .zero
-            moving.layer.shouldRasterize = true
-            moving.layer.rasterizationScale = UIScreen.main.scale
-        }
-        // 提示宽度供 applyInteractiveProgress 使用
-        _ = width
+    private func hideOverlay() {
+        coverOverlayView.isHidden = true
+        coverIncomingImageView.image = nil
+        coverShadowView.layer.shadowPath = nil
+        coverDimView.alpha = 0
     }
 
-    private func applyInteractiveProgress(_ progress: CGFloat) {
-        guard let moving = interactivePage else { return }
-        let width = max(view.bounds.width, 1)
-
-        if interactiveDirection > 0 {
-            // 前进：下一页从屏幕右缘推入，当前页原地静止。
-            moving.frame = view.bounds.offsetBy(dx: width * (1 - progress), dy: 0)
-        } else {
-            // 后退：上一页从屏幕左缘推入，盖住当前页。
-            moving.frame = view.bounds.offsetBy(dx: -width * (1 - progress), dy: 0)
-        }
-    }
+    // MARK: 手势
 
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
         let width = max(view.bounds.width, 1)
         let translationX = gesture.translation(in: view).x
+        let velocityX = gesture.velocity(in: view).x
 
         switch gesture.state {
         case .began:
-            guard !isTransitioning else { return }
-            // .began 阶段位移和速度都为 0，不能在这里预判方向；
-            // 等第一个 .changed 事件再决定推哪一页。
+            guard !isTransitioning else {
+                gesture.state = .cancelled
+                return
+            }
             isTrackingPan = true
+            // 取消残留动画，方向未定前不显示覆盖层。
+            coverOverlayView.layer.removeAllAnimations()
+            coverIncomingImageView.layer.removeAllAnimations()
+            coverDimView.layer.removeAllAnimations()
+            coverDimView.alpha = 0
 
         case .changed:
             guard !isTransitioning, isTrackingPan else { return }
             if interactivePage == nil {
+                // 方向阈值确认后才启动（Yuedu initialTranslationThreshold），
+                // 避免轻触或极小位移就生成快照。
+                guard abs(translationX) >= GestureConstants.initialTranslationThreshold else { return }
                 let direction: Int = translationX < 0 ? 1 : -1
                 let target = currentIndex + direction
                 guard target >= 0, target < pages.count else { return }
-                beginInteractiveIfNeeded(direction: direction, target: target)
+                beginInteractive(direction: direction, target: target)
             } else {
-                switchInteractiveDirectionIfNeeded(translationX: translationX)
+                updateInteractiveProgress(translationX: translationX, width: width)
             }
-            let progress: CGFloat
-            if interactiveDirection > 0 {
-                progress = min(max(-translationX / width, 0), 1)
-            } else {
-                progress = min(max(translationX / width, 0), 1)
-            }
-            applyInteractiveProgress(progress)
 
         case .ended, .cancelled, .failed:
-            defer {
-                isTrackingPan = false
+            defer { isTrackingPan = false }
+            guard !isTransitioning, interactivePage != nil else {
+                hideOverlay()
+                return
             }
-            guard !isTransitioning, let moving = interactivePage else { return }
-            let progress: CGFloat
-            if interactiveDirection > 0 {
-                progress = min(max(-translationX / width, 0), 1)
-            } else {
-                progress = min(max(translationX / width, 0), 1)
-            }
-            let finish = progress > 0.32 || abs(gesture.velocity(in: view).x) > 700
-            completeInteractivePan(progress: progress, finish: finish && gesture.state == .ended)
+            let progress = currentProgress(translationX: translationX, width: width)
+            let shouldCommit = progress > GestureConstants.commitProgressRatio
+                || abs(velocityX) > GestureConstants.commitVelocityThreshold
+            completeInteractive(
+                commit: shouldCommit && gesture.state == .ended,
+                translationX: translationX,
+                width: width
+            )
 
         default:
             break
         }
     }
 
-    private func completeInteractivePan(progress: CGFloat, finish: Bool) {
-        guard let moving = interactivePage else {
+    /// 启动交互翻页：构建目标页真视图（备用）+ 快照 + 覆盖层。
+    private func beginInteractive(direction: Int, target: Int) {
+        interactiveDirection = direction
+        interactiveTargetIndex = target
+        interactivePage = makePage(at: target)
+        isTransitioning = true
+        showOverlay()
+
+        let width = max(view.bounds.width, 1)
+        if direction > 0 {
+            // 前进：目标页快照从右缘进入，压在当前页上。
+            let snap = interactivePage?.makeSnapshotImage()
+            coverIncomingImageView.image = snap
+            coverIncomingImageView.frame = view.bounds
+            coverDimView.frame = view.bounds
+            coverDimView.alpha = 0
+            // 起始位置在屏幕右侧外。
+            coverIncomingImageView.frame.origin.x = width
+            // 投影路径跟随快照（shadowPath 让投影不用实时计算形状）。
+            coverShadowView.frame = coverIncomingImageView.frame
+            let shadowHeight = coverIncomingImageView.frame.height
+            coverShadowView.layer.shadowPath = UIBezierPath(
+                roundedRect: coverIncomingImageView.bounds,
+                cornerRadius: screenCornerRadius
+            ).cgPath
+            _ = shadowHeight
+        } else {
+            // 后退：目标页快照从左缘进入；当前页渐暗。
+            let snap = interactivePage?.makeSnapshotImage()
+            coverIncomingImageView.image = snap
+            coverIncomingImageView.frame = view.bounds
+            coverDimView.frame = view.bounds
+            coverDimView.alpha = 0
+            coverIncomingImageView.frame.origin.x = -width
+            coverShadowView.frame = coverIncomingImageView.frame
+            coverShadowView.layer.shadowPath = UIBezierPath(
+                roundedRect: coverIncomingImageView.bounds,
+                cornerRadius: screenCornerRadius
+            ).cgPath
+        }
+    }
+
+    private func currentProgress(translationX: CGFloat, width: CGFloat) -> CGFloat {
+        guard interactivePage != nil else { return 0 }
+        if interactiveDirection > 0 {
+            return min(max(-translationX / width, 0), 1)
+        }
+        return min(max(translationX / width, 0), 1)
+    }
+
+    /// 快照层跟随手指：每帧只改 frame 和 alpha，无任何文字排版。
+    private func updateInteractiveProgress(translationX: CGFloat, width: CGFloat) {
+        let progress: CGFloat
+        if interactiveDirection > 0 {
+            progress = min(max(-translationX / width, 0), 1)
+        } else {
+            progress = min(max(translationX / width, 0), 1)
+        }
+
+        if interactiveDirection > 0 {
+            // 前进：快照从右缘滑入。
+            coverIncomingImageView.frame.origin.x = width * (1 - progress)
+        } else {
+            // 后退：快照从左缘滑入，渐暗层加深。
+            coverIncomingImageView.frame.origin.x = -width * (1 - progress)
+            coverDimView.alpha = progress * GestureConstants.maxDimmingAlpha
+        }
+        coverShadowView.frame.origin.x = coverIncomingImageView.frame.origin.x
+    }
+
+    private func completeInteractive(commit: Bool, translationX: CGFloat, width: CGFloat) {
+        guard let page = interactivePage else {
             isTransitioning = false
+            hideOverlay()
             return
         }
         let target = interactiveTargetIndex
         let direction = interactiveDirection
-        isTransitioning = true
 
-        if finish {
-            applyInteractiveProgress(1)
-            UIView.animate(
-                withDuration: 0.18,
-                delay: 0,
-                options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
-            ) {
-                self.applyInteractiveProgress(1)
-            } completion: { [weak self] _ in
-                guard let self else { return }
-                self.currentPageView?.removeFromSuperview()
-                moving.frame = self.view.bounds
-                moving.layer.shadowOpacity = 0
-                moving.layer.cornerRadius = 0
-                moving.layer.shouldRasterize = false
-                self.currentPageView = moving as? PageContentView
-                self.currentIndex = target
-                self.interactivePage = nil
-                self.movingPage = nil
-                self.interactiveDirection = 0
-                self.isTransitioning = false
-                self.onPageChanged?(target)
-            }
+        let destX: CGFloat
+        var destAlpha: CGFloat = 0
+        if interactiveDirection > 0 {
+            destX = commit ? 0 : width
         } else {
-            applyInteractiveProgress(0)
-            UIView.animate(
-                withDuration: 0.18,
-                delay: 0,
-                options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
-            ) {
-                self.applyInteractiveProgress(0)
-            } completion: { [weak self] _ in
-                guard let self else { return }
-                moving.removeFromSuperview()
+            destX = commit ? 0 : -width
+            destAlpha = commit ? GestureConstants.maxDimmingAlpha : 0
+        }
+        if interactiveDirection > 0, !commit {
+            destAlpha = 0
+        }
+
+        UIView.animate(
+            withDuration: GestureConstants.settleAnimationDuration,
+            delay: 0,
+            options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
+        ) {
+            self.coverIncomingImageView.frame.origin.x = destX
+            self.coverShadowView.frame.origin.x = destX
+            self.coverDimView.alpha = destAlpha
+        } completion: { [weak self] _ in
+            guard let self else { return }
+            defer {
                 self.interactivePage = nil
-                self.movingPage = nil
                 self.interactiveDirection = 0
                 self.isTransitioning = false
+                self.hideOverlay()
             }
+            guard commit else { return }
+
+            // 快照退场，真页上台（此时只需一次布局，不在拖动帧里）。
+            page.frame = self.view.bounds
+            page.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            self.view.addSubview(page)
+            self.currentPageView?.removeFromSuperview()
+            self.currentPageView = page
+            self.currentIndex = target
+            self.onPageChanged?(target)
+            _ = direction
         }
-        _ = direction
     }
+
+    // MARK: 程序化翻页（点击翻页区）
 
     private func makePage(at index: Int) -> PageContentView {
         let pageView = PageContentView(page: pages[index], config: config)
@@ -925,55 +1016,48 @@ final class SlidePageReader: UIViewController, PageReaderContainer, UIGestureRec
         }
 
         isTransitioning = true
-        if direction >= 0 {
-            // 前进：新页从右缘滑入。
-            next.layer.cornerRadius = screenCornerRadius
-            next.layer.masksToBounds = true
-            next.layer.shadowColor = UIColor.black.cgColor
-            next.layer.shadowOpacity = 0.3
-            next.layer.shadowRadius = 14
-            next.layer.shadowOffset = .zero
+        showOverlay()
+        guard let snap = next.makeSnapshotImage() else {
+            // 快照失败（极小概率）直接切换，不阻塞阅读。
+            isTransitioning = false
+            hideOverlay()
+            old?.removeFromSuperview()
+            next.frame = view.bounds
             view.addSubview(next)
-            next.frame = view.bounds.offsetBy(dx: width, dy: 0)
-            UIView.animate(
-                withDuration: 0.24,
-                delay: 0,
-                options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
-            ) {
-                next.frame = self.view.bounds
-            } completion: { [weak self] _ in
-                guard let self else { return }
-                old?.removeFromSuperview()
-                next.frame = self.view.bounds
-                next.layer.shadowOpacity = 0
-                next.layer.cornerRadius = 0
-                self.currentPageView = next
-                self.currentIndex = index
-                self.isTransitioning = false
-                self.onPageChanged?(index)
-            }
-        } else {
-            // 后退：新页从左缘滑入盖住当前页。
-            next.layer.cornerRadius = screenCornerRadius
-            next.layer.masksToBounds = true
-            view.addSubview(next)
-            next.frame = view.bounds.offsetBy(dx: -width, dy: 0)
-            UIView.animate(
-                withDuration: 0.24,
-                delay: 0,
-                options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
-            ) {
-                next.frame = self.view.bounds
-            } completion: { [weak self] _ in
-                guard let self else { return }
-                old?.removeFromSuperview()
-                next.frame = self.view.bounds
-                next.layer.cornerRadius = 0
-                self.currentPageView = next
-                self.currentIndex = index
-                self.isTransitioning = false
-                self.onPageChanged?(index)
-            }
+            currentPageView = next
+            currentIndex = index
+            onPageChanged?(index)
+            return
+        }
+        coverIncomingImageView.image = snap
+        coverIncomingImageView.layer.cornerRadius = screenCornerRadius
+        coverIncomingImageView.frame = view.bounds
+        coverShadowView.frame = view.bounds
+        coverShadowView.layer.shadowPath = UIBezierPath(
+            roundedRect: coverIncomingImageView.bounds,
+            cornerRadius: screenCornerRadius
+        ).cgPath
+        coverDimView.frame = view.bounds
+        coverDimView.alpha = 0
+        coverIncomingImageView.frame.origin.x = direction >= 0 ? width : -width
+
+        UIView.animate(
+            withDuration: GestureConstants.settleAnimationDuration,
+            delay: 0,
+            options: [.curveEaseOut, .allowUserInteraction]
+        ) {
+            self.coverIncomingImageView.frame.origin.x = 0
+            self.coverShadowView.frame.origin.x = 0
+        } completion: { [weak self] _ in
+            guard let self else { return }
+            old?.removeFromSuperview()
+            next.frame = self.view.bounds
+            self.view.addSubview(next)
+            self.currentPageView = next
+            self.currentIndex = index
+            self.isTransitioning = false
+            self.hideOverlay()
+            self.onPageChanged?(index)
         }
     }
 

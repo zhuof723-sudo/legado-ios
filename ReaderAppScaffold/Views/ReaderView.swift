@@ -53,6 +53,14 @@ struct ReaderView: View {
 
     private var textColor: Color { config.currentTheme.textColor }
 
+    /// 正文指纹：长度 + 首尾采样。O(1) 而非整章 O(n) hashValue——
+    /// body 每次求值（包括每次翻页）都会走到这里，整章哈希是隐形的大头。
+    private func contentFingerprint(_ text: String) -> String {
+        let head = text.prefix(32)
+        let tail = text.suffix(32)
+        return "\(text.count)-\(head)-\(tail)"
+    }
+
     private var brightnessBinding: Binding<Double> {
         Binding(
             get: { Double(UIScreen.main.brightness) },
@@ -70,7 +78,7 @@ struct ReaderView: View {
                 width: max(fullWidth - config.paddingH * 2, 1),
                 height: max(fullHeight - config.paddingTop - config.paddingBottom, 1)
             )
-            let contentIdentity = "len\(viewModel.currentContent.count)-\(viewModel.currentContent.hashValue)"
+            let contentIdentity = contentFingerprint(viewModel.currentContent)
             let markerKey = viewModel.currentReviewMarkers
                 .map { "\($0.id):\($0.paragraphIndex):\($0.source):\($0.count):\($0.action ?? "")" }
                 .joined(separator: ",")
@@ -416,8 +424,7 @@ struct ReaderView: View {
         paginationTaskID = taskID
 
         let font = config.uiFont
-        let textColor = UIColor(config.currentTheme.textColor)
-        let badgeColor = UIColor.secondaryLabel
+        let badgeColor = UIColor.systemGray // 固定中性灰：明暗主题下同一张图，切换主题不需要重新分页
         let lSpacing = config.lineSpacing
         let pSpacing = config.paragraphSpacing
         let indent = config.indentPixels
@@ -434,7 +441,6 @@ struct ReaderView: View {
                 legacyReviewLinks: legacy,
                 reviewCounts: counts,
                 font: font,
-                textColor: textColor,
                 badgeColor: badgeColor,
                 lineSpacing: lSpacing,
                 paragraphSpacing: pSpacing,
