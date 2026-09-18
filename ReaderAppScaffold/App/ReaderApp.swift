@@ -54,6 +54,7 @@ struct ReaderApp: App {
 /// 根视图：四个标签 + 悬浮玻璃搜索按钮（对照设计稿的底部导航）
 struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.modelContext) private var modelContext
 
     var body: some View {
         TabView {
@@ -84,5 +85,101 @@ struct RootView: View {
                 break
             }
         }
+        // 处理「用其他 App 打开 / 分享到 Legado」送进来的文件。
+        // Info.plist 里声明了 public.json 与 public.plain-text，
+        // 没有这个入口的话那些声明等于白写，外部文件根本进不来。
+        .onOpenURL { url in
+            ExternalFileImporter.importFile(at: url, context: modelContext)
+        }
+    }
+}
+
+// MARK: - 外部文件导入
+
+/// 把从 Files/其他 App 打开的文件导入 App。
+/// .json 视作书源，其余按本地 TXT 处理（与两个导入面板的口径一致）。
+enum ExternalFileImporter {
+    @MainActor
+    static func importFile(at url: URL, context: ModelContext) {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+
+        guard let data = readData(from: url) else {
+            notify("文件读取失败：\(url.lastPathComponent)")
+            return
+        }
+        guard !data.isEmpty else {
+            notify("文件是空的：\(url.lastPathComponent)")
+            return
+        }
+        guard let text = decode(data) else {
+            notify("文件编码无法识别（UTF-8 / UTF-16 / GB18030 均失败）")
+            return
+        }
+
+        let ext = url.pathExtension.lowercased()
+        if ext == "json" || looksLikeBookSourceJSON(text) {
+            let store = BookSourceStore(context: context)
+            let count = store.importSources(from: text)
+            if let err = store.errorMessage {
+                notify("书源导入失败：\(err)")
+            } else {
+                notify("已导入 \(count) 个书源")
+            }
+        } else {
+            let chapters = TxtParser.chapters(from: text)
+            guard !chapters.isEmpty else {
+                notify("没能切分出章节：\(url.lastPathComponent)")
+                return
+            }
+            let book = LocalBook(
+                name: url.deletingPathExtension().lastPathComponent,
+                author: "本地导入",
+                chaptersData: TxtParser.encode(chapters)
+            )
+            context.insert(book)
+            do {
+                try context.save()
+                notify("已导入《\(book.name)》，共 \(chapters.count) 章")
+            } catch {
+                notify("保存失败：\(error.localizedDescription)")
+            }
+        }
+    }
+
+    private static func readData(from url: URL) -> Data? {
+        // FileCoordinator 优先（iCloud / 第三方 provider 更可靠），失败再直接读。
+        var data: Data?
+        let coordinator = NSFileCoordinator()
+        var coordinatorError: NSError?
+        coordinator.coordinate(readingItemAt: url, options: [], error: &coordinatorError) { readURL in
+            data = try? Data(contentsOf: readURL)
+        }
+        if data == nil {
+            data = try? Data(contentsOf: url)
+        }
+        return data
+    }
+
+    private static func decode(_ data: Data) -> String? {
+        if let s = String(data: data, encoding: .utf8) { return s }
+        if let s = String(data: data, encoding: .utf16) { return s }
+        let cf = CFStringConvertEncodingToNSStringEncoding(
+            CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)
+        )
+        return String(data: data, encoding: String.Encoding(rawValue: cf))
+    }
+
+    /// 粗略判断内容是否为书源 JSON（避免把 .txt 后缀的书源文件当小说处理）。
+    private static func looksLikeBookSourceJSON(_ text: String) -> Bool {
+        let head = text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(400)
+        guard head.hasPrefix("{") || head.hasPrefix("[") else { return false }
+        return head.contains("bookSourceUrl") || head.contains("bookSourceName")
+    }
+
+    @MainActor
+    private static func notify(_ message: String) {
+        CrashReporter.shared.breadcrumb(level: "info", tag: "import", message: message)
+        Task { @MainActor in LogStore.shared.log(message, tag: "导入", level: .info) }
     }
 }
