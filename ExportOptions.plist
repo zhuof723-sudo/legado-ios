@@ -17,9 +17,14 @@
 	<string>manual</string>
 	<key>signingCertificate</key>
 	<string></string>
+	<!--
+	  provisioningProfiles 的 key 必须是 App 的真实 Bundle ID。
+	  这里只放一个中性占位项，CI 会先 Delete 整个 dict 再按实际 Bundle ID 重建，
+	  避免把任何人的 Bundle ID 固化进仓库。
+	-->
 	<key>provisioningProfiles</key>
 	<dict>
-		<key>com.BYEh.eNbcVl2</key>
+		<key>com.example.Legado</key>
 		<string></string>
 	</dict>
 	<key>compileBitcode</key>
