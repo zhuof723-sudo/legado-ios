@@ -1,39 +1,28 @@
 import SwiftUI
 import UIKit
 
-// MARK: - 翻页动画类型
+// MARK: - 翻页方式
 
-enum PageAnimationType: Int, CaseIterable, Identifiable {
-    // 存储值约定：0=平移；1=滑动（覆盖式，旧覆盖值重新启用）；
-    // 2=仿真（现为全屏左右滑动平移，raw 兼容旧设置）；3=上下滚动；4=无动画。
-    case pageCurl = 2      // 历史"仿真"档位：现为 .scroll 平移（全屏沉浸）
-    case cover = 1         // 新页从右侧滑入覆盖旧页（跟手）
-    case pageScroll = 0    // UIPageViewController(.scroll)
-    case freeScroll = 3    // UIScrollView 竖向连续滚动
-    case none = 4          // 无动画，瞬时切换
+/// 翻页方式三档（Apple Books 同款）：仿真卷页 / 平移 / 无动画。
+enum PageTurnStyle: Int, CaseIterable, Identifiable {
+    case curl = 0       // UIPageViewController .pageCurl
+    case slide = 1      // UIPageViewController .scroll
+    case none = 2       // 瞬时切换
 
     var id: Int { rawValue }
     var name: String {
         switch self {
-        case .pageCurl: return "仿真(卷页)"
-        case .cover: return "滑动(覆盖)"
-        case .pageScroll: return "平移"
-        case .freeScroll: return "上下滚动"
+        case .curl: return "仿真翻页"
+        case .slide: return "平移"
         case .none: return "无动画"
         }
     }
     var icon: String {
         switch self {
-        case .pageCurl: return "rectangle.portrait.lefthalf.righthalf.filled"
-        case .cover: return "rectangle.portrait.righthalf.filled"
-        case .pageScroll: return "rectangle.portrait.and.arrow.right"
-        case .freeScroll: return "arrow.up.and.down"
+        case .curl: return "book.pages"
+        case .slide: return "rectangle.portrait.and.arrow.right"
         case .none: return "circle.lefthalf.filled"
         }
-    }
-    /// 设置面板中的展示顺序：滑动(全屏)，滑动(覆盖)，平移，上下滚动，无动画。
-    static var preferredOrder: [PageAnimationType] {
-        [.pageCurl, .cover, .pageScroll, .freeScroll, .none]
     }
 }
 
@@ -77,7 +66,7 @@ final class ReaderConfig: ObservableObject {
     // 用 @Published 替代直接放在 ObservableObject 里的 @AppStorage。
     // 后者不会稳定地向依赖 config 的阅读器视图发送 objectWillChange，
     // 导致改字号、边距或主题后分页和页面样式不刷新。
-    @Published var pageAnim: Int { didSet { defaults.set(pageAnim, forKey: Keys.pageAnim) } }
+    @Published var turnStyle: Int { didSet { defaults.set(turnStyle, forKey: Keys.turnStyle) } }
     @Published var fontSize: Double { didSet { defaults.set(fontSize, forKey: Keys.fontSize) } }
     @Published var bold: Bool { didSet { defaults.set(bold, forKey: Keys.bold) } }
     @Published var lineSpacing: Double { didSet { defaults.set(lineSpacing, forKey: Keys.lineSpacing) } }
@@ -93,7 +82,8 @@ final class ReaderConfig: ObservableObject {
     @Published var fontFamily: Int { didSet { defaults.set(fontFamily, forKey: Keys.fontFamily) } }
 
     private enum Keys {
-        static let pageAnim = "reader.pageAnim"
+        static let turnStyle = "reader.turnStyle"
+        static let legacyPageAnim = "reader.pageAnim"
         static let fontFamily = "reader.fontFamily"
         static let fontSize = "reader.fontSize"
         static let bold = "reader.bold"
@@ -110,7 +100,16 @@ final class ReaderConfig: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        self.pageAnim = defaults.object(forKey: Keys.pageAnim) as? Int ?? PageAnimationType.pageScroll.rawValue
+        // 翻页方式迁移：旧 reader.pageAnim（0=平移 1=滑动覆盖 2=仿真 3=上下滚动 4=无动画）
+        // → 新 reader.turnStyle（0=仿真 1=平移 2=无动画）。上下滚动映射为平移，覆盖映射为仿真。
+        if let stored = defaults.object(forKey: Keys.turnStyle) as? Int {
+            self.turnStyle = stored
+        } else {
+            let legacy = defaults.integer(forKey: Keys.legacyPageAnim)
+            let mapped: PageTurnStyle = legacy == 4 ? .none : (legacy == 1 || legacy == 2 ? .curl : .slide)
+            self.turnStyle = mapped.rawValue
+            defaults.removeObject(forKey: Keys.legacyPageAnim)
+        }
         self.fontSize = defaults.object(forKey: Keys.fontSize) as? Double ?? 18
         self.bold = defaults.object(forKey: Keys.bold) as? Bool ?? false
         // 参考项目默认排版：行距倍数 1.65(字号18 → 11.7pt)、段距 0.8×字号(14.4)、左右边距 24。
@@ -127,7 +126,7 @@ final class ReaderConfig: ObservableObject {
         self.fontFamily = defaults.object(forKey: Keys.fontFamily) as? Int ?? 1
     }
 
-    var currentPageAnim: PageAnimationType { PageAnimationType(rawValue: pageAnim) ?? .pageScroll }
+    var currentTurnStyle: PageTurnStyle { PageTurnStyle(rawValue: turnStyle) ?? .slide }
 
     /// 字体族枚举
     enum ReaderFontFamily: Int, CaseIterable, Identifiable {
@@ -152,16 +151,6 @@ final class ReaderConfig: ObservableObject {
         nightMode ? Theme.accent.opacity(0.8) : Theme.accent
     }
 
-    var swiftUIFont: Font {
-        let weight: Font.Weight = bold ? .bold : .regular
-        switch currentFontFamily {
-        case .serif:
-            return .system(size: fontSize, weight: weight, design: .serif)
-        case .sans:
-            return .system(size: fontSize, weight: weight)
-        }
-    }
-
     var uiFont: UIFont {
         let base = bold ? UIFont.boldSystemFont(ofSize: fontSize) : UIFont.systemFont(ofSize: fontSize)
         // 衬线体：iOS 的 .serif 设计在 CJK 上自动落到宋体系，无需硬编码字体名。
@@ -170,9 +159,6 @@ final class ReaderConfig: ObservableObject {
               let descriptor = base.fontDescriptor.withDesign(.serif) else { return base }
         return UIFont(descriptor: descriptor, size: 0)
     }
-
-    /// CoreText 分页用的段落对齐方式
-    var coreTextAlignment: NSTextAlignment { .justified }
 
     /// 段落缩进（按字符数计算的像素值）
     var indentPixels: CGFloat { fontSize * CGFloat(max(paragraphIndent, 0)) }

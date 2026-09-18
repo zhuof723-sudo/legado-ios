@@ -110,13 +110,11 @@ struct BookDetailView: View {
         }
         .fullScreenCover(isPresented: $openReader) {
             if let vm = readerVM {
-                ReaderView(
+                BookReaderScreen(source: .online(
                     viewModel: vm,
                     bookUrl: bookUrl,
-                    bookName: name,
-                    bookAuthor: author,
-                    coverURL: coverUrl
-                )
+                    bookName: name
+                ))
             }
         }
         .onAppear {

@@ -54,13 +54,11 @@ struct HistoryView: View {
             .background(Theme.bg.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
             .fullScreenCover(item: $readerVM) { vm in
-                ReaderView(
+                BookReaderScreen(source: .online(
                     viewModel: vm,
                     bookUrl: openBook?.bookUrl ?? "",
-                    bookName: openBook?.name ?? "",
-                    bookAuthor: openBook?.author ?? "",
-                    coverURL: openBook?.coverUrl ?? ""
-                )
+                    bookName: openBook?.name ?? ""
+                ))
             }
         }
     }

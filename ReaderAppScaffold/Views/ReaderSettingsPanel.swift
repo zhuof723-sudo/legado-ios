@@ -15,7 +15,7 @@ struct ReaderSettingsPanel: View {
                     sectionLabel("翻页动画")
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 10) {
-                            ForEach(PageAnimationType.preferredOrder) { anim in
+                            ForEach(PageTurnStyle.allCases) { anim in
                                 animOption(anim)
                             }
                         }
@@ -103,9 +103,9 @@ struct ReaderSettingsPanel: View {
         Text(text).font(.subheadline.bold())
     }
 
-    private func animOption(_ anim: PageAnimationType) -> some View {
-        let isActive = config.pageAnim == anim.rawValue
-        return Button { config.pageAnim = anim.rawValue } label: {
+    private func animOption(_ anim: PageTurnStyle) -> some View {
+        let isActive = config.turnStyle == anim.rawValue
+        return Button { config.turnStyle = anim.rawValue } label: {
             VStack(spacing: 4) {
                 Image(systemName: anim.icon)
                     .font(.system(size: 16, weight: .medium))

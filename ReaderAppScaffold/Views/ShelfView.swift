@@ -88,13 +88,11 @@ struct ShelfView: View {
             .background(Theme.bg.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
             .fullScreenCover(item: $readerVM) { vm in
-                ReaderView(
+                BookReaderScreen(source: .online(
                     viewModel: vm,
                     bookUrl: openBook?.bookUrl ?? "",
-                    bookName: openBook?.name ?? "",
-                    bookAuthor: openBook?.author ?? "",
-                    coverURL: openBook?.coverUrl ?? ""
-                )
+                    bookName: openBook?.name ?? ""
+                ))
             }
             .sheet(item: $activeSheet) { sheet in
                 switch sheet {
@@ -104,7 +102,7 @@ struct ShelfView: View {
                 }
             }
             .fullScreenCover(item: $openLocal) { book in
-                LocalReaderView(book: book)
+                BookReaderScreen(source: .local(book: book))
             }
             .fullScreenCover(item: $openPDF) { book in
                 PDFReaderView(book: book)
