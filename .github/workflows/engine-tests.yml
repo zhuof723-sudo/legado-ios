@@ -1,0 +1,61 @@
+name: Engine Tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, audit/** ]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select available Xcode
+        shell: bash
+        run: |
+          set -euo pipefail
+          XCODE=$(ls -1d /Applications/Xcode_26*.app 2>/dev/null | tail -1 || true)
+          if [ -z "$XCODE" ]; then XCODE=$(ls -1d /Applications/Xcode*.app | tail -1); fi
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+
+      - name: Show package manifest
+        working-directory: LegadoRuleEngine
+        run: swift package describe || true
+
+      - name: Resolve dependencies
+        working-directory: LegadoRuleEngine
+        run: swift package resolve
+
+      - name: Build engine library
+        working-directory: LegadoRuleEngine
+        run: |
+          set -o pipefail
+          swift build 2>&1 | tee build.log
+          rc=${PIPESTATUS[0]}
+          grep -E 'error:|warning:' build.log | sed 's/^/::notice::/' | head -100 || true
+          exit "$rc"
+
+      - name: Run engine unit tests
+        working-directory: LegadoRuleEngine
+        run: |
+          set -o pipefail
+          swift test 2>&1 | tee test.log
+          rc=${PIPESTATUS[0]}
+          exit "$rc"
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-test-logs
+          path: |
+            LegadoRuleEngine/*.log
+          if-no-files-found: ignore
+          retention-days: 7
