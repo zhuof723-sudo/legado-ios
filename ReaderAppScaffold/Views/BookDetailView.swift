@@ -24,7 +24,7 @@ struct BookDetailView: View {
     let intro: String
     var coverUrl: String = ""
 
-    @State private var chapterSource: OnlineChapterSource?
+    @State private var chapterSource: ReaderPageOnlineSource?
     @State private var openReader = false
     @State private var isStartingReading = false
     @State private var startError: String?
@@ -110,7 +110,7 @@ struct BookDetailView: View {
         }
         .fullScreenCover(isPresented: $openReader) {
             if let source = chapterSource {
-                ReadingScreen(source: .online(
+                ReaderPageScreen(source: .online(
                     source,
                     bookUrl: bookUrl,
                     bookName: name
@@ -118,11 +118,11 @@ struct BookDetailView: View {
             }
         }
         .onAppear {
-            let vm: OnlineChapterSource
+            let vm: ReaderPageOnlineSource
             if let existing = chapterSource {
                 vm = existing
             } else {
-                let created = OnlineChapterSource(bookSource: source, persistentBookURL: shelfBook?.bookUrl)
+                let created = ReaderPageOnlineSource(bookSource: source, persistentBookURL: shelfBook?.bookUrl)
                 chapterSource = created
                 vm = created
             }
@@ -232,7 +232,9 @@ struct BookDetailView: View {
                 toggleShelf()
             }
             divider
-            actionCell(icon: "list.bullet", title: "查看目录") { showToc = true }
+            actionCell(icon: "book.fill", title: "开始阅读") {
+                Task { await startReading() }
+            }
             divider
             actionCell(icon: "chevron.left.forwardslash.chevron.right", title: "换源") { }
             divider
@@ -263,13 +265,13 @@ struct BookDetailView: View {
         .buttonStyle(.plain)
     }
 
-    @State private var showToc = false
-
     // MARK: - 在读卡片
 
     private var readingCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Button { showToc = true } label: {
+            Button {
+                Task { await startReading() }
+            } label: {
                 HStack(spacing: 6) {
                     Text("在读 · 第一章 \(name.isEmpty ? "" : currentChapterTitle)")
                         .font(.subheadline.bold())
@@ -311,21 +313,6 @@ struct BookDetailView: View {
         }
         .padding(16)
         .cardStyle(cornerRadius: 16, mode: mode)
-        .sheet(isPresented: $showToc) {
-            if let vm = chapterSource {
-                ContentsSheet(
-                    bookKey: bookUrl,
-                    entries: vm.chapters.enumerated().map {
-                        ContentsSheet.Entry(index: $0.offset, name: $0.element.name)
-                    },
-                    currentIndex: vm.currentChapterIndex,
-                    onSelectChapter: { index in
-                        Task { await vm.openChapter(at: index) }
-                    }
-                )
-                .presentationDetents([.large])
-            }
-        }
     }
 
     private var currentChapterTitle: String {
