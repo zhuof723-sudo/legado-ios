@@ -130,8 +130,8 @@ final class LegadoRuleEngineTests: XCTestCase {
         let rule = AnalyzeRule()
         rule.setContent(html)
 
-        // ! 为排除：只保留未选中的索引
-        XCTAssertEqual(rule.getStringList("tag.li![0,1]@text"), ["c", "d"])
+        // ! 为排除：按上游语法，'!' 写在方括号内侧（[!it,it,...]）
+        XCTAssertEqual(rule.getStringList("tag.li[!0,1]@text"), ["c", "d"])
         // 区间反向写法
         XCTAssertEqual(rule.getStringList("tag.li[2:0]@text"), ["c", "b", "a"])
     }
