@@ -120,9 +120,9 @@ enum ExternalFileImporter {
 
     @MainActor
     private static func importEpub(url: URL, fallbackName: String, context: ModelContext) {
-        let parsed: EpubParser.Book
+        let parsed: BookReaderFileParser.EPUBBook
         do {
-            parsed = try EpubParser.parse(url: url)
+            parsed = try BookReaderFileParser.parseEPUB(url: url)
         } catch {
             notify("EPUB 导入失败：\(error.localizedDescription)")
             return
@@ -134,7 +134,7 @@ enum ExternalFileImporter {
         let book = LocalBook(
             name: parsed.title.isEmpty ? fallbackName : parsed.title,
             author: parsed.author,
-            chaptersData: TxtParser.encode(parsed.chapters)
+            chaptersData: BookReaderFileParser.encode(parsed.chapters)
         )
         context.insert(book)
         do {
@@ -198,7 +198,7 @@ enum ExternalFileImporter {
                 notify("已导入 \(count) 个书源")
             }
         } else {
-            let chapters = TxtParser.chapters(from: text)
+            let chapters = BookReaderFileParser.chapters(from: text)
             guard !chapters.isEmpty else {
                 notify("没能切分出章节：\(url.lastPathComponent)")
                 return
@@ -206,7 +206,7 @@ enum ExternalFileImporter {
             let book = LocalBook(
                 name: url.deletingPathExtension().lastPathComponent,
                 author: "本地导入",
-                chaptersData: TxtParser.encode(chapters)
+                chaptersData: BookReaderFileParser.encode(chapters)
             )
             context.insert(book)
             do {

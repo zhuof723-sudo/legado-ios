@@ -24,7 +24,7 @@ struct BookDetailView: View {
     let intro: String
     var coverUrl: String = ""
 
-    @State private var chapterSource: ReaderPageOnlineSource?
+    @State private var chapterSource: BookReaderOnlineSource?
     @State private var openReader = false
     @State private var isStartingReading = false
     @State private var startError: String?
@@ -110,7 +110,7 @@ struct BookDetailView: View {
         }
         .fullScreenCover(isPresented: $openReader) {
             if let source = chapterSource {
-                ReaderPageScreen(source: .online(
+                BookReaderScreen(source: .online(
                     source,
                     bookUrl: bookUrl,
                     bookName: name
@@ -118,11 +118,11 @@ struct BookDetailView: View {
             }
         }
         .onAppear {
-            let vm: ReaderPageOnlineSource
+            let vm: BookReaderOnlineSource
             if let existing = chapterSource {
                 vm = existing
             } else {
-                let created = ReaderPageOnlineSource(bookSource: source, persistentBookURL: shelfBook?.bookUrl)
+                let created = BookReaderOnlineSource(bookSource: source, persistentBookURL: shelfBook?.bookUrl)
                 chapterSource = created
                 vm = created
             }

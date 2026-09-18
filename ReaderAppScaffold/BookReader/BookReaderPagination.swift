@@ -1,7 +1,7 @@
 import UIKit
 import CoreText
 
-struct ReaderPageLayout {
+struct BookReaderLayout {
     let font: UIFont
     let lineHeight: CGFloat
     let paragraphSpacing: CGFloat
@@ -21,7 +21,7 @@ struct ReaderPageLayout {
     }
 }
 
-struct ReaderPageLine {
+struct BookReaderLine {
     let line: CTLine
     let attributed: NSAttributedString
     let paragraphIndex: Int
@@ -31,100 +31,96 @@ struct ReaderPageLine {
     let height: CGFloat
 }
 
-struct ReaderBookPage: Equatable {
-    let lines: [ReaderPageLine]
+struct BookReaderPage: Equatable {
+    let lines: [BookReaderLine]
     let sourceRange: NSRange
-    let speechText: String
+    let spokenText: String
     let key: String
 
-    static func == (lhs: ReaderBookPage, rhs: ReaderBookPage) -> Bool {
+    static func == (lhs: BookReaderPage, rhs: BookReaderPage) -> Bool {
         lhs.key == rhs.key && lhs.sourceRange.location == rhs.sourceRange.location && lhs.lines.count == rhs.lines.count
     }
 }
 
-final class ReaderPageCache {
-    static let shared = ReaderPageCache()
+final class BookReaderPageCache {
+    static let shared = BookReaderPageCache()
     private let lock = NSLock()
     private let capacity = 8
-    private var values: [String: [ReaderBookPage]] = [:]
+    private var storage: [String: [BookReaderPage]] = [:]
     private var order: [String] = []
 
-    func get(_ key: String) -> [ReaderBookPage]? {
+    func get(_ key: String) -> [BookReaderPage]? {
         lock.lock(); defer { lock.unlock() }
-        guard let result = values[key] else { return nil }
+        guard let value = storage[key] else { return nil }
         order.removeAll { $0 == key }
         order.append(key)
-        return result
+        return value
     }
 
-    func put(_ pages: [ReaderBookPage], key: String) {
+    func put(_ value: [BookReaderPage], key: String) {
         lock.lock(); defer { lock.unlock() }
-        values[key] = pages
+        storage[key] = value
         order.removeAll { $0 == key }
         order.append(key)
-        while order.count > capacity {
-            values.removeValue(forKey: order.removeFirst())
-        }
+        while order.count > capacity { storage.removeValue(forKey: order.removeFirst()) }
     }
 }
 
-enum ReaderPagePagination {
-    static func paginate(document: ReaderPageDocument, layout: ReaderPageLayout, key: String) -> [ReaderBookPage] {
+enum BookReaderPagination {
+    static func makePages(document: BookReaderDocument, layout: BookReaderLayout, key: String) -> [BookReaderPage] {
         guard layout.pageSize.width > 8, layout.pageSize.height > 8,
               document.paragraphs.contains(where: { !$0.isBlank }) else { return [] }
 
         let sourceLength = (document.sourceText as NSString).length
-        var pages: [ReaderBookPage] = []
-        var currentLines: [ReaderPageLine] = []
+        var pages: [BookReaderPage] = []
+        var current: [BookReaderLine] = []
         var y: CGFloat = 0
 
         func flush() {
-            guard !currentLines.isEmpty else { return }
-            let firstParagraph = document.paragraphs[currentLines[0].paragraphIndex]
-            let lastParagraph = document.paragraphs[currentLines[currentLines.count - 1].paragraphIndex]
-            let start = firstParagraph.sourceRange.location
-            let end = min(NSMaxRange(lastParagraph.sourceRange), sourceLength)
+            guard !current.isEmpty else { return }
+            let start = document.paragraphs[current[0].paragraphIndex].sourceRange.location
+            let end = min(NSMaxRange(document.paragraphs[current[current.count - 1].paragraphIndex].sourceRange), sourceLength)
             let range = NSRange(location: min(start, end), length: max(end - start, 0))
-            let text = (document.sourceText as NSString).substring(with: range)
-            let cleanText = String(text.filter { !$0.unicodeScalars.contains { (0xE000...0xF8FF).contains($0.value) } })
-            pages.append(ReaderBookPage(lines: currentLines, sourceRange: range, speechText: cleanText, key: key))
-            currentLines.removeAll(keepingCapacity: true)
+            let raw = (document.sourceText as NSString).substring(with: range)
+            let spoken = String(raw.filter { !$0.unicodeScalars.contains { (0xE000...0xF8FF).contains($0.value) } })
+            pages.append(BookReaderPage(lines: current, sourceRange: range, spokenText: spoken, key: key))
+            current.removeAll(keepingCapacity: true)
             y = 0
         }
 
         for (paragraphIndex, paragraph) in document.paragraphs.enumerated() {
             if Task.isCancelled { return [] }
-            if paragraphIndex > 0, !currentLines.isEmpty { y += layout.paragraphSpacing }
+            if paragraphIndex > 0, !current.isEmpty { y += layout.paragraphSpacing }
             if paragraph.isBlank {
-                if !currentLines.isEmpty { y += layout.lineHeight }
+                if !current.isEmpty { y += layout.lineHeight }
                 continue
             }
 
             let typesetter = CTTypesetterCreateWithAttributedString(paragraph.attributed)
             var position = 0
-            var first = true
+            var firstLine = true
             while position < paragraph.attributed.length {
-                let available = max(layout.pageSize.width - (first ? layout.firstLineIndent : 0), 10)
+                let available = max(layout.pageSize.width - (firstLine ? layout.firstLineIndent : 0), 10)
                 var count = CTTypesetterSuggestLineBreak(typesetter, position, Double(available))
                 if count <= 0 { count = 1 }
                 var line = CTTypesetterCreateLine(typesetter, CFRange(location: position, length: count))
-                let last = position + count >= paragraph.attributed.length
-                if !last, let justified = CTLineCreateJustifiedLine(line, 0, Double(available)) { line = justified }
+                let lastLine = position + count >= paragraph.attributed.length
+                if !lastLine, let justified = CTLineCreateJustifiedLine(line, 0, Double(available)) { line = justified }
 
-                if !currentLines.isEmpty, y + layout.lineHeight > layout.pageSize.height + 0.5 { flush() }
+                if !current.isEmpty, y + layout.lineHeight > layout.pageSize.height + 0.5 { flush() }
                 let baseline = y + (layout.lineHeight - layout.font.lineHeight) / 2 + layout.font.ascender
-                currentLines.append(ReaderPageLine(
+                current.append(BookReaderLine(
                     line: line,
                     attributed: paragraph.attributed,
                     paragraphIndex: paragraphIndex,
-                    x: first ? layout.firstLineIndent : 0,
+                    x: firstLine ? layout.firstLineIndent : 0,
                     top: y,
                     baseline: baseline,
                     height: layout.lineHeight
                 ))
                 y += layout.lineHeight
                 position += count
-                first = false
+                firstLine = false
             }
         }
         flush()

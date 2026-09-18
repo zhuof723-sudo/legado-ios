@@ -4,7 +4,7 @@ import Observation
 import LegadoRuleEngine
 
 @MainActor
-protocol ReaderPageContentSource: AnyObject {
+protocol BookReaderContentSource: AnyObject {
     var bookKey: String { get }
     var bookTitle: String { get }
     var chapterCount: Int { get }
@@ -16,15 +16,15 @@ protocol ReaderPageContentSource: AnyObject {
     func openChapter(at index: Int) async
 
     var supportsReviews: Bool { get }
-    var currentMarkers: [InlineReviewMarker] { get }
+    var markers: [InlineReviewMarker] { get }
     func marker(id: Int) -> InlineReviewMarker?
     func executeMarkerAction(id: Int, openBrowser: @escaping (String, String?) -> Void)
     func fetchReviews(paragraphIndex: Int, paragraphText: String, markerSource: String?) async -> [Review]
 }
 
-extension ReaderPageContentSource {
+extension BookReaderContentSource {
     var supportsReviews: Bool { false }
-    var currentMarkers: [InlineReviewMarker] { [] }
+    var markers: [InlineReviewMarker] { [] }
     func marker(id: Int) -> InlineReviewMarker? { nil }
     func executeMarkerAction(id: Int, openBrowser: @escaping (String, String?) -> Void) {}
     func fetchReviews(paragraphIndex: Int, paragraphText: String, markerSource: String?) async -> [Review] { [] }
@@ -32,22 +32,22 @@ extension ReaderPageContentSource {
 
 @MainActor
 @Observable
-final class ReaderPageLocalSource: ReaderPageContentSource {
+final class BookReaderLocalSource: BookReaderContentSource {
     let book: LocalBook
-    let chapters: [LocalChapter]
+    let chapters: [BookReaderChapter]
     private(set) var currentChapterIndex = 0
 
     init(book: LocalBook) {
         self.book = book
-        var decoded = TxtParser.decode(book.chaptersData)
-        if decoded.isEmpty { decoded = [LocalChapter(title: book.name, content: "")] }
-        self.chapters = decoded
-        if let saved = ReaderPagePositionStore.load(bookKey: "local://\(book.id)"), chapters.indices.contains(saved.chapterIndex) {
-            self.currentChapterIndex = saved.chapterIndex
+        var decoded = BookReaderFileParser.decode(book.chaptersData)
+        if decoded.isEmpty { decoded = [BookReaderChapter(title: book.name, content: "")] }
+        chapters = decoded
+        if let saved = BookReaderPositionStore.load(key: "book-local://\(book.id)"), chapters.indices.contains(saved.chapterIndex) {
+            currentChapterIndex = saved.chapterIndex
         }
     }
 
-    var bookKey: String { "local://\(book.id)" }
+    var bookKey: String { "book-local://\(book.id)" }
     var bookTitle: String { book.name }
     var chapterCount: Int { chapters.count }
     func chapterTitle(at index: Int) -> String { chapters.indices.contains(index) ? chapters[index].title : book.name }
@@ -62,7 +62,7 @@ final class ReaderPageLocalSource: ReaderPageContentSource {
 
 @MainActor
 @Observable
-final class ReaderPageOnlineSource: Identifiable, Hashable, ReaderPageContentSource {
+final class BookReaderOnlineSource: Identifiable, Hashable, BookReaderContentSource {
     let bookSource: BookSource
     private let runtime: BookSourceRuntime
     private var persistentBookURL: String?
@@ -70,22 +70,22 @@ final class ReaderPageOnlineSource: Identifiable, Hashable, ReaderPageContentSou
     private(set) var chapters: [ChapterInfo] = []
     private(set) var currentChapterIndex = 0
     private(set) var currentContent = ""
-    private(set) var currentMarkers: [InlineReviewMarker] = []
+    private(set) var markers: [InlineReviewMarker] = []
     var isLoadingToc = false
     var isLoadingContent = false
     var errorMessage: String?
     private var requestID = UUID()
     private var tocID = UUID()
-    private var memoryCache: [Int: ReaderChapterContent] = [:]
+    private var cache: [Int: ReaderChapterContent] = [:]
 
     init(bookSource: BookSource, persistentBookURL: String? = nil) {
         self.bookSource = bookSource
-        self.runtime = BookSourceRuntime(bookSource)
+        runtime = BookSourceRuntime(bookSource)
         self.persistentBookURL = persistentBookURL
     }
 
     var id: ObjectIdentifier { ObjectIdentifier(self) }
-    static func == (lhs: ReaderPageOnlineSource, rhs: ReaderPageOnlineSource) -> Bool { lhs === rhs }
+    static func == (lhs: BookReaderOnlineSource, rhs: BookReaderOnlineSource) -> Bool { lhs === rhs }
     func hash(into hasher: inout Hasher) { hasher.combine(ObjectIdentifier(self)) }
 
     var bookKey: String { persistentBookURL ?? bookSource.bookSourceUrl }
@@ -95,11 +95,10 @@ final class ReaderPageOnlineSource: Identifiable, Hashable, ReaderPageContentSou
     var isLoading: Bool { isLoadingToc || isLoadingContent }
 
     var supportsReviews: Bool {
-        if !currentMarkers.isEmpty { return true }
-        return !(bookSource.ruleReview?.reviewUrl?.isEmpty ?? true)
+        !markers.isEmpty || !(bookSource.ruleReview?.reviewUrl?.isEmpty ?? true)
     }
 
-    func marker(id: Int) -> InlineReviewMarker? { currentMarkers.first { $0.id == id } }
+    func marker(id: Int) -> InlineReviewMarker? { markers.first { $0.id == id } }
 
     func executeMarkerAction(id: Int, openBrowser: @escaping (String, String?) -> Void) {
         guard let marker = marker(id: id), chapters.indices.contains(currentChapterIndex), let action = marker.action else { return }
@@ -137,15 +136,15 @@ final class ReaderPageOnlineSource: Identifiable, Hashable, ReaderPageContentSou
     }
 
     func loadToc(bookUrl: String) async {
-        let loadID = UUID()
-        tocID = loadID
+        let id = UUID()
+        tocID = id
         isLoadingToc = true
         isLoadingContent = false
         errorMessage = nil
         currentContent = ""
-        currentMarkers = []
+        markers = []
         chapters = []
-        memoryCache.removeAll()
+        cache.removeAll()
         currentChapterIndex = 0
         guard !bookUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             errorMessage = "无法打开：书籍地址为空"
@@ -154,14 +153,14 @@ final class ReaderPageOnlineSource: Identifiable, Hashable, ReaderPageContentSou
         }
         do {
             let result = try await runtime.getToc(bookUrl: bookUrl)
-            guard tocID == loadID else { return }
+            guard tocID == id else { return }
             chapters = result
             if result.isEmpty { errorMessage = "目录为空：当前书源未返回章节" }
         } catch {
-            guard tocID == loadID else { return }
+            guard tocID == id else { return }
             errorMessage = "获取目录失败：\(error.localizedDescription)"
         }
-        if tocID == loadID { isLoadingToc = false }
+        if tocID == id { isLoadingToc = false }
     }
 
     func openChapter(at index: Int) async {
@@ -170,60 +169,60 @@ final class ReaderPageOnlineSource: Identifiable, Hashable, ReaderPageContentSou
         currentChapterIndex = index
         requestID = UUID()
         currentContent = ""
-        currentMarkers = []
+        markers = []
         errorMessage = nil
-        await loadCurrentChapter()
+        await loadChapter()
     }
 
-    private func loadCurrentChapter() async {
+    private func loadChapter() async {
         guard chapters.indices.contains(currentChapterIndex) else { return }
-        let chapterIndex = currentChapterIndex
-        let chapter = chapters[chapterIndex]
-        let loadID = requestID
+        let index = currentChapterIndex
+        let chapter = chapters[index]
+        let id = requestID
         isLoadingContent = true
         defer {
-            if requestID == loadID { isLoadingContent = false }
+            if requestID == id { isLoadingContent = false }
         }
 
         do {
             let document: ReaderChapterContent
-            if let cached = memoryCache[chapterIndex], cached.inlineReviewProcessed {
+            if let cached = cache[index], cached.inlineReviewProcessed {
                 document = cached
             } else if let bookURL = persistentBookURL,
                       let cached = await ChapterContentCache.shared.loadDocument(bookURL: bookURL, chapterURL: chapter.url),
                       cached.inlineReviewProcessed {
                 document = cached
-                memoryCache[chapterIndex] = cached
+                cache[index] = cached
             } else if let bookURL = persistentBookURL {
                 document = try await ChapterDownloadManager.shared.downloadChapterContent(
                     bookURL: bookURL,
                     book: bookSource,
                     chapter: chapter
                 )
-                memoryCache[chapterIndex] = document
+                cache[index] = document
                 await ChapterContentCache.shared.saveDocument(document, bookURL: bookURL, chapterURL: chapter.url)
             } else {
                 document = try await runtime.getChapterContent(chapterUrl: chapter.url)
-                memoryCache[chapterIndex] = document
+                cache[index] = document
             }
-            guard requestID == loadID, chapterIndex == currentChapterIndex else { return }
+            guard requestID == id, currentChapterIndex == index else { return }
             guard !document.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 errorMessage = "正文为空：当前章节没有返回内容"
                 return
             }
             currentContent = document.text
-            currentMarkers = document.inlineReviewMarkers
+            markers = document.inlineReviewMarkers
         } catch is TimeoutError {
-            if requestID == loadID { errorMessage = "获取正文超时，请检查网络或更换书源" }
+            if requestID == id { errorMessage = "获取正文超时，请检查网络或更换书源" }
         } catch {
-            if requestID == loadID { errorMessage = "获取正文失败：\(error.localizedDescription)" }
+            if requestID == id { errorMessage = "获取正文失败：\(error.localizedDescription)" }
         }
     }
 
     func enablePersistentCache(bookURL: String) {
         persistentBookURL = bookURL
         guard chapters.indices.contains(currentChapterIndex), !currentContent.isEmpty else { return }
-        let document = ReaderChapterContent(text: currentContent, inlineReviewMarkers: currentMarkers)
+        let document = ReaderChapterContent(text: currentContent, inlineReviewMarkers: markers)
         Task { await ChapterContentCache.shared.saveDocument(document, bookURL: bookURL, chapterURL: chapters[currentChapterIndex].url) }
     }
 }

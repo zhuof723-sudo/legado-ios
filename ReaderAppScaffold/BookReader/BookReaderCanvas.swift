@@ -1,24 +1,16 @@
 import UIKit
 import CoreText
 
-// MARK: - 页面点击
-
-enum ReaderPageTap {
-    case previous
-    case next
-    case center
-}
-
-final class ReaderPageCanvas: UIView {
-    private let page: ReaderBookPage
-    private let style: ReaderPageStyle
+final class BookReaderCanvas: UIView {
+    private let page: BookReaderPage
+    private let style: BookReaderStyle
     private let contentOffset: CGPoint
     private let contentSize: CGSize
 
-    var onTap: ((ReaderPageTap) -> Void)?
-    var onLink: ((ReaderPageLink) -> Void)?
+    var onTurn: ((BookReaderTurnIntent) -> Void)?
+    var onLink: ((BookReaderLink) -> Void)?
 
-    init(page: ReaderBookPage, style: ReaderPageStyle, contentOffset: CGPoint, contentSize: CGSize) {
+    init(page: BookReaderPage, style: BookReaderStyle, contentOffset: CGPoint, contentSize: CGSize) {
         self.page = page
         self.style = style
         self.contentOffset = contentOffset
@@ -36,25 +28,31 @@ final class ReaderPageCanvas: UIView {
 
     override func draw(_ rect: CGRect) {
         guard let context = UIGraphicsGetCurrentContext() else { return }
-        context.textMatrix = .identity
+        // UIKit drawRect 是 y 向下；CoreText glyph drawing 需要 y 向上的文本空间。
+        // 不做这一步，中文字会整体上下翻转，正是当前截图中的故障。
+        context.saveGState()
+        context.translateBy(x: 0, y: bounds.height)
+        context.scaleBy(x: 1, y: -1)
+
         let textColor = UIColor(style.theme.text).cgColor
         let markerColor = UIColor.systemGray.cgColor
-
         for line in page.lines {
             guard let runs = CTLineGetGlyphRuns(line.line) as? [CTRun] else { continue }
             for run in runs {
                 let range = CTRunGetStringRange(run)
                 guard range.length > 0 else { continue }
-                let marker = line.attributed.attribute(.foregroundColor, at: range.location, effectiveRange: nil) != nil
-                context.setFillColor(marker ? markerColor : textColor)
+                let isMarker = line.attributed.attribute(.foregroundColor, at: range.location, effectiveRange: nil) != nil
+                context.setFillColor(isMarker ? markerColor : textColor)
                 let runX = CGFloat(CTLineGetOffsetForStringIndex(line.line, range.location, nil))
+                let baselineFromBottom = bounds.height - contentOffset.y - line.baseline
                 context.textPosition = CGPoint(
                     x: contentOffset.x + line.x + runX,
-                    y: contentOffset.y + line.baseline
+                    y: baselineFromBottom
                 )
                 CTRunDraw(run, context, CFRange(location: 0, length: 0))
             }
         }
+        context.restoreGState()
     }
 
     func refreshTheme() {
@@ -71,17 +69,22 @@ final class ReaderPageCanvas: UIView {
                 let index = CTLineGetStringIndexForPosition(line.line, CGPoint(x: local.x - line.x, y: 0))
                 if index >= 0, index < line.attributed.length,
                    let url = line.attributed.attribute(.link, at: index, effectiveRange: nil) as? URL,
-                   let link = ReaderPageLink.resolve(url) {
+                   let link = BookReaderLink.resolve(url) {
                     onLink?(link)
                     return
                 }
                 break
             }
         }
-
         let edge = max(72, bounds.width * 0.24)
-        if point.x <= edge { onTap?(.previous) }
-        else if point.x >= bounds.width - edge { onTap?(.next) }
-        else { onTap?(.center) }
+        if point.x <= edge { onTurn?(.previous) }
+        else if point.x >= bounds.width - edge { onTurn?(.next) }
+        else { onTurn?(.center) }
     }
+}
+
+enum BookReaderTurnIntent {
+    case previous
+    case next
+    case center
 }

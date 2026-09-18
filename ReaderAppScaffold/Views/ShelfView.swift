@@ -14,7 +14,7 @@ struct ShelfView: View {
     @Query(sort: [SortDescriptor(\PDFBook.createdAt, order: .reverse)])
     private var pdfBooks: [PDFBook]
 
-    @State private var chapterSource: ReaderPageOnlineSource?
+    @State private var chapterSource: BookReaderOnlineSource?
     @State private var openBook: ShelfBook?
     @State private var openLocal: LocalBook?
     @State private var openPDF: PDFBook?
@@ -88,7 +88,7 @@ struct ShelfView: View {
             .background(Theme.bg.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
             .fullScreenCover(item: $chapterSource) { source in
-                ReaderPageScreen(source: .online(
+                BookReaderScreen(source: .online(
                     source,
                     bookUrl: openBook?.bookUrl ?? "",
                     bookName: openBook?.name ?? ""
@@ -102,7 +102,7 @@ struct ShelfView: View {
                 }
             }
             .fullScreenCover(item: $openLocal) { book in
-                ReaderPageScreen(source: .local(ReaderPageLocalSource(book: book)))
+                BookReaderScreen(source: .local(BookReaderLocalSource(book: book)))
             }
             .fullScreenCover(item: $openPDF) { book in
                 PDFReaderView(book: book)
@@ -306,7 +306,7 @@ struct ShelfView: View {
                             .frame(width: 40, height: 54)
                         VStack(alignment: .leading, spacing: 4) {
                             Text(book.name).font(.subheadline.bold()).foregroundStyle(.primary).lineLimit(1)
-                            Text("\(book.author) · \(TxtParser.decode(book.chaptersData).count) 章")
+                            Text("\(book.author) · \(BookReaderFileParser.decode(book.chaptersData).count) 章")
                                 .font(.caption).foregroundStyle(Theme.textSecondary)
                         }
                         Spacer()
@@ -438,7 +438,7 @@ struct ShelfView: View {
         guard let record = allSources.first(where: { $0.bookSourceUrl == book.sourceUrl }),
               let source = record.decodeSource() else { return }
         openBook = book
-        let source0 = ReaderPageOnlineSource(bookSource: source, persistentBookURL: book.bookUrl)
+        let source0 = BookReaderOnlineSource(bookSource: source, persistentBookURL: book.bookUrl)
         chapterSource = source0
         Task {
             await source0.loadToc(bookUrl: book.bookUrl)

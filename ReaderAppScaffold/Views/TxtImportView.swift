@@ -111,13 +111,13 @@ struct TxtImportView: View {
             return
         }
 
-        let chapters = TxtParser.chapters(from: text)
+        let chapters = BookReaderFileParser.chapters(from: text)
         guard !chapters.isEmpty else {
             message = "没能从文件里切分出任何章节（文件可能不是纯文本）"
             return
         }
 
-        let book = LocalBook(name: fallbackName, author: "本地导入", chaptersData: TxtParser.encode(chapters))
+        let book = LocalBook(name: fallbackName, author: "本地导入", chaptersData: BookReaderFileParser.encode(chapters))
         context.insert(book)
         do {
             try context.save()
@@ -132,9 +132,9 @@ struct TxtImportView: View {
     // MARK: - EPUB
 
     private func importEpub(_ url: URL, fallbackName: String) {
-        let parsed: EpubParser.Book
+        let parsed: BookReaderFileParser.EPUBBook
         do {
-            parsed = try EpubParser.parse(url: url)
+            parsed = try BookReaderFileParser.parseEPUB(url: url)
         } catch {
             message = "EPUB 导入失败：\(error.localizedDescription)"
             return
@@ -148,7 +148,7 @@ struct TxtImportView: View {
         let book = LocalBook(
             name: title,
             author: parsed.author,
-            chaptersData: TxtParser.encode(parsed.chapters)
+            chaptersData: BookReaderFileParser.encode(parsed.chapters)
         )
         context.insert(book)
         do {

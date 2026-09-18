@@ -9,7 +9,7 @@ struct HistoryView: View {
     private var books: [ShelfBook]
     @Query private var allSources: [BookSourceRecord]
 
-    @State private var chapterSource: ReaderPageOnlineSource?
+    @State private var chapterSource: BookReaderOnlineSource?
     @State private var openBook: ShelfBook?
     @State private var searchText = ""
     @State private var headerCache = HeaderCacheBox()
@@ -54,7 +54,7 @@ struct HistoryView: View {
             .background(Theme.bg.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
             .fullScreenCover(item: $chapterSource) { source in
-                ReaderPageScreen(source: .online(
+                BookReaderScreen(source: .online(
                     source,
                     bookUrl: openBook?.bookUrl ?? "",
                     bookName: openBook?.name ?? ""
@@ -156,7 +156,7 @@ struct HistoryView: View {
         guard let record = allSources.first(where: { $0.bookSourceUrl == book.sourceUrl }),
               let source = record.decodeSource() else { return }
         openBook = book
-        let source0 = ReaderPageOnlineSource(bookSource: source, persistentBookURL: book.bookUrl)
+        let source0 = BookReaderOnlineSource(bookSource: source, persistentBookURL: book.bookUrl)
         chapterSource = source0
         Task {
             await source0.loadToc(bookUrl: book.bookUrl)

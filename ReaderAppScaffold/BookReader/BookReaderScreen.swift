@@ -2,19 +2,11 @@ import SwiftUI
 import SwiftData
 import UIKit
 
-/// 全新的正文阅读页。
-///
-/// 阅读页只保留两类交互：
-/// - CoreText 页面排版与段评链接
-/// - UIPageViewController.pageCurl 仿真翻页
-///
-/// 其余旧阅读功能（平移/无动画、目录面板、书签、TTS、搜索、旧 Aa 面板）
-/// 不再属于正文页面。
-struct ReaderPageScreen: View {
+struct BookReaderScreen: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.modelContext) private var context
-    @State private var session: ReaderPageSession
-    @ObservedObject private var style = ReaderPageStyle.shared
+    @Environment(\.modelContext) private var modelContext
+    @State private var session: BookReaderSession
+    @ObservedObject private var style = BookReaderStyle.shared
 
     @State private var showControls = false
     @State private var showReviews = false
@@ -23,59 +15,50 @@ struct ReaderPageScreen: View {
     @State private var selectedReviewURL: String?
     @State private var browserDestination: BrowserDestination?
 
-    init(source: ReaderPageSession.Source) {
-        _session = State(initialValue: ReaderPageSession(source: source))
+    init(source: BookReaderSession.Source) {
+        _session = State(initialValue: BookReaderSession(source: source))
     }
 
     var body: some View {
         @Bindable var session = session
-
         GeometryReader { geometry in
-            let horizontal = CGFloat(style.paddingH)
-            let top = CGFloat(style.paddingTop)
-            let bottom = CGFloat(style.paddingBottom)
+            let padH = CGFloat(style.paddingH)
+            let padTop = CGFloat(style.paddingTop)
+            let padBottom = CGFloat(style.paddingBottom)
             let width = geometry.size.width + geometry.safeAreaInsets.leading + geometry.safeAreaInsets.trailing
             let height = geometry.size.height + geometry.safeAreaInsets.top + geometry.safeAreaInsets.bottom
-            let contentOffset = CGPoint(x: horizontal, y: top)
-            let contentSize = CGSize(
-                width: max(width - horizontal * 2, 1),
-                height: max(height - top - bottom, 1)
-            )
-            let layout = ReaderPageLayout(
-                font: style.uiFont,
+            let contentOffset = CGPoint(x: padH, y: padTop)
+            let contentSize = CGSize(width: max(width - padH * 2, 1), height: max(height - padTop - padBottom, 1))
+            let layout = session.makeLayout(
+                font: style.font,
                 lineSpacing: style.lineSpacing,
                 paragraphSpacing: style.paragraphSpacing,
-                firstLineIndent: style.firstLineIndent,
-                pageSize: contentSize
+                indent: style.firstLineIndent,
+                size: contentSize
             )
-            let key = ReaderPageSession.key(
-                content: session.currentContent,
-                markers: session.markers,
-                chapter: session.currentChapterIndex,
-                layout: layout
-            )
+            let key = "\(BookReaderDocumentBuilder.fingerprint(session.content))|\(layout.signature)|\(session.markers.map { "\($0.id):\($0.paragraphIndex):\($0.count)" }.joined(separator: ","))|\(session.chapterIndex)"
+            let canRender = style.mode == .scroll ? session.document != nil : (!session.pages.isEmpty && session.chapterForPages == session.chapterIndex)
 
             ZStack {
                 style.theme.background.ignoresSafeArea()
-
-                if !session.pages.isEmpty, session.pagesChapterIndex == session.currentChapterIndex {
-                    ReaderPageCurlView(
+                if canRender {
+                    BookReaderModeView(
+                        mode: style.mode,
                         pages: session.pages,
+                        document: session.document,
                         style: style,
                         pageIndex: $session.pageIndex,
                         contentOffset: contentOffset,
                         contentSize: contentSize,
-                        onTap: handlePageTap,
-                        onLink: handlePageLink
+                        onTurn: handleTurn,
+                        onLink: handleLink
                     )
+                    .id(style.mode)
                     .ignoresSafeArea(.container, edges: .all)
-                } else if session.isLoading {
+                } else if session.loading || session.content.isEmpty {
                     ProgressView()
-                } else if let error = session.errorMessage {
-                    Text(error)
-                        .foregroundStyle(.red)
-                        .multilineTextAlignment(.center)
-                        .padding(24)
+                } else if let error = session.error {
+                    Text(error).foregroundStyle(.red).multilineTextAlignment(.center).padding(24)
                 } else {
                     ProgressView()
                 }
@@ -85,8 +68,12 @@ struct ReaderPageScreen: View {
                         .zIndex(10)
                 }
             }
-            .task(id: key) {
-                await session.ensurePages(key: key, layout: layout)
+            .task(id: key + "|mode=" + style.mode.rawValue) {
+                if style.mode == .scroll {
+                    session.ensureDocument(style: style)
+                } else {
+                    await session.ensurePages(key: key, layout: layout, style: style)
+                }
             }
         }
         .statusBarHidden(!showControls)
@@ -97,28 +84,24 @@ struct ReaderPageScreen: View {
                 .fill(style.theme.text.opacity(0.18))
                 .frame(height: 2)
                 .overlay(alignment: .leading) {
-                    GeometryReader { geometry in
+                    GeometryReader { proxy in
                         Rectangle()
                             .fill(style.theme.text.opacity(0.75))
-                            .frame(width: geometry.size.width * session.progress)
+                            .frame(width: proxy.size.width * session.progress)
                     }
                 }
                 .allowsHitTesting(false)
         }
-        .onChange(of: session.currentChapterIndex) { _, _ in saveProgress() }
-        .onChange(of: session.pageIndex) { _, _ in saveProgress() }
+        .onChange(of: session.chapterIndex) { _, _ in session.savePosition() }
+        .onChange(of: session.pageIndex) { _, _ in session.savePosition() }
         .onDisappear { saveProgress() }
         .sheet(isPresented: $showReviews) {
             ReviewListView(
                 paragraphText: selectedParagraphText,
                 paragraphIndex: selectedParagraphIndex,
                 onClose: { showReviews = false },
-                fetchReviews: { paragraphIndex, paragraphText in
-                    try await session.fetchReviews(
-                        paragraphIndex: paragraphIndex,
-                        paragraphText: paragraphText,
-                        markerSource: selectedReviewURL
-                    )
+                fetchReviews: { index, text in
+                    try await session.fetchReviews(paragraphIndex: index, paragraphText: text, markerSource: selectedReviewURL)
                 }
             )
             .presentationDetents([.fraction(0.65), .fraction(0.90)])
@@ -133,39 +116,55 @@ struct ReaderPageScreen: View {
 
     private var controls: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 14) {
+            HStack(spacing: 12) {
                 Button { dismiss() } label: {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 16, weight: .semibold))
                         .frame(width: 36, height: 36)
                 }
                 .buttonStyle(.plain)
-
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(session.bookTitle)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    Text(session.currentChapterTitle)
-                        .font(.caption2)
-                        .lineLimit(1)
-                        .opacity(0.7)
+                    Text(session.bookTitle).font(.subheadline.weight(.semibold)).lineLimit(1)
+                    Text(session.chapterTitle).font(.caption2).lineLimit(1).opacity(0.7)
                 }
                 Spacer()
-                Text("\(session.pageIndex + 1) / \(max(session.pages.count, 1))")
-                    .font(.caption.monospacedDigit())
-                    .opacity(0.75)
+                if style.mode != .scroll {
+                    Text("\(session.pageIndex + 1) / \(max(session.pages.count, 1))")
+                        .font(.caption.monospacedDigit())
+                        .opacity(0.75)
+                }
             }
             .foregroundStyle(style.theme.text)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
+            .background(.ultraThinMaterial)
+
+            HStack(spacing: 8) {
+                ForEach(BookReaderTurnMode.allCases) { mode in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) { style.turnMode = mode.rawValue }
+                    } label: {
+                        Label(mode.title, systemImage: mode.icon)
+                            .font(.caption2)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .background(style.mode == mode ? style.theme.text.opacity(0.12) : .clear)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .foregroundStyle(style.theme.text)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 10)
             .background(.ultraThinMaterial)
             Spacer()
         }
         .ignoresSafeArea(edges: .top)
     }
 
-    private func handlePageTap(_ tap: ReaderPageTap) {
-        switch tap {
+    private func handleTurn(_ intent: BookReaderTurnIntent) {
+        switch intent {
         case .previous:
             Task { await session.previousPage() }
         case .next:
@@ -175,12 +174,12 @@ struct ReaderPageScreen: View {
         }
     }
 
-    private func handlePageLink(_ link: ReaderPageLink) {
-        guard session.supportsReviews else { return }
+    private func handleLink(_ link: BookReaderLink) {
+        guard session.reviewsEnabled else { return }
         switch link {
         case .paragraph(let index):
             selectedReviewURL = nil
-            presentReview(index: index)
+            presentReview(index)
         case .marker(let id):
             guard let marker = session.marker(id: id) else { return }
             if marker.action?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
@@ -192,33 +191,29 @@ struct ReaderPageScreen: View {
                 browserDestination = destination
             } else {
                 selectedReviewURL = marker.source
-                presentReview(index: marker.paragraphIndex)
+                presentReview(marker.paragraphIndex)
             }
         }
     }
 
-    private func presentReview(index: Int) {
-        let paragraphs = session.currentContent.components(separatedBy: "\n")
+    private func presentReview(_ index: Int) {
+        let paragraphs = session.content.components(separatedBy: "\n")
         selectedParagraphIndex = max(index, 0)
         let raw = paragraphs.indices.contains(index) ? paragraphs[index] : ""
-        selectedParagraphText = String(raw.filter {
-            !$0.unicodeScalars.contains { (0xE000...0xF8FF).contains($0.value) }
-        })
+        selectedParagraphText = String(raw.filter { !$0.unicodeScalars.contains { (0xE000...0xF8FF).contains($0.value) } })
         showReviews = true
     }
 
     private func saveProgress() {
         session.savePosition()
-        guard case .online(let source, let bookURL, _) = session.source else { return }
-        let descriptor = FetchDescriptor<ShelfBook>(predicate: #Predicate { $0.bookUrl == bookURL })
-        if let book = try? context.fetch(descriptor).first {
+        guard case .online(let source, let url, _) = session.source else { return }
+        let descriptor = FetchDescriptor<ShelfBook>(predicate: #Predicate { $0.bookUrl == url })
+        if let book = try? modelContext.fetch(descriptor).first {
             book.lastReadChapterIndex = source.currentChapterIndex
-            book.lastReadChapterTitle = source.chapters.indices.contains(source.currentChapterIndex)
-                ? source.chapters[source.currentChapterIndex].name
-                : nil
+            book.lastReadChapterTitle = source.chapters.indices.contains(source.currentChapterIndex) ? source.chapters[source.currentChapterIndex].name : nil
             book.lastReadAt = Date()
             book.totalChapters = source.chapters.count
-            try? context.save()
+            try? modelContext.save()
         }
     }
 }

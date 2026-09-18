@@ -144,7 +144,7 @@ struct PDFReaderView: View {
     @Environment(\.dismiss) private var dismiss
     let book: PDFBook
     @StateObject private var viewModel: PDFReaderViewModel
-    @ObservedObject private var style = ReaderPageStyle.shared
+    @ObservedObject private var style = BookReaderStyle.shared
     @State private var pageIndex = 0
     @State private var showControls = false
 
