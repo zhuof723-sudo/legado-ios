@@ -6,8 +6,8 @@ import UniformTypeIdentifiers
 struct TxtImportView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
-    @State private var showFileImporter = false
     @State private var message: String?
+    @State private var isPicking = false
 
     var body: some View {
         NavigationStack {
@@ -25,7 +25,7 @@ struct TxtImportView: View {
                     .multilineTextAlignment(.center)
 
                 Button {
-                    showFileImporter = true
+                    pickFile()
                 } label: {
                     Label("选择 .txt 文件", systemImage: "folder")
                         .frame(maxWidth: .infinity)
@@ -34,9 +34,13 @@ struct TxtImportView: View {
                 .prominentGlassButton()
                 .tint(Theme.accent)
                 .foregroundStyle(.white)
+                .disabled(isPicking)
 
                 if let message {
-                    Text(message).font(.footnote).foregroundStyle(.secondary)
+                    Text(message)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
                 }
                 Spacer()
             }
@@ -48,26 +52,26 @@ struct TxtImportView: View {
                     Button("取消") { dismiss() }
                 }
             }
-            .fileImporter(
-                isPresented: $showFileImporter,
-                allowedContentTypes: [.plainText, .text, .data],
-                allowsMultipleSelection: false,
-                // 同书源导入：用系统复制的副本读取，避免 security-scoped 授权问题。
-                onCompletion: handleFileSelection
-            )
         }
     }
 
-    private func handleFileSelection(_ result: Result<[URL], Error>) {
-        switch result {
-        case .success(let urls):
-            guard let url = urls.first else {
-                message = "没有选择文件"
-                return
+    /// 同书源导入：用 UIKit 的选择器，避免 `.fileImporter` 在 sheet 内静默失效。
+    private func pickFile() {
+        isPicking = true
+        message = nil
+        FilePicker.present(contentTypes: [.plainText, .text, .data]) { result in
+            isPicking = false
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else {
+                    message = "没有选择文件"
+                    return
+                }
+                importFile(url)
+            case .failure(let error):
+                if (error as? FilePicker.PickerError) == .cancelled { return }
+                message = "打开文件选择器失败：\(error.localizedDescription)"
             }
-            importFile(url)
-        case .failure(let error):
-            message = "选择文件失败：\(error.localizedDescription)"
         }
     }
 
@@ -75,38 +79,11 @@ struct TxtImportView: View {
         let accessed = url.startAccessingSecurityScopedResource()
         defer { if accessed { url.stopAccessingSecurityScopedResource() } }
 
-        // 同书源导入：FileCoordinator 优先（iCloud/第三方 provider 更可靠），失败再直接读。
-        var data: Data?
-        var readError: Error?
-        let coordinator = NSFileCoordinator()
-        var coordinatorError: NSError?
-        coordinator.coordinate(readingItemAt: url, options: [], error: &coordinatorError) { readURL in
-            do { data = try Data(contentsOf: readURL) } catch { readError = error }
-        }
-        if data == nil, let coordinatorError { readError = coordinatorError }
-        if data == nil, coordinatorError == nil, readError == nil {
-            do { data = try Data(contentsOf: url) } catch { readError = error }
-        }
-
-        guard let data else {
-            message = "无法读取文件：\(readError?.localizedDescription ?? "未知错误")"
-            return
-        }
-        guard !data.isEmpty else {
-            message = "文件是空的，没有可导入的内容"
-            return
-        }
-
-        // 编码识别：UTF-8（含 BOM）→ UTF-16 → GB18030（国内 TXT 常见）
         let text: String
-        if let s = String(data: data, encoding: .utf8) {
-            text = s
-        } else if let s = String(data: data, encoding: .utf16) {
-            text = s
-        } else if let s = decodeGBK(data) {
-            text = s
-        } else {
-            message = "文件编码无法识别（试过 UTF-8 / UTF-16 / GB18030）"
+        do {
+            text = try FileTextReader.readText(from: url)
+        } catch {
+            message = error.localizedDescription
             return
         }
 
@@ -127,11 +104,5 @@ struct TxtImportView: View {
         }
         message = "已导入「\(name)」，共 \(chapters.count) 章"
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { dismiss() }
-    }
-
-    private func decodeGBK(_ data: Data) -> String? {
-        let cfEncoding = CFStringEncodings.GB_18030_2000
-        let enc = CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(cfEncoding.rawValue))
-        return String(data: data, encoding: String.Encoding(rawValue: enc))
     }
 }

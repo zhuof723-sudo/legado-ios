@@ -6,8 +6,8 @@ public struct ImportSourceView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @State private var jsonText = ""
-    @State private var showFileImporter = false
     @State private var resultMessage: String?
+    @State private var isPicking = false
 
     public init() {}
 
@@ -20,13 +20,21 @@ public struct ImportSourceView: View {
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(.separator))
 
                 Button {
-                    showFileImporter = true
+                    pickFile()
                 } label: {
                     Label("从文件导入(.json)", systemImage: "doc.badge.plus")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
                 }
+                .plainGlassButton()
+                .tint(Theme.accent)
+                .disabled(isPicking)
 
                 if let resultMessage {
-                    Text(resultMessage).font(.footnote).foregroundStyle(.secondary)
+                    Text(resultMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
                 Spacer()
@@ -42,109 +50,61 @@ public struct ImportSourceView: View {
                         .disabled(jsonText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
-            .fileImporter(
-                isPresented: $showFileImporter,
-                allowedContentTypes: [.json, .text],
-                allowsMultipleSelection: false,
-                // 关键：让系统把文件复制到 App 临时目录后再交付。
-                // 这样拿到的是普通本地 URL，不依赖 security-scoped 授权是否成功，
-                // 从根上规避"选了文件读不到 / 没反应"的问题。
-                onCompletion: handleFileSelection
-            )
         }
     }
 
-    private func handleFileSelection(_ result: Result<[URL], Error>) {
-        switch result {
-        case .success(let urls):
-            guard let url = urls.first else {
-                resultMessage = "没有选择文件"
-                return
+    /// 直接用 UIKit 的选择器呈现（见 DocumentPicker.swift 里关于
+    /// `.fileImporter` 在 sheet 内静默失效的说明）。
+    private func pickFile() {
+        isPicking = true
+        resultMessage = nil
+        FilePicker.present(contentTypes: [.json, .text, .data]) { result in
+            isPicking = false
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else {
+                    resultMessage = "没有选择文件"
+                    return
+                }
+                loadSourceFile(url)
+            case .failure(let error):
+                // 用户主动取消不算错误，不打扰
+                if (error as? FilePicker.PickerError) == .cancelled { return }
+                resultMessage = "打开文件选择器失败：\(error.localizedDescription)"
             }
-            loadSourceFile(url)
-        case .failure(let error):
-            resultMessage = "选择文件失败：\(error.localizedDescription)"
         }
     }
 
-    /// 读取用户选中的书源文件。
-    ///
-    /// 注意：`startAccessingSecurityScopedResource()` 返回 false **不代表无法读取**——
-    /// 它在不少正常场景下都会返回 false（文件位于 App 自身容器内、iCloud/本地
-    /// provider 直接授权等）。旧实现在这里写成 `if url.startAccessing… { 读取 }`，
-    /// 返回 false 时整段被跳过，既不读文件也不给任何提示，表现就是"选了文件没反应"。
-    /// 现在改为：无论该调用成败都继续尝试读取，并把每一种失败原因显示出来，
-    /// 不再出现静默无响应。
     private func loadSourceFile(_ url: URL) {
+        // asCopy 已把文件复制到临时目录，理论上无需安全作用域；
+        // 仍按规范调用一次，但返回 false 也继续读（不再静默跳过）。
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
 
-        // 优先用 FileCoordinator 读取（对 iCloud Drive / 第三方 provider 的
-        // 未下载或正在同步文件更可靠），失败再退回直接读取。
-        var data: Data?
-        var readError: Error?
-        let coordinator = NSFileCoordinator()
-        var coordinatorError: NSError?
-        coordinator.coordinate(readingItemAt: url, options: [], error: &coordinatorError) { readURL in
-            do {
-                data = try Data(contentsOf: readURL)
-            } catch {
-                readError = error
-            }
+        do {
+            let text = try FileTextReader.readText(from: url)
+            // 回填输入框：即使解析失败，用户也能看到内容并手动修
+            jsonText = text
+            doImport(text)
+        } catch {
+            resultMessage = error.localizedDescription
         }
-
-        if data == nil, let coordinatorError {
-            readError = coordinatorError
-        }
-        if data == nil, coordinatorError == nil, readError == nil {
-            do { data = try Data(contentsOf: url) } catch { readError = error }
-        }
-
-        guard let data else {
-            resultMessage = "无法读取文件：\(readError?.localizedDescription ?? "未知错误")"
-            return
-        }
-        guard !data.isEmpty else {
-            resultMessage = "文件是空的，没有可导入的内容"
-            return
-        }
-
-        // UTF-8 → 带 BOM 的 UTF-8 → GB18030（国内书源文件常见）
-        let text: String
-        if let s = String(data: data, encoding: .utf8) {
-            text = s
-        } else if let s = decodeGB18030(data) {
-            text = s
-        } else {
-            resultMessage = "文件编码无法识别（需 UTF-8 或 GBK/GB18030）"
-            return
-        }
-
-        // 顺手把内容回填到输入框，即使解析失败用户也能看到并手动改。
-        jsonText = text
-        doImport(text)
-    }
-
-    private func decodeGB18030(_ data: Data) -> String? {
-        let cfEncoding = CFStringEncodings.GB_18030_2000
-        let enc = CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(cfEncoding.rawValue))
-        return String(data: data, encoding: String.Encoding(rawValue: enc))
     }
 
     private func doImport(_ text: String) {
         let store = BookSourceStore(context: context)
         let count = store.importSources(from: text)
         if let err = store.errorMessage {
-            resultMessage = err
+            resultMessage = "导入失败：\(err)"
+        } else if count == 0 {
+            resultMessage = "没有解析出任何书源（请确认是 legado 书源 JSON）"
         } else {
             if store.skippedCount > 0 {
                 resultMessage = "成功导入 \(count) 个书源，跳过 \(store.skippedCount) 个（缺少 bookSourceUrl）"
             } else {
                 resultMessage = "成功导入 \(count) 个书源"
             }
-            if count > 0 {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { dismiss() }
-            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { dismiss() }
         }
     }
 }

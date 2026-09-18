@@ -104,16 +104,11 @@ enum ExternalFileImporter {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
 
-        guard let data = readData(from: url) else {
-            notify("文件读取失败：\(url.lastPathComponent)")
-            return
-        }
-        guard !data.isEmpty else {
-            notify("文件是空的：\(url.lastPathComponent)")
-            return
-        }
-        guard let text = decode(data) else {
-            notify("文件编码无法识别（UTF-8 / UTF-16 / GB18030 均失败）")
+        let text: String
+        do {
+            text = try FileTextReader.readText(from: url)
+        } catch {
+            notify("导入「\(url.lastPathComponent)」失败：\(error.localizedDescription)")
             return
         }
 
@@ -145,29 +140,6 @@ enum ExternalFileImporter {
                 notify("保存失败：\(error.localizedDescription)")
             }
         }
-    }
-
-    private static func readData(from url: URL) -> Data? {
-        // FileCoordinator 优先（iCloud / 第三方 provider 更可靠），失败再直接读。
-        var data: Data?
-        let coordinator = NSFileCoordinator()
-        var coordinatorError: NSError?
-        coordinator.coordinate(readingItemAt: url, options: [], error: &coordinatorError) { readURL in
-            data = try? Data(contentsOf: readURL)
-        }
-        if data == nil {
-            data = try? Data(contentsOf: url)
-        }
-        return data
-    }
-
-    private static func decode(_ data: Data) -> String? {
-        if let s = String(data: data, encoding: .utf8) { return s }
-        if let s = String(data: data, encoding: .utf16) { return s }
-        let cf = CFStringConvertEncodingToNSStringEncoding(
-            CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)
-        )
-        return String(data: data, encoding: String.Encoding(rawValue: cf))
     }
 
     /// 粗略判断内容是否为书源 JSON（避免把 .txt 后缀的书源文件当小说处理）。
