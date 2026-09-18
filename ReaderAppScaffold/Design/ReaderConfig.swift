@@ -165,8 +165,10 @@ final class ReaderConfig: ObservableObject {
     var uiFont: UIFont {
         let base = bold ? UIFont.boldSystemFont(ofSize: fontSize) : UIFont.systemFont(ofSize: fontSize)
         // 衬线体：iOS 的 .serif 设计在 CJK 上自动落到宋体系，无需硬编码字体名。
-        guard currentFontFamily == .serif else { return base }
-        return base.withDesign(.serif) ?? base
+        // withDesign 是 UIFontDescriptor 的 API，size 传 0 表示沿用原字号。
+        guard currentFontFamily == .serif,
+              let descriptor = base.fontDescriptor.withDesign(.serif) else { return base }
+        return UIFont(descriptor: descriptor, size: 0)
     }
 
     /// CoreText 分页用的段落对齐方式
