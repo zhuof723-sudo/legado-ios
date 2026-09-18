@@ -339,8 +339,12 @@ public final class AnalyzeByJSoup {
                             var v = start
                             while v <= end { addIndex(v); v += step }
                         } else {
+                            // 反向区间：end < start 时必须递减。
+                            // 早期实现在这里也写 `v += step`（step 已被归一化为正数），
+                            // 循环条件 v >= end 永远成立 → 死循环并疯狂追加索引，
+                            // 书源里出现 tag.div[2:0] 这类规则就会把 App 卡死。
                             var v = start
-                            while v >= end { addIndex(v); v += step } // step 为负数
+                            while v >= end { addIndex(v); v -= step }
                         }
                     case .single(let it):
                         if it >= 0, it < len { addIndex(it) }
