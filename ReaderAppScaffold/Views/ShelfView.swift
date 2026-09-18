@@ -17,9 +17,13 @@ struct ShelfView: View {
     @State private var openLocal: LocalBook?
     @State private var headerCache = HeaderCacheBox()
     @State private var searchText = ""
-    @State private var showImport = false
-    @State private var showSourceList = false
-    @State private var showTxtImport = false
+    /// 同一视图上叠多个 .sheet 在 SwiftUI 里不可靠（可能出现"点了没反应"或需要点两次），
+    /// 因此书架页统一用单一 sheet + 枚举来驱动。
+    enum ShelfSheet: String, Identifiable {
+        case importSource, sourceList, importTxt
+        var id: String { rawValue }
+    }
+    @State private var activeSheet: ShelfSheet?
     @State private var sortByRecent = true
 
     private var recentBook: ShelfBook? {
@@ -79,9 +83,13 @@ struct ShelfView: View {
                     coverURL: openBook?.coverUrl ?? ""
                 )
             }
-            .sheet(isPresented: $showImport) { ImportSourceView() }
-            .sheet(isPresented: $showSourceList) { BookSourceListView() }
-            .sheet(isPresented: $showTxtImport) { TxtImportView() }
+            .sheet(item: $activeSheet) { sheet in
+                switch sheet {
+                case .importSource: ImportSourceView()
+                case .sourceList: BookSourceListView()
+                case .importTxt: TxtImportView()
+                }
+            }
             .fullScreenCover(item: $openLocal) { book in
                 LocalReaderView(book: book)
             }
@@ -96,8 +104,8 @@ struct ShelfView: View {
                 .font(.system(size: 32, weight: .bold))
             Spacer()
             Menu {
-                Button { showImport = true } label: { Label("导入书源", systemImage: "square.and.arrow.down") }
-                Button { showTxtImport = true } label: { Label("导入 TXT", systemImage: "doc.text") }
+                Button { activeSheet = .importSource } label: { Label("导入书源", systemImage: "square.and.arrow.down") }
+                Button { activeSheet = .importTxt } label: { Label("导入 TXT", systemImage: "doc.text") }
             } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 18, weight: .medium))
@@ -106,7 +114,7 @@ struct ShelfView: View {
                     .glassCircle()
             }
             Menu {
-                Button { showSourceList = true } label: { Label("书源管理", systemImage: "tray.full") }
+                Button { activeSheet = .sourceList } label: { Label("书源管理", systemImage: "tray.full") }
                 Button(sortByRecent ? "按加入时间排序" : "按最近阅读排序") { sortByRecent.toggle() }
             } label: {
                 Image(systemName: "ellipsis")
@@ -202,14 +210,14 @@ struct ShelfView: View {
             Text("书架为空").font(.title3.bold())
             Text("从发现页找书，或先导入一个书源").font(.footnote).foregroundStyle(Theme.textSecondary)
             HStack(spacing: 12) {
-                Button { showImport = true } label: {
+                Button { activeSheet = .importSource } label: {
                     Label("导入书源", systemImage: "square.and.arrow.down")
                         .font(.subheadline.bold())
                         .padding(.horizontal, 16).padding(.vertical, 10)
                 }
                 .prominentGlassButton()
                 .tint(Theme.accent)
-                Button { showTxtImport = true } label: {
+                Button { activeSheet = .importTxt } label: {
                     Label("导入 TXT", systemImage: "doc.text")
                         .font(.subheadline.bold())
                         .padding(.horizontal, 16).padding(.vertical, 10)

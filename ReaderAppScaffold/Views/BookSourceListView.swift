@@ -18,8 +18,13 @@ struct BookSourceListView: View {
     @State private var editing = false
     @State private var selected = Set<String>()
     @State private var confirmDelete = false
-    @State private var showImport = false
-    @State private var showUrlImport = false
+    /// 同一视图叠放多个 .sheet 在 SwiftUI 中不可靠（可能"点了没反应"），
+    /// 这里把两个导入面板并成一个枚举驱动的 sheet；带 item 的仍各自独立。
+    enum SourceSheet: String, Identifiable {
+        case importSource, importUrl
+        var id: String { rawValue }
+    }
+    @State private var activeSheet: SourceSheet?
     @State private var testingSource: BookSourceRecord?
     @State private var editingSource: BookSourceRecord?
     @State private var loginSource: BookSourceRecord?
@@ -64,8 +69,8 @@ struct BookSourceListView: View {
                         .foregroundStyle(Theme.accent)
                     } else {
                         Menu {
-                            Button { showImport = true } label: { Label("粘贴 JSON 导入", systemImage: "doc.on.clipboard") }
-                            Button { showUrlImport = true } label: { Label("从网络地址导入", systemImage: "link") }
+                            Button { activeSheet = .importSource } label: { Label("粘贴 JSON 导入", systemImage: "doc.on.clipboard") }
+                            Button { activeSheet = .importUrl } label: { Label("从网络地址导入", systemImage: "link") }
                             if !sources.isEmpty {
                                 Divider()
                                 Button { editing = true } label: { Label("编辑书源", systemImage: "checklist") }
@@ -105,8 +110,12 @@ struct BookSourceListView: View {
             .safeAreaInset(edge: .bottom) {
                 if editing { batchBar }
             }
-            .sheet(isPresented: $showImport) { ImportSourceView() }
-            .sheet(isPresented: $showUrlImport) { UrlImportView() }
+            .sheet(item: $activeSheet) { sheet in
+                switch sheet {
+                case .importSource: ImportSourceView()
+                case .importUrl: UrlImportView()
+                }
+            }
             .sheet(item: $testingSource) { SourceDebugView(record: $0) }
             .sheet(item: $editingSource) { SourceEditView(record: $0) }
             .sheet(item: $loginSource) { SourceLoginPanel(record: $0) }
@@ -259,7 +268,7 @@ struct BookSourceListView: View {
                 Text(searchText.isEmpty && groupFilter == nil ? "还没有书源" : "没有匹配的书源")
                     .font(.subheadline).foregroundStyle(.secondary)
                 if searchText.isEmpty && groupFilter == nil {
-                    Button { showImport = true } label: {
+                    Button { activeSheet = .importSource } label: {
                         Label("导入书源 JSON", systemImage: "square.and.arrow.down")
                             .prominentGlassButton().tint(Theme.accent)
                     }
@@ -286,8 +295,8 @@ struct BookSourceListView: View {
                         Button("编辑") { editing = true }
                     }
                     Menu {
-                        Button { showImport = true } label: { Label("粘贴 JSON 导入", systemImage: "doc.on.clipboard") }
-                        Button { showUrlImport = true } label: { Label("从网络地址导入", systemImage: "link") }
+                        Button { activeSheet = .importSource } label: { Label("粘贴 JSON 导入", systemImage: "doc.on.clipboard") }
+                        Button { activeSheet = .importUrl } label: { Label("从网络地址导入", systemImage: "link") }
                         Divider()
                         Button { exportAll() } label: { Label("导出全部书源", systemImage: "square.and.arrow.up") }
                         Divider()
