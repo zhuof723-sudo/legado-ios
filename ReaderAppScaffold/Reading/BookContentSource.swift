@@ -93,7 +93,7 @@ final class LocalChapterSource: BookContentSource {
 /// 旧请求不会覆盖新章节。
 @MainActor
 @Observable
-final class OnlineChapterSource: Identifiable, Hashable {
+final class OnlineChapterSource: Identifiable, Hashable, BookContentSource {
     let bookSource: BookSource
     private let runtime: BookSourceRuntime
     private var persistentBookURL: String?
