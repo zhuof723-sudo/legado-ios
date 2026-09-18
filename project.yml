@@ -41,11 +41,11 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.BYEh.eNbcVl2
-        CODE_SIGN_STYLE: Manual
-        DEVELOPMENT_TEAM: VQZ3BY5QXK
-        CODE_SIGN_IDENTITY: "Apple Distribution: Miwok Onik (VQZ3BY5QXK)"
-        PROVISIONING_PROFILE_SPECIFIER: EAkqM
         TARGETED_DEVICE_FAMILY: "1"
+        # 签名相关的 DEVELOPMENT_TEAM / CODE_SIGN_IDENTITY /
+        # PROVISIONING_PROFILE_SPECIFIER 刻意不写入仓库（曾经硬编码过，已移除）。
+        # CI 签名构建由 secrets 经 xcodebuild 命令行参数注入；
+        # 本地在 Xcode 里选一次 Team 即可，请勿把它们提交回来。
 packages:
   LegadoRuleEngine:
     path: LegadoRuleEngine

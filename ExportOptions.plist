@@ -1,19 +1,26 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  导出配置模板。
+
+  这里刻意不写入任何真实的 teamID / 证书名 / 描述文件 UUID —— 仓库里不留签名凭据。
+  CI 构建时由 .github/workflows/build-ipa.yml 用 PlistBuddy 从 secrets 注入真实值；
+  本地导出时请自己复制一份到别处再填，不要提交回来。
+-->
 <plist version="1.0">
 <dict>
 	<key>method</key>
 	<string>ad-hoc</string>
 	<key>teamID</key>
-	<string>VQZ3BY5QXK</string>
+	<string></string>
 	<key>signingStyle</key>
 	<string>manual</string>
 	<key>signingCertificate</key>
-	<string>Apple Distribution: Miwok Onik (VQZ3BY5QXK)</string>
+	<string></string>
 	<key>provisioningProfiles</key>
 	<dict>
 		<key>com.BYEh.eNbcVl2</key>
-		<string>EAkqM</string>
+		<string></string>
 	</dict>
 	<key>compileBitcode</key>
 	<false/>
