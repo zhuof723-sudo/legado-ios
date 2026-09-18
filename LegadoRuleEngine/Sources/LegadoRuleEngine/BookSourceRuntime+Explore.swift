@@ -103,7 +103,10 @@ extension BookSourceRuntime {
         await SourceRateLimiter.shared.acquire(key: source.bookSourceUrl, concurrentRate: source.concurrentRate)
         let response = try await analyzeURL.getStrResponse()
         guard let body = response.body else { return [] }
-        let baseURL = response.url.isEmpty ? analyzeURL.url : response.url
+        let baseURL = {
+            let resolved = parseBaseURL(responseURL: response.url, requestURL: analyzeURL.url)
+            return resolved.isEmpty ? analyzeURL.url : resolved
+        }()
 
         if isSusanExploreSource,
            let native = normalizeSusanExplore(body: body, resultLimit: resultLimit) {

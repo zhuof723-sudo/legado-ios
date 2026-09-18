@@ -297,19 +297,21 @@ public final class AnalyzeByJSoup {
                 if !seen.contains(i) { seen.insert(i); indexSet.append(i) }
             }
 
+            // 索引描述符是逆向收集的，所以从后往前遍历以还原书写顺序；
+            // 但每个描述符展开出来的索引必须保持其内部正序（区间 0:1 要得到
+            // a,b 而不是 b,a），因此这里逐个描述符就地追加，不能先把所有索引
+            // 拼进一个大数组再做整体 reversed()——那会把区间内部顺序也颠倒。
             if indexes.isEmpty {
-                // 非[]式索引，逆向遍历插入，最后再反转以还原顺序
-                var collected: [Int] = []
+                // 非[]式索引
                 var ix = lastIndexes
                 while ix >= 0 {
                     let it = indexDefault[ix]
-                    if it >= 0, it < len { collected.append(it) }
-                    else if it < 0, len >= -it { collected.append(it + len) }
+                    if it >= 0, it < len { addIndex(it) }
+                    else if it < 0, len >= -it { addIndex(it + len) }
                     ix -= 1
                 }
-                for v in collected.reversed() { addIndex(v) }
             } else {
-                var collected: [Int] = []
+                // []式索引
                 var ix = lastIndexes
                 while ix >= 0 {
                     switch indexes[ix] {
@@ -327,7 +329,7 @@ public final class AnalyzeByJSoup {
                         if end >= len { end = len - 1 } else if end < 0 { end = 0 }
 
                         if start == end || abs(stepX) >= len {
-                            collected.append(start)
+                            addIndex(start)
                             ix -= 1
                             continue
                         }
@@ -335,18 +337,17 @@ public final class AnalyzeByJSoup {
                         let step = stepX > 0 ? stepX : (-stepX < len ? stepX + len : 1)
                         if end > start {
                             var v = start
-                            while v <= end { collected.append(v); v += step }
+                            while v <= end { addIndex(v); v += step }
                         } else {
                             var v = start
-                            while v >= end { collected.append(v); v += step } // step 为负数
+                            while v >= end { addIndex(v); v += step } // step 为负数
                         }
                     case .single(let it):
-                        if it >= 0, it < len { collected.append(it) }
-                        else if it < 0, len >= -it { collected.append(it + len) }
+                        if it >= 0, it < len { addIndex(it) }
+                        else if it < 0, len >= -it { addIndex(it + len) }
                     }
                     ix -= 1
                 }
-                for v in collected.reversed() { addIndex(v) }
             }
 
             let all = elements.array()
@@ -377,7 +378,12 @@ public final class AnalyzeByJSoup {
 
             if head {
                 len -= 1 // 跳过尾部']'
-                var idx = len
+                // 从 ']' 前一个字符开始逆向扫描。
+                // 原 Kotlin 写法 `while (len-- >= 0)` 会在第一次判断时先自减，
+                // 因此首个被处理的字符是 len - 1；这里必须对齐，否则第一次迭代
+                // 就会读到 ']' 而把整个规则误判为"非索引列表"直接跳出，
+                // 导致 tag.li[0] 这类规则退化成返回全部元素。
+                var idx = len - 1
                 loop: while idx >= 0 {
                     defer { idx -= 1 }
                     if idx >= rus.count { continue }

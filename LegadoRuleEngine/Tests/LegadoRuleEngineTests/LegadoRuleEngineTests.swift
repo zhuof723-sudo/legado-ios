@@ -104,6 +104,67 @@ final class LegadoRuleEngineTests: XCTestCase {
         XCTAssertNil(cleared)
     }
 
+    // MARK: - 回归测试：索引选择器
+
+    /// 方括号索引的起始扫描位置必须跳过尾部的 `]`。
+    /// 早期实现从 `]` 本身开始扫描，第一次迭代就把规则判成"非索引列表"跳出，
+    /// 于是 [0] / [-1] / [0:1] 全部退化成"返回全部元素"。
+    func testIndexSelectorBracketForms() {
+        let html = "<ul><li>a</li><li>b</li><li>c</li><li>d</li></ul>"
+        let rule = AnalyzeRule()
+        rule.setContent(html)
+
+        XCTAssertEqual(rule.getStringList("tag.li[0]@text"), ["a"])
+        XCTAssertEqual(rule.getStringList("tag.li[2]@text"), ["c"])
+        XCTAssertEqual(rule.getStringList("tag.li[-1]@text"), ["d"])
+        XCTAssertEqual(rule.getStringList("tag.li[-2]@text"), ["c"])
+        XCTAssertEqual(rule.getStringList("tag.li[2,0]@text"), ["c", "a"])
+        XCTAssertEqual(rule.getStringList("tag.li[0:2]@text"), ["a", "b", "c"])
+        // 区间内部必须保持书写顺序，不能被整体反转
+        XCTAssertEqual(rule.getStringList("tag.li[0:1]@text"), ["a", "b"])
+        XCTAssertEqual(rule.getStringList("tag.li[1:3]@text"), ["b", "c", "d"])
+    }
+
+    func testIndexSelectorExcludeAndReverse() {
+        let html = "<ul><li>a</li><li>b</li><li>c</li><li>d</li></ul>"
+        let rule = AnalyzeRule()
+        rule.setContent(html)
+
+        // ! 为排除：只保留未选中的索引
+        XCTAssertEqual(rule.getStringList("tag.li![0,1]@text"), ["c", "d"])
+        // 区间反向写法
+        XCTAssertEqual(rule.getStringList("tag.li[2:0]@text"), ["c", "b", "a"])
+    }
+
+    /// 阅读原生点号写法（tag.li.-1）必须仍然可用。
+    func testIndexSelectorLegacyDotFormStillWorks() {
+        let html = "<ul><li>a</li><li>b</li><li>c</li><li>d</li></ul>"
+        let rule = AnalyzeRule()
+        rule.setContent(html)
+        XCTAssertEqual(rule.getStringList("tag.li.-1@text"), ["d"])
+        XCTAssertEqual(rule.getStringList("tag.li.0@text"), ["a"])
+    }
+
+    // MARK: - 回归测试：相对 URL 基准
+
+    /// 请求地址是 data: 内联载荷时，相对链接不能以 data: 为基准解析。
+    /// 必须回退到真实 http(s) 地址（书源地址），否则会得到 "data:/book/a" 这种坏链接。
+    func testExploreResolvesRelativeURLAgainstSourceNotDataURI() async throws {
+        let payload = #"{"data":[{"title":"发现书A","url":"/book/a"}]}"#
+        var source = BookSource()
+        source.bookSourceUrl = "https://example.com"
+        source.bookSourceName = "base-url-test"
+        source.ruleExplore = ExploreRule(bookList: "$.data", name: "$.title", bookUrl: "$.url")
+        let dataURL = "data:application/json;base64," + Data(payload.utf8).base64EncodedString()
+        let results = try await BookSourceRuntime(source).explore(
+            ExploreKindInfo(title: "热门", url: dataURL),
+            resultLimit: 10,
+            cacheTTL: 0
+        )
+        XCTAssertEqual(results.count, 1)
+        XCTAssertEqual(results.first?.bookUrl, "https://example.com/book/a")
+    }
+
     func testSusanExploreNormalizesRealBookFields() async throws {
         let payload = #"{"data":{"book_list":[{"bookId":"7362544544950275134","bookName":"真实发现书","author":"作者","thumbUri":"https://example.com/cover.jpg","abstract":"简介","lastChapterTitle":"第10章"}]}}"#
         var source = BookSource()
@@ -125,8 +186,19 @@ final class LegadoRuleEngineTests: XCTestCase {
     func testRegexReplaceSuffix() {
         let rule = AnalyzeRule()
         rule.setContent("<p>凡人修仙传</p>")
-        let text = rule.getString("p@text##凡人##FANREN##")
+        // ##正则##替换（两段式）：全局替换
+        let text = rule.getString("p@text##凡人##FANREN")
         XCTAssertEqual(text, "FANREN修仙传")
+    }
+
+    func testRegexReplaceSuffixReplaceFirst() {
+        let rule = AnalyzeRule()
+        rule.setContent("<p>凡人修仙传</p>")
+        // 末尾多一段（##…##替换## 或 ##…##替换###）表示"只取第一个匹配再替换"，
+        // 对齐上游 AnalyzeRule.replaceRegex 中 replaceFirst 分支的语义：
+        // 返回的是 m.group(0).replaceFirst(regex, replacement)，而不是整段原文的替换结果。
+        XCTAssertEqual(rule.getString("p@text##凡人##FANREN##"), "FANREN")
+        XCTAssertEqual(rule.getString("p@text##凡人##FANREN###"), "FANREN")
     }
 
     func testAnalyzeUrlPageSubstitution() {

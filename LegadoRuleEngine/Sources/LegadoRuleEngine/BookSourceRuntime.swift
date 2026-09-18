@@ -116,6 +116,25 @@ public final class BookSourceRuntime {
         return au
     }
 
+    /// 解析结果里相对 URL 的基准地址。
+    ///
+    /// 请求地址可能是 `data:` 内联载荷（书源常用的 `data:application/json;base64,…`
+    /// 与段评/发现里的 `data:detailsUrl;base64,…`）。`URL(string:relativeTo:)` 对
+    /// 这类基准会把相对路径解析成 `data:/book/a` 这种不可用地址，
+    /// 所以这里按「真实 http(s) 响应地址 → 请求地址 → 书源地址」的顺序取第一个可用值，
+    /// 绝不把 `data:`/`about:` 之类的内联地址当作基准。三者都不可用时返回空串，
+    /// 由调用方保持原有兜底行为。
+    func parseBaseURL(responseURL: String, requestURL: String) -> String {
+        for candidate in [responseURL, requestURL, source.bookSourceUrl] {
+            let value = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else { continue }
+            let lower = value.lowercased()
+            guard lower.hasPrefix("http://") || lower.hasPrefix("https://") else { continue }
+            return value
+        }
+        return ""
+    }
+
     func makeAnalyzeRule() -> AnalyzeRule {
         let rule = AnalyzeRule()
         rule.jsLib = source.jsLib
@@ -396,7 +415,7 @@ public final class BookSourceRuntime {
         EngineLogger.log("搜索响应 \(body.count) 字节 · 重定向 \(resp.url)", tag: source.bookSourceName)
 
         let analyzeRule = makeAnalyzeRule()
-        analyzeRule.setContent(body, baseUrl: resp.url.isEmpty ? au.url : resp.url)
+        analyzeRule.setContent(body, baseUrl: parseBaseURL(responseURL: resp.url, requestURL: au.url))
 
         let items = analyzeRule.getElements(listRule)
         EngineLogger.log("列表规则命中 \(items.count) 项", tag: source.bookSourceName)
@@ -409,7 +428,11 @@ public final class BookSourceRuntime {
         return parseItems.compactMap { item -> SearchResult? in
             autoreleasepool {
                 var bookUrl = analyzeRule.getString(rule.bookUrl, mContent: item, isUrl: true)
-                if bookUrl.isEmpty { bookUrl = resp.url.isEmpty ? au.url : resp.url }   // 空详情链接兜底
+                if bookUrl.isEmpty {
+                    // 空详情链接兜底：优先真实响应地址，data: 载荷则退回请求地址。
+                    let fallback = parseBaseURL(responseURL: resp.url, requestURL: au.url)
+                    bookUrl = fallback.isEmpty ? au.url : fallback
+                }
                 let name = analyzeRule.getString(rule.name, mContent: item)
                 if name.isEmpty { return nil }
                 return SearchResult(
@@ -480,7 +503,7 @@ public final class BookSourceRuntime {
                 EngineLogger.log("目录响应为空: \(url)", tag: source.bookSourceName, level: .error)
                 break
             }
-            let baseUrl = resp.url.isEmpty ? au.url : resp.url
+            let baseUrl = parseBaseURL(responseURL: resp.url, requestURL: au.url)
 
             let analyzeRule = makeAnalyzeRule()
             analyzeRule.bookUrl = bookUrl
@@ -532,7 +555,7 @@ public final class BookSourceRuntime {
             EngineLogger.log("详情响应为空", tag: source.bookSourceName, level: .error)
             return BookInfo(tocUrl: "")
         }
-        let baseUrl = resp.url.isEmpty ? au.url : resp.url
+        let baseUrl = parseBaseURL(responseURL: resp.url, requestURL: au.url)
         let analyzeRule = makeAnalyzeRule()
         analyzeRule.bookUrl = bookUrl
         analyzeRule.setContent(body, baseUrl: baseUrl)
@@ -614,7 +637,7 @@ public final class BookSourceRuntime {
                 EngineLogger.log("正文响应为空: \(url)", tag: source.bookSourceName, level: .error)
                 break
             }
-            let baseUrl = resp.url.isEmpty ? au.url : resp.url
+            let baseUrl = parseBaseURL(responseURL: resp.url, requestURL: au.url)
 
             let analyzeRule = makeAnalyzeRule()
             analyzeRule.chapterUrl = url
@@ -758,7 +781,7 @@ public final class BookSourceRuntime {
             EngineLogger.log("段评响应为空: \(url)", tag: source.bookSourceName, level: .warn)
             return []
         }
-        let baseUrl = resp.url.isEmpty ? au.url : resp.url
+        let baseUrl = parseBaseURL(responseURL: resp.url, requestURL: au.url)
 
         let analyzeRule = makeAnalyzeRule()
         analyzeRule.setContent(body, baseUrl: baseUrl)

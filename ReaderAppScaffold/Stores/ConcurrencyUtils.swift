@@ -61,29 +61,36 @@ public final class AsyncSemaphore: @unchecked Sendable {
         self.value = value
     }
 
+    /// `value` 表示当前可用许可数；只有在 `value == 0` 时才把等待者入队。
+    ///
+    /// 注意：检查许可与登记 continuation 必须在同一把锁内原子完成。
+    /// 早期实现在 `lock.unlock()` 之后才进入 `withCheckedContinuation` 登记，
+    /// 期间若其他任务完成并调用 `signal()`，会因为 `waiters` 还是空的而只把
+    /// `value` 加回去、不做唤醒；随后本任务才入队，就永远等不到这次 signal，
+    /// 造成任务永久挂起（丢失唤醒）。现在把判断和入队合并到锁内消除该竞态。
     public func wait() async {
-        lock.lock()
-        value -= 1
-        if value >= 0 {
-            lock.unlock()
-            return
-        }
-        lock.unlock()
         await withCheckedContinuation { continuation in
             lock.lock()
-            waiters.append(continuation)
-            lock.unlock()
+            if value > 0 {
+                value -= 1
+                lock.unlock()
+                continuation.resume()
+            } else {
+                waiters.append(continuation)
+                lock.unlock()
+            }
         }
     }
 
     public func signal() {
         lock.lock()
-        value += 1
         if !waiters.isEmpty {
+            // 直接把许可转交给最早的等待者，不再增加 value，避免许可被重复发放。
             let waiter = waiters.removeFirst()
             lock.unlock()
             waiter.resume()
         } else {
+            value += 1
             lock.unlock()
         }
     }
