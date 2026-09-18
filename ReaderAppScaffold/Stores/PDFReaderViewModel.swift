@@ -93,8 +93,9 @@ final class PDFReaderViewModel: ObservableObject, Identifiable {
     // MARK: - 渲染
 
     /// 在后台线程把 PDF 页渲染成指定尺寸的位图。
-    private static func renderPage(_ document: PDFDocument?, page: Int, targetSize: CGSize) -> UIImage? {
-        guard let document, page < document.pageCount, let pdfPage = document.page(at: page) else { return nil }
+    nonisolated private static func renderPage(_ document: PDFDocument?, page: Int, targetSize: CGSize) -> UIImage? {
+        guard let document, page < document.pageCount, let pdfPage = document.page(at: page),
+              let pageRef = pdfPage.pageRef else { return nil }
 
         let bounds = pdfPage.bounds(for: .mediaBox)
         guard bounds.width > 0, bounds.height > 0 else { return nil }
@@ -115,7 +116,7 @@ final class PDFReaderViewModel: ObservableObject, Identifiable {
             ctx.cgContext.saveGState()
             ctx.cgContext.translateBy(x: 0, y: pixelSize.height)
             ctx.cgContext.scaleBy(x: renderScale, y: -renderScale)
-            ctx.cgContext.drawPDFPage(pdfPage)
+            ctx.cgContext.drawPDFPage(pageRef)
             ctx.cgContext.restoreGState()
         }
     }

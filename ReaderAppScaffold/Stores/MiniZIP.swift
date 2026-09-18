@@ -43,7 +43,7 @@ enum MiniZIP {
 
         // 2. 遍历中央目录条目 (PK\x01\x02)
         var entries: [String: Data] = [:]
-        var cursor = centralOffset
+        var cursor = Int(centralOffset)
         for _ in 0..<centralCount {
             guard cursor + 46 <= bytes.count,
                   bytes[cursor] == 0x50, bytes[cursor + 1] == 0x4B,
