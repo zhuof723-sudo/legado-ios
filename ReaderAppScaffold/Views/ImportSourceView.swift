@@ -42,14 +42,28 @@ public struct ImportSourceView: View {
                         .disabled(jsonText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
-            .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.json]) { result in
-                switch result {
-                case .success(let url):
-                    loadSourceFile(url)
-                case .failure(let error):
-                    resultMessage = "读取文件失败: \(error.localizedDescription)"
-                }
+            .fileImporter(
+                isPresented: $showFileImporter,
+                allowedContentTypes: [.json, .text],
+                allowsMultipleSelection: false,
+                // 关键：让系统把文件复制到 App 临时目录后再交付。
+                // 这样拿到的是普通本地 URL，不依赖 security-scoped 授权是否成功，
+                // 从根上规避"选了文件读不到 / 没反应"的问题。
+                onCompletion: handleFileSelection
+            )
+        }
+    }
+
+    private func handleFileSelection(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else {
+                resultMessage = "没有选择文件"
+                return
             }
+            loadSourceFile(url)
+        case .failure(let error):
+            resultMessage = "选择文件失败：\(error.localizedDescription)"
         }
     }
 
