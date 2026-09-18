@@ -43,6 +43,21 @@ ReaderAppScaffold/
     └── ReaderApp.swift          # @main入口，TabView(书架/搜索/书源)
 ```
 
+## 阅读页架构（Apple Books 式，2026-09 重构）
+
+阅读控制层从"工具面板堆叠"重构为 Apple Books 的信息架构，在线（`ReaderView`）与本地 TXT（`LocalReaderView`）共用同一套组件，两份视图只剩分页/内容源差异：
+
+| 组件 | 文件 | 职责 |
+|---|---|---|
+| `ReaderTopBar` / `ReaderBottomBar` / `ReaderProgressHairline` / `ReaderTapZones` | `Views/ReaderChrome.swift` | 顶栏(返回·书名·搜索/书签)、底栏(目录·页码·TTS/Aa)、全书进度细线、点击分区(左24%上一页/右24%下一页/中唤出控制层) |
+| `ReaderAaPanel` | `Views/ReaderAaPanel.swift` | Apple Books 式 Aa 面板：衬线/无衬线字体、字号、行距三档、主题色板、亮度、翻页动画、常用开关 |
+| `TocSheet` | `Views/TocSheet.swift` | 通用目录面板（目录/书签分段），通过闭包与任意阅读驱动解耦，书签支持跳回章+页 |
+| 书签 | `Stores/BookmarkStore.swift` | 顶栏书签按钮点亮当前页，目录面板书签 tab 统一管理 |
+| 字体族 | `Design/ReaderConfig.swift` | `fontFamily`（0无衬线/1衬线，默认衬线），`uiFont`/`swiftUIFont` 走 `.serif` 设计，参与分页 key |
+
+点击中间唤出控制层；沉浸态仅保留角落小页码 + 底部全书进度细线（不拦截触摸）。
+
+
 ## 已知没做的（自己按需补）
 
 - ~~搜索只搜第一页~~ 已实现：`SearchViewModel.loadMore()` 翻下一页追加结果，`SearchView` 里滑到底部自动加载(也有手动按钮兜底)，某一页所有源都没结果了就标记 `reachedEnd` 停止（不是逐源精细跟踪"谁还有下一页"，书源数量正常范围内够用）。

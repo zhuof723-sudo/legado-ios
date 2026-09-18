@@ -3,7 +3,14 @@ import SwiftData
 import UIKit
 import AVFoundation
 
-/// 阅读器：UIPageViewController 稳定翻页 + CoreText 分页 + 液态玻璃控制层
+/// 阅读器：UIPageViewController 稳定翻页 + CoreText 分页 + Apple Books 式控制层。
+///
+/// 控制层架构（重构后）：
+/// - 顶栏：返回 · 书名（点按开目录）· 搜索 / 书签
+/// - 底栏：目录 · 页码 · TTS / Aa 排版
+/// - 底部细进度线：全书进度，始终可见、不拦截触摸
+/// 点击分区：左 24% 上一页，右 24% 下一页，中间唤出/收起控制层。
+/// 控制外观统一来自 ReaderChrome，与本地 TXT 阅读器共用。
 struct ReaderView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
@@ -22,9 +29,13 @@ struct ReaderView: View {
     @State private var paginationTaskID: UUID?
     @State private var pageIndex = 0
     @State private var pendingJumpToLastPage = false
+    /// 书签跳页目标：等新章分页完成后落到指定页。
+    @State private var pendingJumpToPage: Int?
     @State private var showControls = false
     @State private var showSettings = false
     @State private var showToc = false
+    @State private var showSearch = false
+    @State private var isCurrentPageBookmarked = false
     // 段评相关
     @State private var showReviewList = false
     @State private var reviewSheetDetent: PresentationDetent = .fraction(0.65)
@@ -61,11 +72,11 @@ struct ReaderView: View {
         return "\(text.count)-\(head)-\(tail)"
     }
 
-    private var brightnessBinding: Binding<Double> {
-        Binding(
-            get: { Double(UIScreen.main.brightness) },
-            set: { UIScreen.main.brightness = CGFloat($0) }
-        )
+    /// 全书进度：章序号 + 页内占比 / 总章数（驱动底部细进度线）。
+    private var bookProgress: Double {
+        guard viewModel.chapters.count > 1 else { return 0 }
+        let inChapter = pages.isEmpty ? 0 : min(max(Double(pageIndex + 1) / Double(pages.count), 0), 1)
+        return (Double(viewModel.currentIndex) + inChapter) / Double(viewModel.chapters.count)
     }
 
     var body: some View {
@@ -87,6 +98,7 @@ struct ReaderView: View {
                 : reviewCounts.keys.sorted().map { "\($0)=\(reviewCounts[$0] ?? 0)" }.joined(separator: ",")
             let paginationKey = [
                 contentIdentity, // 结构化正文身份：不再对长正文做 O(n) hash
+                "ff\(config.fontFamily)", // 字体族（衬线/无衬线）参与分页
                 "f\(Int(config.fontSize))",
                 "ls\(Int(config.lineSpacing))",
                 "ps\(Int(config.paragraphSpacing))",
@@ -165,16 +177,37 @@ struct ReaderView: View {
                 }
             }
         }
+        .overlay(alignment: .bottom) {
+            // Apple Books 式全书进度细线：贴底常显，不拦截触摸。
+            ReaderProgressHairline(progress: bookProgress, accent: config.currentAccent)
+        }
         .statusBarHidden(!showControls)
         .persistentSystemOverlays(.hidden)
         .preferredColorScheme(config.nightMode ? .dark : .light)
         .toolbar(.hidden, for: .tabBar)
         .onDisappear { speech.stop() }
         .sheet(isPresented: $showSettings) {
-            ReaderSettingsPanel().presentationDetents([.medium, .large])
+            ReaderAaPanel().presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showToc) {
-            TocSheet(bookUrl: bookUrl, viewModel: viewModel).presentationDetents([.large])
+            TocSheet(
+                bookUrl: bookUrl,
+                entries: viewModel.chapters.enumerated().map {
+                    TocSheet.TocEntry(index: $0.offset, name: $0.element.name)
+                },
+                currentIndex: viewModel.currentIndex,
+                onSelectChapter: { index in
+                    Task { await viewModel.openChapter(at: index) }
+                },
+                onSelectBookmark: { bookmark in
+                    jumpToBookmark(bookmark)
+                }
+            )
+            .presentationDetents([.large])
+        }
+        .sheet(isPresented: $showSearch) {
+            ReaderChapterSearchView(text: viewModel.currentContent)
+                .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showReviewList) {
             ReviewListView(
@@ -220,12 +253,16 @@ struct ReaderView: View {
             // pendingJumpToLastPage 把页码恢复到上一章末页。
             if !pendingJumpToLastPage { pageIndex = 0 }
             saveProgress()
+            refreshBookmarkState()
             if speech.isSpeaking, pageIndex < pages.count { speech.speak(pages[pageIndex].plainText) }
         }
         .onChange(of: pageIndex) { _, _ in
+            refreshBookmarkState()
             if speech.isSpeaking, pageIndex < pages.count { speech.speak(pages[pageIndex].plainText) }
         }
     }
+
+    // MARK: - 段评
 
     private func presentReview(for paragraphIndex: Int) {
         let paragraphs = viewModel.currentContent.components(separatedBy: "\n")
@@ -251,134 +288,109 @@ struct ReaderView: View {
         }
     }
 
+    // MARK: - 点击分区
+
     private func handlePageTap(_ location: CGPoint, width: CGFloat) {
-        let edge = max(72, width * 0.24)
-        if location.x <= edge {
+        switch ReaderTapZones.classify(x: location.x, width: width) {
+        case .previousPage:
             goPrevPage()
-        } else if location.x >= width - edge {
+        case .nextPage:
             _ = advancePage(allowNextChapter: true)
-        } else {
+        case .toggleControls:
             withAnimation(.easeInOut(duration: 0.2)) { showControls.toggle() }
         }
     }
 
-    // MARK: - 沉浸式控制层
+    // MARK: - 书签（Apple Books 式：顶栏书签按钮 + 目录面板书签列表）
+
+    private var bookmarkIdentity: BookBookmark {
+        BookBookmark(
+            bookUrl: bookUrl,
+            chapterIndex: viewModel.currentIndex,
+            pageIndex: pageIndex,
+            label: (viewModel.currentChapterTitle ?? bookName) + " · 第 \(pageIndex + 1) 页",
+            createdAt: Date()
+        )
+    }
+
+    private func refreshBookmarkState() {
+        let id = bookmarkIdentity
+        isCurrentPageBookmarked = BookmarkStore.all(for: bookUrl).contains { $0.id == id.id }
+    }
+
+    private func toggleBookmark() {
+        let bookmark = bookmarkIdentity
+        if isCurrentPageBookmarked {
+            BookmarkStore.remove(bookmark)
+        } else {
+            BookmarkStore.add(bookmark)
+        }
+        isCurrentPageBookmarked.toggle()
+    }
+
+    private func jumpToBookmark(_ bookmark: BookBookmark) {
+        guard bookmark.chapterIndex != viewModel.currentIndex else {
+            // 同章：分页结果不变，直接落页码；异章则等新章分页完成后再落。
+            pageIndex = min(max(bookmark.pageIndex, 0), max(pages.count - 1, 0))
+            return
+        }
+        pendingJumpToPage = bookmark.pageIndex
+        Task { await viewModel.openChapter(at: bookmark.chapterIndex) }
+    }
+
+    // MARK: - Apple Books 式控制层
 
     private var chrome: some View {
         VStack(spacing: 0) {
             if showControls {
-                LiquidGlassContainer(spacing: 12) { immersiveHeader }
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .top).combined(with: .opacity),
-                        removal: .move(edge: .top).combined(with: .opacity)
-                    ))
+                LiquidGlassContainer(spacing: 12) {
+                    ReaderTopBar(
+                        title: viewModel.currentChapterTitle ?? bookName,
+                        accent: textColor,
+                        isBookmarked: isCurrentPageBookmarked,
+                        onBack: { dismiss() },
+                        onTitle: { showToc = true },
+                        onSearch: { showSearch = true },
+                        onBookmark: { toggleBookmark() }
+                    )
+                }
+                .transition(.asymmetric(
+                    insertion: .move(edge: .top).combined(with: .opacity),
+                    removal: .move(edge: .top).combined(with: .opacity)
+                ))
             }
             Spacer(minLength: 0)
             if showControls {
-                LiquidGlassContainer(spacing: 14) { immersiveBottomPanel }
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .bottom).combined(with: .opacity),
-                        removal: .move(edge: .bottom).combined(with: .opacity)
-                    ))
+                LiquidGlassContainer(spacing: 14) {
+                    ReaderBottomBar(
+                        pageText: "第 \(pageIndex + 1) 页 / 共 \(max(pages.count, 1)) 页",
+                        accent: textColor,
+                        isSpeaking: speech.isSpeaking,
+                        onToc: { showToc = true },
+                        onTts: {
+                            guard pageIndex < pages.count else { return }
+                            speech.toggle(pages[pageIndex].plainText)
+                        },
+                        onAa: { showSettings = true }
+                    )
+                }
+                .transition(.asymmetric(
+                    insertion: .move(edge: .bottom).combined(with: .opacity),
+                    removal: .move(edge: .bottom).combined(with: .opacity)
+                ))
+            } else {
+                // 沉浸态：仅保留角落小页码，不打扰阅读。
+                Text("\(pageIndex + 1) / \(max(pages.count, 1))")
+                    .font(.caption2)
+                    .foregroundStyle(textColor.opacity(0.45))
+                    .padding(.bottom, 10)
+                    .transition(.opacity)
             }
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
         .padding(.bottom, 12)
         .animation(.spring(response: 0.35, dampingFraction: 0.85, blendDuration: 0.1), value: showControls)
-    }
-
-    private var immersiveHeader: some View {
-        HStack(spacing: 12) {
-            Button { dismiss() } label: {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(textColor)
-                    .frame(width: 36, height: 36)
-                    .glassCircle()
-            }
-            Text(viewModel.currentChapterTitle ?? bookName)
-                .font(.subheadline.bold())
-                .foregroundStyle(textColor)
-                .lineLimit(1)
-            Spacer(minLength: 8)
-            Menu {
-                Button { } label: { Label("分享", systemImage: "square.and.arrow.up") }
-                Button { } label: { Label("书源详情", systemImage: "info.circle") }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(textColor)
-                    .frame(width: 36, height: 36)
-                    .glassCircle()
-            }
-        }
-    }
-
-    private var immersiveBottomPanel: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 10) {
-                Image(systemName: "sun.min")
-                    .font(.caption)
-                    .foregroundStyle(Theme.textSecondary)
-                Slider(value: brightnessBinding, in: 0.05...1)
-                    .tint(Theme.accent)
-                Image(systemName: "sun.max.fill")
-                    .font(.caption)
-                    .foregroundStyle(Theme.textSecondary)
-            }
-
-            HStack {
-                Button {
-                    pendingJumpToLastPage = true
-                    Task { await viewModel.prevChapter() }
-                } label: {
-                    Text("上一章").font(.footnote)
-                }
-                .disabled(!viewModel.hasPreviousChapter)
-                Spacer()
-                Text("\(pageIndex + 1) / \(max(pages.count, 1))")
-                    .font(.caption2)
-                    .foregroundStyle(Theme.textSecondary)
-                Spacer()
-                Button {
-                    pendingJumpToLastPage = false
-                    pageIndex = 0
-                    Task { await viewModel.nextChapter() }
-                } label: {
-                    Text("下一章").font(.footnote)
-                }
-                .disabled(!viewModel.hasNextChapter)
-            }
-            .foregroundStyle(.primary)
-
-            HStack {
-                immersiveToolButton("list.bullet", "目录") { showToc = true }
-                Spacer()
-                immersiveToolButton(speech.isSpeaking ? "headphones.circle.fill" : "headphones", "TTS") {
-                    guard pageIndex < pages.count else { return }
-                    speech.toggle(pages[pageIndex].plainText)
-                }
-                Spacer()
-                immersiveToolButton("gearshape", "设置") { showSettings = true }
-            }
-            .foregroundStyle(.primary)
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-        .glassCard(RoundedRectangle(cornerRadius: 18), interactive: true)
-        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
-    }
-
-    private func immersiveToolButton(_ icon: String, _ label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: 3) {
-                Image(systemName: icon).font(.system(size: 16, weight: .medium))
-                Text(label).font(.caption2)
-            }
-            .frame(minWidth: 40, minHeight: 40)
-        }
-        .buttonStyle(.plain)
     }
 
     // MARK: - 翻页
@@ -392,6 +404,7 @@ struct ReaderView: View {
         }
         guard allowNextChapter, viewModel.hasNextChapter else { return false }
         pendingJumpToLastPage = false
+        pendingJumpToPage = nil
         pageIndex = 0
         Task { await viewModel.nextChapter() }
         return true
@@ -402,6 +415,7 @@ struct ReaderView: View {
             pageIndex -= 1
         } else if viewModel.hasPreviousChapter {
             pendingJumpToLastPage = true
+            pendingJumpToPage = nil
             Task { await viewModel.prevChapter() }
         } else {
             // 已经是第一章第一页，不保留一个无效的“跳到末页”意图。
@@ -414,6 +428,8 @@ struct ReaderView: View {
     private func repaginate(content: String, pageSize: CGSize, key: String) async {
         guard !content.isEmpty else {
             pages = []
+            pendingJumpToPage = nil
+            pendingJumpToLastPage = false
             paginatedForKey = key
             return
         }
@@ -457,11 +473,17 @@ struct ReaderView: View {
 
         guard let result, !result.isEmpty else {
             pages = []
+            pendingJumpToPage = nil
+            pendingJumpToLastPage = false
             paginatedForKey = key
             return
         }
         pages = result
-        if pendingJumpToLastPage {
+        if let jump = pendingJumpToPage {
+            // 书签跳页：新章分页完成后落到指定页。
+            pageIndex = min(max(jump, 0), result.count - 1)
+            pendingJumpToPage = nil
+        } else if pendingJumpToLastPage {
             pageIndex = max(0, result.count - 1)
             pendingJumpToLastPage = false
         } else if pageIndex >= result.count {

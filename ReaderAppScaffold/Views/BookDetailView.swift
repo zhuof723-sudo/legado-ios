@@ -315,8 +315,17 @@ struct BookDetailView: View {
         .cardStyle(cornerRadius: 16, mode: mode)
         .sheet(isPresented: $showToc) {
             if let vm = readerVM {
-                TocSheet(bookUrl: bookUrl, viewModel: vm)
-                    .presentationDetents([.large])
+                TocSheet(
+                    bookUrl: bookUrl,
+                    entries: vm.chapters.enumerated().map {
+                        TocSheet.TocEntry(index: $0.offset, name: $0.element.name)
+                    },
+                    currentIndex: vm.currentIndex,
+                    onSelectChapter: { index in
+                        Task { await vm.openChapter(at: index) }
+                    }
+                )
+                .presentationDetents([.large])
             }
         }
     }

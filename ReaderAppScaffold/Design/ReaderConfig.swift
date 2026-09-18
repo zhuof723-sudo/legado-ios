@@ -89,9 +89,12 @@ final class ReaderConfig: ObservableObject {
     @Published var themeId: String { didSet { defaults.set(themeId, forKey: Keys.themeId) } }
     @Published var nightMode: Bool { didSet { defaults.set(nightMode, forKey: Keys.nightMode) } }
     @Published var autoReadSpeed: Double { didSet { defaults.set(autoReadSpeed, forKey: Keys.autoReadSpeed) } }
+    /// 字体族：0=无衬线（黑体），1=衬线（宋体）。对应 Apple Books Aa 面板的字体切换。
+    @Published var fontFamily: Int { didSet { defaults.set(fontFamily, forKey: Keys.fontFamily) } }
 
     private enum Keys {
         static let pageAnim = "reader.pageAnim"
+        static let fontFamily = "reader.fontFamily"
         static let fontSize = "reader.fontSize"
         static let bold = "reader.bold"
         static let lineSpacing = "reader.lineSpacing"
@@ -120,9 +123,22 @@ final class ReaderConfig: ObservableObject {
         self.themeId = defaults.object(forKey: Keys.themeId) as? String ?? "beige"
         self.nightMode = defaults.object(forKey: Keys.nightMode) as? Bool ?? false
         self.autoReadSpeed = defaults.object(forKey: Keys.autoReadSpeed) as? Double ?? 3.5
+        // 默认衬线体：贴近 Apple Books 的正文排版（CJK 下自动落到宋体系）。
+        self.fontFamily = defaults.object(forKey: Keys.fontFamily) as? Int ?? 1
     }
 
     var currentPageAnim: PageAnimationType { PageAnimationType(rawValue: pageAnim) ?? .pageScroll }
+
+    /// 字体族枚举
+    enum ReaderFontFamily: Int, CaseIterable, Identifiable {
+        case sans = 0
+        case serif = 1
+        var id: Int { rawValue }
+        var name: String { self == .serif ? "衬线 · 宋体" : "无衬线 · 黑体" }
+        var shortName: String { self == .serif ? "宋体" : "黑体" }
+    }
+
+    var currentFontFamily: ReaderFontFamily { ReaderFontFamily(rawValue: fontFamily) ?? .serif }
 
     var currentTheme: ReaderTheme {
         if nightMode {
@@ -137,11 +153,20 @@ final class ReaderConfig: ObservableObject {
     }
 
     var swiftUIFont: Font {
-        .system(size: fontSize, weight: bold ? .bold : .regular)
+        let weight: Font.Weight = bold ? .bold : .regular
+        switch currentFontFamily {
+        case .serif:
+            return .system(size: fontSize, weight: weight, design: .serif)
+        case .sans:
+            return .system(size: fontSize, weight: weight)
+        }
     }
 
     var uiFont: UIFont {
-        bold ? UIFont.boldSystemFont(ofSize: fontSize) : UIFont.systemFont(ofSize: fontSize)
+        let base = bold ? UIFont.boldSystemFont(ofSize: fontSize) : UIFont.systemFont(ofSize: fontSize)
+        // 衬线体：iOS 的 .serif 设计在 CJK 上自动落到宋体系，无需硬编码字体名。
+        guard currentFontFamily == .serif else { return base }
+        return base.withDesign(.serif) ?? base
     }
 
     /// CoreText 分页用的段落对齐方式
