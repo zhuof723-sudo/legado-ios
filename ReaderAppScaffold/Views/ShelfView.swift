@@ -17,10 +17,10 @@ struct ShelfView: View {
     @State private var openLocal: LocalBook?
     @State private var headerCache = HeaderCacheBox()
     @State private var searchText = ""
-    /// 书架页的本地书操作统一走 Web 阅读器（EPUB/TXT 导入与阅读都在 Web 内核里完成，
-    /// 导入依赖 HTML input 的系统选择器，稳定可靠）。
+    /// 同一视图上叠多个 .sheet 在 SwiftUI 里不可靠（可能出现"点了没反应"或需要点两次），
+    /// 因此书架页统一用单一 sheet + 枚举来驱动。
     enum ShelfSheet: String, Identifiable {
-        case importSource, sourceList, importTxt, epubReader
+        case importSource, sourceList, importTxt
         var id: String { rawValue }
     }
     @State private var activeSheet: ShelfSheet?
@@ -95,7 +95,6 @@ struct ShelfView: View {
                 case .importSource: ImportSourceView()
                 case .sourceList: BookSourceListView()
                 case .importTxt: TxtImportView()
-                case .epubReader: EpubReaderView()
                 }
             }
             .fullScreenCover(item: $openLocal) { book in
@@ -114,7 +113,6 @@ struct ShelfView: View {
             Menu {
                 Button { present(.importSource) } label: { Label("导入书源", systemImage: "square.and.arrow.down") }
                 Button { present(.importTxt) } label: { Label("导入 TXT", systemImage: "doc.text") }
-                Button { present(.epubReader) } label: { Label("EPUB 阅读器", systemImage: "book.circle") }
             } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 18, weight: .medium))
@@ -234,8 +232,6 @@ struct ShelfView: View {
                 .plainGlassButton()
             }
             .tint(Theme.accent)
-            Text("EPUB / TXT → 用「EPUB 阅读器」导入并阅读")
-                .font(.caption2).foregroundStyle(.secondary)
             Spacer().frame(height: 80)
         }
         .frame(maxWidth: .infinity)

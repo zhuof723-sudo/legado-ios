@@ -21,11 +21,6 @@ targets:
       - path: Modules
       - path: Resources/Assets
         buildPhase: resources
-      # EPUB/TXT Web 阅读内核（源自「纸阅」）：整文件夹进 Bundle，
-      # 由 LocalServer 从 http://127.0.0.1:<port>/index.html 提供
-      - path: Resources/WebAssets
-        type: folder
-        buildPhase: resources
     dependencies:
       - package: LegadoRuleEngine
       - package: SwiftSoup
@@ -48,9 +43,6 @@ targets:
         LSSupportsOpeningDocumentsInPlace: true
         UISupportsDocumentBrowser: false
         UIFileSharingEnabled: true
-        # EPUB 阅读内核通过 127.0.0.1 回环端口加载，无需局域网权限；
-        # 预留描述，避免未来 iOS 版本对回环监听弹权限窗。
-        NSLocalNetworkUsageDescription: Legado 在本机回环地址启动本地服务，用于加载阅读内核与书库文件。
         CFBundleDocumentTypes:
           - CFBundleTypeName: Legado Book Source
             LSHandlerRank: Alternate
