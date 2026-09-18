@@ -143,7 +143,7 @@ final class ReadingSession: Identifiable {
     // MARK: - 章节导航
 
     func openChapter(_ index: Int) async {
-        await contentSource.openChapter(index)
+        await contentSource.openChapter(at: index)
         if !pendingJumpToLastPage, pendingJumpToPage == nil {
             pageIndex = 0
         }

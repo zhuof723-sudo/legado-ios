@@ -21,7 +21,7 @@ protocol BookContentSource: AnyObject {
     var isLoading: Bool { get }
     var errorMessage: String? { get }
 
-    func openChapter(_ index: Int) async
+    func openChapter(at index: Int) async
 
     // MARK: 段评能力（本地源默认无）
 
@@ -75,7 +75,7 @@ final class LocalChapterSource: BookContentSource {
     var isLoading: Bool { false }
     var errorMessage: String? { nil }
 
-    func openChapter(_ index: Int) async {
+    func openChapter(at index: Int) async {
         currentChapterIndex = min(max(index, 0), max(chapters.count - 1, 0))
     }
 
@@ -136,11 +136,11 @@ final class OnlineChapterSource: Identifiable, Hashable {
     // MARK: BookContentSource
 
     var bookKey: String { persistentBookURL ?? "" }
-    var bookTitle: String { bookSource.bookName }
+    var bookTitle: String { bookSource.bookSourceName }
 
     var chapterCount: Int { chapters.count }
     func chapterTitle(at index: Int) -> String {
-        chapters.indices.contains(index) ? chapters[index].name : bookSource.bookName
+        chapters.indices.contains(index) ? chapters[index].name : bookSource.bookSourceName
     }
 
     var currentChapterTitle: String? {
@@ -246,7 +246,7 @@ final class OnlineChapterSource: Identifiable, Hashable {
 
     // MARK: 章节导航
 
-    func openChapter(_ index: Int) async {
+    func openChapter(at index: Int) async {
         guard index >= 0, index < chapters.count else { return }
         guard index != currentChapterIndex || currentContent.isEmpty else { return }
         currentChapterIndex = index
