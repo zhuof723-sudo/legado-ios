@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import UIKit
+import PDFKit
 import LegadoRuleEngine
 
 @main
@@ -47,7 +48,7 @@ struct ReaderApp: App {
             RootView()
                 .preferredColorScheme(currentThemeMode == .dark ? .dark : .light)
         }
-        .modelContainer(for: [BookSourceRecord.self, ShelfBook.self, LocalBook.self])
+        .modelContainer(for: [BookSourceRecord.self, ShelfBook.self, LocalBook.self, PDFBook.self])
     }
 }
 
@@ -97,13 +98,88 @@ struct RootView: View {
 // MARK: - 外部文件导入
 
 /// 把从 Files/其他 App 打开的文件导入 App。
-/// .json 视作书源，其余按本地 TXT 处理（与两个导入面板的口径一致）。
+/// .json 视作书源；.epub / .pdf 走本地书籍管线；其余按本地 TXT 处理。
 enum ExternalFileImporter {
     @MainActor
     static func importFile(at url: URL, context: ModelContext) {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
 
+        let ext = url.pathExtension.lowercased()
+        let name = url.deletingPathExtension().lastPathComponent
+
+        switch ext {
+        case "epub":
+            importEpub(url: url, fallbackName: name, context: context)
+        case "pdf":
+            importPDF(url: url, fallbackName: name, context: context)
+        default:
+            importTextBookSource(url: url, context: context)
+        }
+    }
+
+    @MainActor
+    private static func importEpub(url: URL, fallbackName: String, context: ModelContext) {
+        let parsed: EpubParser.Book
+        do {
+            parsed = try EpubParser.parse(url: url)
+        } catch {
+            notify("EPUB 导入失败：\(error.localizedDescription)")
+            return
+        }
+        guard !parsed.chapters.isEmpty else {
+            notify("EPUB 没有可读取的正文章节")
+            return
+        }
+        let book = LocalBook(
+            name: parsed.title.isEmpty ? fallbackName : parsed.title,
+            author: parsed.author,
+            chaptersData: TxtParser.encode(parsed.chapters)
+        )
+        context.insert(book)
+        do {
+            try context.save()
+            notify("已导入《\(book.name)》，共 \(parsed.chapters.count) 章")
+        } catch {
+            notify("保存失败：\(error.localizedDescription)")
+        }
+    }
+
+    @MainActor
+    private static func importPDF(url: URL, fallbackName: String, context: ModelContext) {
+        let fileName = UUID().uuidString + ".pdf"
+        let dest = PDFBook.pdfDirectory.appendingPathComponent(fileName)
+        do {
+            try FileManager.default.copyItem(at: url, to: dest)
+        } catch {
+            notify("PDF 保存失败：\(error.localizedDescription)")
+            return
+        }
+        let meta = PDFReaderViewModel.metadata(from: dest)
+        let pageCount = PDFDocument(url: dest)?.pageCount ?? 0
+        guard pageCount > 0 else {
+            try? FileManager.default.removeItem(at: dest)
+            notify("PDF 无法解析（可能已损坏）")
+            return
+        }
+        let pdfBook = PDFBook(
+            name: meta.title ?? fallbackName,
+            author: meta.author ?? "未知作者",
+            fileName: fileName,
+            pageCount: pageCount
+        )
+        context.insert(pdfBook)
+        do {
+            try context.save()
+            notify("已导入《\(pdfBook.name)》，共 \(pageCount) 页")
+        } catch {
+            try? FileManager.default.removeItem(at: dest)
+            notify("保存失败：\(error.localizedDescription)")
+        }
+    }
+
+    @MainActor
+    private static func importTextBookSource(url: URL, context: ModelContext) {
         let text: String
         do {
             text = try FileTextReader.readText(from: url)

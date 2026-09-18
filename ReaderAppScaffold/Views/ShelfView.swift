@@ -11,10 +11,13 @@ struct ShelfView: View {
     @Query private var allSources: [BookSourceRecord]
     @Query(sort: [SortDescriptor(\LocalBook.createdAt, order: .reverse)])
     private var localBooks: [LocalBook]
+    @Query(sort: [SortDescriptor(\PDFBook.createdAt, order: .reverse)])
+    private var pdfBooks: [PDFBook]
 
     @State private var readerVM: ReaderViewModel?
     @State private var openBook: ShelfBook?
     @State private var openLocal: LocalBook?
+    @State private var openPDF: PDFBook?
     @State private var headerCache = HeaderCacheBox()
     @State private var searchText = ""
     /// 同一视图上叠多个 .sheet 在 SwiftUI 里不可靠（可能出现"点了没反应"或需要点两次），
@@ -62,7 +65,7 @@ struct ShelfView: View {
                     header
                     searchBar
                     heroBanner
-                    if books.isEmpty && localBooks.isEmpty {
+                    if books.isEmpty && localBooks.isEmpty && pdfBooks.isEmpty {
                         emptyState
                     } else {
                         if let recent = recentBook {
@@ -70,6 +73,9 @@ struct ShelfView: View {
                         }
                         if !localBooks.isEmpty {
                             localSection
+                        }
+                        if !pdfBooks.isEmpty {
+                            pdfSection
                         }
                         if !books.isEmpty {
                             shelfSection
@@ -100,6 +106,9 @@ struct ShelfView: View {
             .fullScreenCover(item: $openLocal) { book in
                 LocalReaderView(book: book)
             }
+            .fullScreenCover(item: $openPDF) { book in
+                PDFReaderView(book: book)
+            }
         }
     }
 
@@ -112,7 +121,7 @@ struct ShelfView: View {
             Spacer()
             Menu {
                 Button { present(.importSource) } label: { Label("导入书源", systemImage: "square.and.arrow.down") }
-                Button { present(.importTxt) } label: { Label("导入 TXT", systemImage: "doc.text") }
+                Button { present(.importTxt) } label: { Label("导入本地书籍", systemImage: "books.vertical") }
             } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 18, weight: .medium))
@@ -311,6 +320,45 @@ struct ShelfView: View {
                 .buttonStyle(.plain)
                 .contextMenu {
                     Button(role: .destructive) {
+                        context.delete(book)
+                        try? context.save()
+                    } label: { Label("删除", systemImage: "trash") }
+                }
+            }
+        }
+    }
+
+    // MARK: - PDF 书籍
+
+    private var pdfSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("PDF 文档").font(.title3.bold())
+            ForEach(pdfBooks) { book in
+                Button { openPDF = book } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "doc.richtext")
+                            .font(.system(size: 20, weight: .medium))
+                            .foregroundStyle(Theme.accent)
+                            .frame(width: 40, height: 54)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Theme.accent.opacity(0.12))
+                            )
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(book.name).font(.subheadline.bold()).foregroundStyle(.primary).lineLimit(1)
+                            Text("\(book.author) · \(book.pageCount) 页")
+                                .font(.caption).foregroundStyle(Theme.textSecondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(Theme.textSecondary)
+                    }
+                    .padding(12)
+                    .glassCard(RoundedRectangle(cornerRadius: 14), interactive: true)
+                }
+                .buttonStyle(.plain)
+                .contextMenu {
+                    Button(role: .destructive) {
+                        try? FileManager.default.removeItem(at: book.fileURL)
                         context.delete(book)
                         try? context.save()
                     } label: { Label("删除", systemImage: "trash") }

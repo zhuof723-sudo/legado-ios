@@ -47,6 +47,8 @@ struct ReaderTopBar: View {
     let title: String
     let accent: Color
     let isBookmarked: Bool
+    /// PDF 等无全文搜索的阅读器可隐藏搜索按钮
+    var showSearch = true
     var onBack: () -> Void
     var onTitle: () -> Void
     var onSearch: () -> Void
@@ -64,7 +66,9 @@ struct ReaderTopBar: View {
             }
             .buttonStyle(.plain)
             Spacer(minLength: 6)
-            ReaderBarButton(icon: "magnifyingglass", accent: accent, action: onSearch)
+            if showSearch {
+                ReaderBarButton(icon: "magnifyingglass", accent: accent, action: onSearch)
+            }
             ReaderBarButton(
                 icon: isBookmarked ? "bookmark.fill" : "bookmark",
                 tint: isBookmarked ? Theme.accent : nil,
