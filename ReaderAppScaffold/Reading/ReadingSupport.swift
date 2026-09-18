@@ -1,11 +1,10 @@
 import SwiftUI
-import UIKit
 import AVFoundation
 
-// MARK: - 语音合成控制器（在线/本地阅读共用）
+// MARK: - 语音合成控制器
 
 @MainActor
-final class ReaderSpeechController: ObservableObject {
+final class SpeechController: ObservableObject {
     @Published private(set) var isSpeaking = false
     private let synthesizer = AVSpeechSynthesizer()
 
@@ -33,9 +32,9 @@ final class ReaderSpeechController: ObservableObject {
     }
 }
 
-// MARK: - 章内搜索（在线/本地阅读共用）
+// MARK: - 章内搜索
 
-struct ReaderChapterSearchView: View {
+struct ChapterSearchView: View {
     @Environment(\.dismiss) private var dismiss
     let text: String
     @State private var query = ""

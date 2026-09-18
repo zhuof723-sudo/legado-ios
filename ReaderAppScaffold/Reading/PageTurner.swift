@@ -4,51 +4,51 @@ import SwiftUI
 // MARK: - 容器协议
 
 /// 点击/链接回调的打包，由 SwiftUI 层注入。
-struct BookPageTapHandlers {
-    var onZoneTap: ((ReaderTapAction) -> Void)?
-    var onLinkTap: ((ReaderLinkTarget) -> Void)?
+struct PageTapCallbacks {
+    var onZoneTap: ((TapZoneAction) -> Void)?
+    var onLinkTap: ((InlineLink) -> Void)?
 }
 
 /// 三种翻页容器的公共接口。SwiftUI 只跟这个协议对话，不关心内部
 /// 是 UIPageViewController 还是瞬时切换。
-protocol BookPagedContainer: AnyObject {
-    var pages: [ReaderPage] { get set }
-    var config: ReaderConfig { get }
+protocol PageTurnController: AnyObject {
+    var pages: [BookPage] { get set }
+    var prefs: ReadingPreferences { get }
     var currentIndex: Int { get set }
     /// 文字区偏移与尺寸：边距调整后由 SwiftUI 层同步进来，
     /// 后续新建的页面视图（updatePages / 翻页预取）都按最新值创建。
     var contentOffset: CGPoint { get set }
     var contentSize: CGSize { get set }
     var onUserPageChange: ((Int) -> Void)? { get set }
-    var tapHandlers: BookPageTapHandlers { get set }
+    var tapHandlers: PageTapCallbacks { get set }
 
     func goToPage(_ index: Int, animated: Bool)
-    func updatePages(_ newPages: [ReaderPage], keepIndex: Int)
+    func updatePages(_ newPages: [BookPage], keepIndex: Int)
     func refreshAppearance()
 }
 
-extension BookPagedContainer {
+extension PageTurnController {
     /// 包装一页为独立 UIViewController（UIPageViewController 数据源的单元）。
     func makeViewController(at index: Int) -> UIViewController {
         guard pages.indices.contains(index) else { return UIViewController() }
-        let pageView = BookPageContentView(
+        let pageView = PageCanvasView(
             page: pages[index],
-            config: config,
+            prefs: prefs,
             contentOffset: contentOffset,
             contentSize: contentSize
         )
         pageView.onZoneTap = { [weak self] action in self?.tapHandlers.onZoneTap?(action) }
         pageView.onLinkTap = { [weak self] target in self?.tapHandlers.onLinkTap?(target) }
-        return IndexedPageViewController(index: index, pageView: pageView)
+        return PageViewController(index: index, pageView: pageView)
     }
 }
 
 /// UIPageViewController 的页面包装：index 供翻页完成后同步页码。
-final class IndexedPageViewController: UIViewController {
+final class PageViewController: UIViewController {
     let pageIndex: Int
-    let pageView: BookPageContentView
+    let pageView: PageCanvasView
 
-    init(index: Int, pageView: BookPageContentView) {
+    init(index: Int, pageView: PageCanvasView) {
         self.pageIndex = index
         self.pageView = pageView
         super.init(nibName: nil, bundle: nil)
@@ -75,28 +75,28 @@ final class IndexedPageViewController: UIViewController {
 /// Apple Books 式仿真卷页 = UIPageViewController(.pageCurl)，
 /// 平移 = UIPageViewController(.scroll)。两种动画共用同一份
 /// 数据源/委托代码，只在 transitionStyle 上区分。
-final class PagedFlowController: UIPageViewController,
+final class FlowTurnController: UIPageViewController,
                                  UIPageViewControllerDataSource,
                                  UIPageViewControllerDelegate,
-                                 BookPagedContainer {
-    var pages: [ReaderPage] = []
-    let config: ReaderConfig
+                                 PageTurnController {
+    var pages: [BookPage] = []
+    let prefs: ReadingPreferences
     var currentIndex: Int = 0
     var onUserPageChange: ((Int) -> Void)?
-    var tapHandlers = BookPageTapHandlers()
+    var tapHandlers = PageTapCallbacks()
     var contentOffset: CGPoint
     var contentSize: CGSize
 
     init(
-        pages: [ReaderPage],
-        config: ReaderConfig,
+        pages: [BookPage],
+        prefs: ReadingPreferences,
         initialIndex: Int,
         transitionStyle: UIPageViewController.TransitionStyle,
         contentOffset: CGPoint,
         contentSize: CGSize
     ) {
         self.pages = pages
-        self.config = config
+        self.prefs = prefs
         self.currentIndex = initialIndex
         self.contentOffset = contentOffset
         self.contentSize = contentSize
@@ -111,7 +111,7 @@ final class PagedFlowController: UIPageViewController,
         super.viewDidLoad()
         dataSource = self
         delegate = self
-        view.backgroundColor = UIColor(config.currentTheme.background)
+        view.backgroundColor = UIColor(prefs.currentTheme.background)
         if !pages.isEmpty {
             let initial = min(max(currentIndex, 0), pages.count - 1)
             setViewControllers([pageController(at: initial)], direction: .forward, animated: false)
@@ -123,7 +123,7 @@ final class PagedFlowController: UIPageViewController,
         makeViewController(at: index)
     }
 
-    // MARK: BookPagedContainer
+    // MARK: PageTurnController
 
     func goToPage(_ index: Int, animated: Bool) {
         guard pages.indices.contains(index), index != currentIndex else { return }
@@ -137,7 +137,7 @@ final class PagedFlowController: UIPageViewController,
         }
     }
 
-    func updatePages(_ newPages: [ReaderPage], keepIndex: Int) {
+    func updatePages(_ newPages: [BookPage], keepIndex: Int) {
         pages = newPages
         let safe = min(max(keepIndex, 0), max(newPages.count - 1, 0))
         currentIndex = safe
@@ -147,8 +147,8 @@ final class PagedFlowController: UIPageViewController,
     }
 
     func refreshAppearance() {
-        view.backgroundColor = UIColor(config.currentTheme.background)
-        viewControllers?.compactMap { $0 as? IndexedPageViewController }
+        view.backgroundColor = UIColor(prefs.currentTheme.background)
+        viewControllers?.compactMap { $0 as? PageViewController }
             .forEach { $0.pageView.refreshAppearance() }
     }
 
@@ -164,7 +164,7 @@ final class PagedFlowController: UIPageViewController,
         _ pageViewController: UIPageViewController,
         viewControllerBefore viewController: UIViewController
     ) -> UIViewController? {
-        guard let indexed = viewController as? IndexedPageViewController else { return nil }
+        guard let indexed = viewController as? PageViewController else { return nil }
         let index = indexed.pageIndex - 1
         return index >= 0 ? pageController(at: index) : nil
     }
@@ -173,7 +173,7 @@ final class PagedFlowController: UIPageViewController,
         _ pageViewController: UIPageViewController,
         viewControllerAfter viewController: UIViewController
     ) -> UIViewController? {
-        guard let indexed = viewController as? IndexedPageViewController else { return nil }
+        guard let indexed = viewController as? PageViewController else { return nil }
         let index = indexed.pageIndex + 1
         return index < pages.count ? pageController(at: index) : nil
     }
@@ -187,7 +187,7 @@ final class PagedFlowController: UIPageViewController,
         transitionCompleted completed: Bool
     ) {
         guard completed,
-              let indexed = pageViewController.viewControllers?.first as? IndexedPageViewController else { return }
+              let indexed = pageViewController.viewControllers?.first as? PageViewController else { return }
         finishTransition(to: indexed.pageIndex)
     }
 }
@@ -197,26 +197,26 @@ final class PagedFlowController: UIPageViewController,
 /// 无动画模式：点击/滑动直接换页，零过渡。切页仍然是异步闭环——
 /// 手势只发出意图（zone 回调），真正的页码更新由 SwiftUI 驱动回来，
 /// 与仿真/平移走同一条状态通道。
-final class InstantPageController: UIViewController, BookPagedContainer {
-    var pages: [ReaderPage] = []
-    let config: ReaderConfig
+final class InstantTurnController: UIViewController, PageTurnController {
+    var pages: [BookPage] = []
+    let prefs: ReadingPreferences
     var currentIndex: Int = 0
     var onUserPageChange: ((Int) -> Void)?
-    var tapHandlers = BookPageTapHandlers()
+    var tapHandlers = PageTapCallbacks()
 
     var contentOffset: CGPoint
     var contentSize: CGSize
-    private var currentPageView: BookPageContentView?
+    private var currentPageView: PageCanvasView?
 
     init(
-        pages: [ReaderPage],
-        config: ReaderConfig,
+        pages: [BookPage],
+        prefs: ReadingPreferences,
         initialIndex: Int,
         contentOffset: CGPoint,
         contentSize: CGSize
     ) {
         self.pages = pages
-        self.config = config
+        self.prefs = prefs
         self.currentIndex = initialIndex
         self.contentOffset = contentOffset
         self.contentSize = contentSize
@@ -227,7 +227,7 @@ final class InstantPageController: UIViewController, BookPagedContainer {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = UIColor(config.currentTheme.background)
+        view.backgroundColor = UIColor(prefs.currentTheme.background)
 
         let swipeLeft = UISwipeGestureRecognizer(target: self, action: #selector(handleSwipeLeft))
         swipeLeft.direction = .left
@@ -250,9 +250,9 @@ final class InstantPageController: UIViewController, BookPagedContainer {
     private func showPage(at index: Int) {
         guard pages.indices.contains(index) else { return }
         currentPageView?.removeFromSuperview()
-        let pageView = BookPageContentView(
+        let pageView = PageCanvasView(
             page: pages[index],
-            config: config,
+            prefs: prefs,
             contentOffset: contentOffset,
             contentSize: contentSize
         )
@@ -265,21 +265,21 @@ final class InstantPageController: UIViewController, BookPagedContainer {
         currentIndex = index
     }
 
-    // MARK: BookPagedContainer
+    // MARK: PageTurnController
 
     func goToPage(_ index: Int, animated: Bool) {
         guard index != currentIndex else { return }
         showPage(at: index)
     }
 
-    func updatePages(_ newPages: [ReaderPage], keepIndex: Int) {
+    func updatePages(_ newPages: [BookPage], keepIndex: Int) {
         pages = newPages
         let safe = min(max(keepIndex, 0), max(newPages.count - 1, 0))
         showPage(at: safe)
     }
 
     func refreshAppearance() {
-        view.backgroundColor = UIColor(config.currentTheme.background)
+        view.backgroundColor = UIColor(prefs.currentTheme.background)
         currentPageView?.refreshAppearance()
     }
 }
@@ -288,41 +288,41 @@ final class InstantPageController: UIViewController, BookPagedContainer {
 
 /// 阅读页容器：对外只暴露 pages / 当前页码 / 两类点击回调。
 /// 翻页模式变化时由 SwiftUI 的 .id 重建容器；主题变化走 refreshAppearance 热刷新。
-struct BookPagedReaderRepresentable: UIViewControllerRepresentable {
-    let pages: [ReaderPage]
-    let config: ReaderConfig
+struct PageTurnerView: UIViewControllerRepresentable {
+    let pages: [BookPage]
+    let prefs: ReadingPreferences
     @Binding var pageIndex: Int
     /// 文字区偏移与尺寸（阅读边距），分页时与渲染时必须一致。
     let contentOffset: CGPoint
     let contentSize: CGSize
-    var onZoneTap: (ReaderTapAction) -> Void
-    var onLinkTap: (ReaderLinkTarget) -> Void
+    var onZoneTap: (TapZoneAction) -> Void
+    var onLinkTap: (InlineLink) -> Void
 
     func makeUIViewController(context: Context) -> UIViewController {
-        let container: BookPagedContainer
-        switch config.currentTurnStyle {
+        let container: PageTurnController
+        switch prefs.currentTurnMode {
         case .curl:
-            container = PagedFlowController(
+            container = FlowTurnController(
                 pages: pages,
-                config: config,
+                prefs: prefs,
                 initialIndex: pageIndex,
                 transitionStyle: .pageCurl,
                 contentOffset: contentOffset,
                 contentSize: contentSize
             )
         case .slide:
-            container = PagedFlowController(
+            container = FlowTurnController(
                 pages: pages,
-                config: config,
+                prefs: prefs,
                 initialIndex: pageIndex,
                 transitionStyle: .scroll,
                 contentOffset: contentOffset,
                 contentSize: contentSize
             )
         case .none:
-            container = InstantPageController(
+            container = InstantTurnController(
                 pages: pages,
-                config: config,
+                prefs: prefs,
                 initialIndex: pageIndex,
                 contentOffset: contentOffset,
                 contentSize: contentSize
@@ -332,8 +332,8 @@ struct BookPagedReaderRepresentable: UIViewControllerRepresentable {
         return container as! UIViewController
     }
 
-    private func applyCallbacks(to container: BookPagedContainer) {
-        container.tapHandlers = BookPageTapHandlers(
+    private func applyCallbacks(to container: PageTurnController) {
+        container.tapHandlers = PageTapCallbacks(
             onZoneTap: onZoneTap,
             onLinkTap: onLinkTap
         )
@@ -346,7 +346,7 @@ struct BookPagedReaderRepresentable: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
-        guard let container = uiViewController as? BookPagedContainer else { return }
+        guard let container = uiViewController as? PageTurnController else { return }
 
         // 回调可能捕获了新的闭包，每轮同步。
         applyCallbacks(to: container)
@@ -361,7 +361,7 @@ struct BookPagedReaderRepresentable: UIViewControllerRepresentable {
         if container.pages != pages {
             container.updatePages(pages, keepIndex: pageIndex)
         } else if container.currentIndex != pageIndex {
-            container.goToPage(pageIndex, animated: config.currentTurnStyle != .none)
+            container.goToPage(pageIndex, animated: prefs.currentTurnMode != .none)
         }
     }
 }

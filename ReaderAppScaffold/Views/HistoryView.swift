@@ -9,7 +9,7 @@ struct HistoryView: View {
     private var books: [ShelfBook]
     @Query private var allSources: [BookSourceRecord]
 
-    @State private var readerVM: ReaderViewModel?
+    @State private var chapterSource: OnlineChapterSource?
     @State private var openBook: ShelfBook?
     @State private var searchText = ""
     @State private var headerCache = HeaderCacheBox()
@@ -53,9 +53,9 @@ struct HistoryView: View {
             }
             .background(Theme.bg.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
-            .fullScreenCover(item: $readerVM) { vm in
-                BookReaderScreen(source: .online(
-                    viewModel: vm,
+            .fullScreenCover(item: $chapterSource) { source in
+                ReadingScreen(source: .online(
+                    source,
                     bookUrl: openBook?.bookUrl ?? "",
                     bookName: openBook?.name ?? ""
                 ))
@@ -156,14 +156,14 @@ struct HistoryView: View {
         guard let record = allSources.first(where: { $0.bookSourceUrl == book.sourceUrl }),
               let source = record.decodeSource() else { return }
         openBook = book
-        let vm = ReaderViewModel(source: source, persistentBookURL: book.bookUrl)
-        readerVM = vm
+        let source0 = OnlineChapterSource(bookSource: source, persistentBookURL: book.bookUrl)
+        chapterSource = source0
         Task {
-            await vm.loadToc(bookUrl: book.bookUrl)
-            book.totalChapters = vm.chapters.count
+            await source0.loadToc(bookUrl: book.bookUrl)
+            book.totalChapters = source0.chapters.count
             try? context.save()
-            let idx = min(max(book.lastReadChapterIndex, 0), max(vm.chapters.count - 1, 0))
-            await vm.openChapter(at: idx)
+            let idx = min(max(book.lastReadChapterIndex, 0), max(source0.chapters.count - 1, 0))
+            await source0.openChapter(at: idx)
         }
     }
 }

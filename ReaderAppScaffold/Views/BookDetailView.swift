@@ -24,7 +24,7 @@ struct BookDetailView: View {
     let intro: String
     var coverUrl: String = ""
 
-    @State private var readerVM: ReaderViewModel?
+    @State private var chapterSource: OnlineChapterSource?
     @State private var openReader = false
     @State private var isStartingReading = false
     @State private var startError: String?
@@ -54,7 +54,7 @@ struct BookDetailView: View {
     }
 
     private var totalChapters: Int {
-        readerVM?.chapters.count ?? shelfBook?.totalChapters ?? 0
+        chapterSource?.chapters.count ?? shelfBook?.totalChapters ?? 0
     }
 
     var body: some View {
@@ -109,21 +109,21 @@ struct BookDetailView: View {
             if scrolled { compactNav }
         }
         .fullScreenCover(isPresented: $openReader) {
-            if let vm = readerVM {
-                BookReaderScreen(source: .online(
-                    viewModel: vm,
+            if let source = chapterSource {
+                ReadingScreen(source: .online(
+                    source,
                     bookUrl: bookUrl,
                     bookName: name
                 ))
             }
         }
         .onAppear {
-            let vm: ReaderViewModel
-            if let existing = readerVM {
+            let vm: OnlineChapterSource
+            if let existing = chapterSource {
                 vm = existing
             } else {
-                let created = ReaderViewModel(source: source, persistentBookURL: shelfBook?.bookUrl)
-                readerVM = created
+                let created = OnlineChapterSource(bookSource: source, persistentBookURL: shelfBook?.bookUrl)
+                chapterSource = created
                 vm = created
             }
             inShelf = shelfBook != nil
@@ -312,13 +312,13 @@ struct BookDetailView: View {
         .padding(16)
         .cardStyle(cornerRadius: 16, mode: mode)
         .sheet(isPresented: $showToc) {
-            if let vm = readerVM {
-                TocSheet(
-                    bookUrl: bookUrl,
+            if let vm = chapterSource {
+                ContentsSheet(
+                    bookKey: bookUrl,
                     entries: vm.chapters.enumerated().map {
-                        TocSheet.TocEntry(index: $0.offset, name: $0.element.name)
+                        ContentsSheet.Entry(index: $0.offset, name: $0.element.name)
                     },
-                    currentIndex: vm.currentIndex,
+                    currentIndex: vm.currentChapterIndex,
                     onSelectChapter: { index in
                         Task { await vm.openChapter(at: index) }
                     }
@@ -330,7 +330,7 @@ struct BookDetailView: View {
 
     private var currentChapterTitle: String {
         if let idx = shelfBook?.lastReadChapterIndex,
-           let chapters = readerVM?.chapters, chapters.indices.contains(idx) {
+           let chapters = chapterSource?.chapters, chapters.indices.contains(idx) {
             return chapters[idx].name
         }
         return totalChapters > 0 ? "异世青山" : ""
@@ -415,7 +415,7 @@ struct BookDetailView: View {
         } else {
             do {
                 let _ = try ensureShelfBook()
-                readerVM?.enablePersistentCache(bookURL: bookUrl)
+                chapterSource?.enablePersistentCache(bookURL: bookUrl)
                 inShelf = true
                 startError = nil
             } catch {
@@ -432,14 +432,14 @@ struct BookDetailView: View {
 
         do {
             let _ = try ensureShelfBook()
-            if readerVM?.chapters.isEmpty != false {
-                await readerVM?.loadToc(bookUrl: bookUrl)
+            if chapterSource?.chapters.isEmpty != false {
+                await chapterSource?.loadToc(bookUrl: bookUrl)
             }
             if let book = shelfBook {
-                book.totalChapters = readerVM?.chapters.count ?? 0
+                book.totalChapters = chapterSource?.chapters.count ?? 0
                 try? context.save()
-                let idx = min(max(book.lastReadChapterIndex, 0), max((readerVM?.chapters.count ?? 1) - 1, 0))
-                await readerVM?.openChapter(at: idx)
+                let idx = min(max(book.lastReadChapterIndex, 0), max((chapterSource?.chapters.count ?? 1) - 1, 0))
+                await chapterSource?.openChapter(at: idx)
             }
             isStartingReading = false
             openReader = true

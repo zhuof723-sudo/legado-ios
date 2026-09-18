@@ -6,23 +6,23 @@ import UIKit
 ///
 /// 架构分层：
 /// - 本视图：控制层与状态编排（顶栏 / 底栏 / 面板 / TTS / 书签 / 进度）
-/// - BookReaderViewModel：章节导航 + 分页编排 + 阅读位置
-/// - ReaderPaginator：CoreText 分页（中文断行 / 两端对齐 / 首行缩进）
-/// - BookPagedReaderRepresentable：仿真卷页 / 平移 / 无动画 三种翻页容器
+/// - ReadingSession：章节导航 + 分页编排 + 阅读位置
+/// - PaginationEngine：CoreText 分页（中文断行 / 两端对齐 / 首行缩进）
+/// - PageTurnerView：仿真卷页 / 平移 / 无动画 三种翻页容器
 ///
-/// 点击分区：左右各 24% 翻页，中间唤出控制层（ReaderTapZones）。
-struct BookReaderScreen: View {
+/// 点击分区：左右各 24% 翻页，中间唤出控制层（TapZones）。
+struct ReadingScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
-    @State private var model: BookReaderViewModel
+    @State private var session: ReadingSession
 
-    @ObservedObject private var config = ReaderConfig.shared
-    @StateObject private var speech = ReaderSpeechController()
+    @ObservedObject private var prefs = ReadingPreferences.shared
+    @StateObject private var speech = SpeechController()
     @AppStorage("reader.autoRead") private var autoRead = false
 
     @State private var showControls = false
-    @State private var showSettings = false
-    @State private var showToc = false
+    @State private var showAppearance = false
+    @State private var showContents = false
     @State private var showSearch = false
     @State private var isCurrentPageBookmarked = false
 
@@ -37,49 +37,49 @@ struct BookReaderScreen: View {
     /// 有段评弹层展示时，点击正文任意处收起它。
     @State private var isReviewPresented = false
 
-    init(source: BookReaderViewModel.BookSourceKind) {
-        _model = State(initialValue: BookReaderViewModel(source: source))
+    init(source: ReadingSession.Source) {
+        _session = State(initialValue: ReadingSession(source: source))
     }
 
-    private var textColor: Color { config.currentTheme.textColor }
+    private var textColor: Color { prefs.currentTheme.textColor }
 
     var body: some View {
-        @Bindable var model = model
+        @Bindable var session = session
 
         GeometryReader { geo in
             // 全屏沉浸：分页尺寸按整块屏幕计算（含安全区），翻页铺满全屏。
             let fullWidth = geo.size.width + geo.safeAreaInsets.leading + geo.safeAreaInsets.trailing
             let fullHeight = geo.size.height + geo.safeAreaInsets.top + geo.safeAreaInsets.bottom
-            let padH = CGFloat(config.paddingH)
-            let padTop = CGFloat(config.paddingTop)
-            let padBottom = CGFloat(config.paddingBottom)
+            let padH = CGFloat(prefs.paddingH)
+            let padTop = CGFloat(prefs.paddingTop)
+            let padBottom = CGFloat(prefs.paddingBottom)
             let contentOffset = CGPoint(x: padH, y: padTop)
             let contentSize = CGSize(
                 width: max(fullWidth - padH * 2, 1),
                 height: max(fullHeight - padTop - padBottom, 1)
             )
-            let typography = ReaderTypography(
-                font: config.uiFont,
-                lineSpacing: config.lineSpacing,
-                paragraphGap: config.paragraphSpacing,
-                firstLineIndent: config.indentPixels,
+            let layout = LayoutParams(
+                font: prefs.uiFont,
+                lineSpacing: prefs.lineSpacing,
+                paragraphGap: prefs.paragraphSpacing,
+                firstLineIndent: prefs.indentPixels,
                 pageSize: contentSize
             )
-            let paginationKey = BookReaderViewModel.paginationKey(
-                contentFingerprint: ReaderDocumentBuilder.fingerprint(of: model.currentContent),
-                markerKey: model.currentMarkerKey,
-                chapterIndex: model.currentChapterIndex,
-                typography: typography
+            let paginationKey = ReadingSession.paginationKey(
+                contentFingerprint: ChapterDocumentBuilder.fingerprint(of: session.currentContent),
+                markerKey: session.currentMarkerKey,
+                chapterIndex: session.currentChapterIndex,
+                layout: layout
             )
 
             ZStack {
-                config.currentTheme.background.ignoresSafeArea()
+                prefs.currentTheme.background.ignoresSafeArea()
 
-                if !model.pages.isEmpty, model.pagesChapterIndex == model.currentChapterIndex {
-                    BookPagedReaderRepresentable(
-                        pages: model.pages,
-                        config: config,
-                        pageIndex: $model.pageIndex,
+                if !session.pages.isEmpty, session.pagesChapterIndex == session.currentChapterIndex {
+                    PageTurnerView(
+                        pages: session.pages,
+                        prefs: prefs,
+                        pageIndex: $session.pageIndex,
                         contentOffset: contentOffset,
                         contentSize: contentSize,
                         onZoneTap: { action in handleZoneTap(action) },
@@ -87,10 +87,10 @@ struct BookReaderScreen: View {
                     )
                     .ignoresSafeArea(.container, edges: .all)
                     // 翻页模式变化重建容器；主题/排版变化分别走热刷新与重排。
-                    .id(config.turnStyle)
-                } else if model.isLoading {
+                    .id(prefs.turnMode)
+                } else if session.isLoading {
                     ProgressView()
-                } else if let error = model.errorMessage {
+                } else if let error = session.errorMessage {
                     Text(error).foregroundStyle(.red).multilineTextAlignment(.center).padding()
                 } else {
                     ProgressView()
@@ -100,9 +100,9 @@ struct BookReaderScreen: View {
                     .zIndex(20)
             }
             .task(id: paginationKey) {
-                await model.ensurePaginated(
+                await session.ensurePaginated(
                     key: paginationKey,
-                    typography: typography,
+                    layout: layout,
                     badgeColor: .systemGray
                 )
             }
@@ -110,45 +110,45 @@ struct BookReaderScreen: View {
                 guard autoRead else { return }
                 for _ in 0..<1000 {
                     guard !Task.isCancelled else { break }
-                    try? await Task.sleep(nanoseconds: UInt64(config.autoReadSpeed * 1_000_000_000))
+                    try? await Task.sleep(nanoseconds: UInt64(prefs.autoReadSpeed * 1_000_000_000))
                     guard !Task.isCancelled, autoRead else { break }
-                    guard await model.advancePage(allowNextChapter: false) else { break }
+                    guard await session.advancePage(allowNextChapter: false) else { break }
                 }
             }
         }
         .overlay(alignment: .bottom) {
-            // Apple Books 式全书进度细线：贴底常显，不拦截触摸。
-            ReaderProgressHairline(progress: model.bookProgress, accent: config.currentAccent)
+            // 全书进度细线：贴底常显，不拦截触摸。
+            ProgressHairline(progress: session.bookProgress, accent: prefs.currentAccent)
         }
         .statusBarHidden(!showControls)
         .persistentSystemOverlays(.hidden)
-        .preferredColorScheme(config.nightMode ? .dark : .light)
+        .preferredColorScheme(prefs.nightMode ? .dark : .light)
         .toolbar(.hidden, for: .tabBar)
         .onDisappear {
             speech.stop()
-            model.saveProgress()
+            session.saveProgress()
         }
-        .sheet(isPresented: $showSettings) {
-            ReaderAaPanel().presentationDetents([.medium, .large])
+        .sheet(isPresented: $showAppearance) {
+            AppearancePanel().presentationDetents([.medium, .large])
         }
-        .sheet(isPresented: $showToc) {
-            TocSheet(
-                bookUrl: model.bookKey,
-                entries: (0..<model.chapterCount).map {
-                    TocSheet.TocEntry(index: $0, name: model.chapterTitle(at: $0))
+        .sheet(isPresented: $showContents) {
+            ContentsSheet(
+                bookKey: session.bookKey,
+                entries: (0..<session.chapterCount).map {
+                    ContentsSheet.Entry(index: $0, name: session.chapterTitle(at: $0))
                 },
-                currentIndex: model.currentChapterIndex,
+                currentIndex: session.currentChapterIndex,
                 onSelectChapter: { index in
-                    Task { await model.openChapter(index) }
+                    Task { await session.openChapter(index) }
                 },
                 onSelectBookmark: { bookmark in
-                    Task { await model.jumpToBookmark(bookmark) }
+                    Task { await session.jumpToBookmark(bookmark) }
                 }
             )
             .presentationDetents([.large])
         }
         .sheet(isPresented: $showSearch) {
-            ReaderChapterSearchView(text: model.currentContent)
+            ChapterSearchView(text: session.currentContent)
                 .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showReviewList) {
@@ -157,7 +157,7 @@ struct BookReaderScreen: View {
                 paragraphIndex: selectedParagraphIndex,
                 onClose: { showReviewList = false },
                 fetchReviews: { paragraphIndex, paragraphText in
-                    try await model.fetchReviews(
+                    try await session.fetchReviews(
                         paragraphIndex: paragraphIndex,
                         paragraphText: paragraphText,
                         markerSource: selectedReviewURL
@@ -188,12 +188,12 @@ struct BookReaderScreen: View {
         .onChange(of: browserDestination) { _, destination in
             isReviewPresented = showReviewList || destination != nil
         }
-        .onChange(of: model.currentChapterIndex) { _, _ in
+        .onChange(of: session.currentChapterIndex) { _, _ in
             refreshBookmarkState()
             saveProgress()
             continueSpeakingIfNeeded()
         }
-        .onChange(of: model.pageIndex) { _, _ in
+        .onChange(of: session.pageIndex) { _, _ in
             refreshBookmarkState()
             continueSpeakingIfNeeded()
         }
@@ -201,7 +201,7 @@ struct BookReaderScreen: View {
 
     // MARK: - 点击分发
 
-    private func handleZoneTap(_ action: ReaderTapAction) {
+    private func handleZoneTap(_ action: TapZoneAction) {
         // 段评弹层展示中：点击正文任意处先收起弹层。
         guard !isReviewPresented else {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -211,16 +211,16 @@ struct BookReaderScreen: View {
         }
         switch action {
         case .previousPage:
-            Task { await model.goPreviousPage() }
+            Task { await session.goPreviousPage() }
         case .nextPage:
-            Task { await model.advancePage(allowNextChapter: true) }
+            Task { await session.advancePage(allowNextChapter: true) }
         case .toggleControls:
             withAnimation(.easeInOut(duration: 0.2)) { showControls.toggle() }
         }
     }
 
-    private func handleLinkTap(_ target: ReaderLinkTarget) {
-        guard model.supportsReviews else { return }
+    private func handleLinkTap(_ target: InlineLink) {
+        guard session.supportsReviews else { return }
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         switch target {
         case .legacyParagraph(let index):
@@ -234,7 +234,7 @@ struct BookReaderScreen: View {
     // MARK: - 段评
 
     private func presentReview(paragraphIndex: Int) {
-        let paragraphs = model.currentContent.components(separatedBy: "\n")
+        let paragraphs = session.currentContent.components(separatedBy: "\n")
         selectedParagraphIndex = max(0, paragraphIndex)
         let raw = paragraphIndex < paragraphs.count ? paragraphs[paragraphIndex] : ""
         // 剔除段评占位符（PUA 区），引用框只显示人读的文字。
@@ -245,10 +245,10 @@ struct BookReaderScreen: View {
     }
 
     private func handleMarkerTap(_ markerID: Int) {
-        guard let marker = model.marker(id: markerID) else { return }
+        guard let marker = session.marker(id: markerID) else { return }
         if marker.action?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
             // 有 click/js：执行书源动作（通常会打开浏览器）。
-            model.executeMarkerAction(id: markerID) { url, title in
+            session.executeMarkerAction(id: markerID) { url, title in
                 guard let destination = BrowserDestination(urlString: url, title: title, isReview: true) else { return }
                 DispatchQueue.main.async { browserDestination = destination }
             }
@@ -264,17 +264,17 @@ struct BookReaderScreen: View {
 
     private var bookmarkIdentity: BookBookmark {
         BookBookmark(
-            bookUrl: model.bookKey,
-            chapterIndex: model.currentChapterIndex,
-            pageIndex: model.pageIndex,
-            label: model.currentChapterTitle + " · 第 \(model.pageIndex + 1) 页",
+            bookUrl: session.bookKey,
+            chapterIndex: session.currentChapterIndex,
+            pageIndex: session.pageIndex,
+            label: session.currentChapterTitle + " · 第 \(session.pageIndex + 1) 页",
             createdAt: Date()
         )
     }
 
     private func refreshBookmarkState() {
         let identity = bookmarkIdentity
-        isCurrentPageBookmarked = BookmarkStore.all(for: model.bookKey).contains { $0.id == identity.id }
+        isCurrentPageBookmarked = BookmarkStore.all(for: session.bookKey).contains { $0.id == identity.id }
     }
 
     private func toggleBookmark() {
@@ -290,15 +290,15 @@ struct BookReaderScreen: View {
     // MARK: - 进度
 
     private func saveProgress() {
-        model.saveProgress()
+        session.saveProgress()
         // 在线书籍同时回写书架（章节号 / 章名 / 时间）。
-        guard case .online(let viewModel, let bookUrl, _) = model.source else { return }
+        guard case .online(let online, let bookUrl, _) = session.source else { return }
         let descriptor = FetchDescriptor<ShelfBook>(predicate: #Predicate { $0.bookUrl == bookUrl })
         if let book = try? context.fetch(descriptor).first {
-            book.lastReadChapterIndex = viewModel.currentIndex
-            book.lastReadChapterTitle = viewModel.currentChapterTitle
+            book.lastReadChapterIndex = online.currentChapterIndex
+            book.lastReadChapterTitle = online.currentChapterTitle
             book.lastReadAt = Date()
-            book.totalChapters = viewModel.chapters.count
+            book.totalChapters = online.chapters.count
             try? context.save()
         }
     }
@@ -307,22 +307,22 @@ struct BookReaderScreen: View {
 
     private func continueSpeakingIfNeeded() {
         guard speech.isSpeaking else { return }
-        guard model.pages.indices.contains(model.pageIndex) else { return }
-        speech.speak(model.pages[model.pageIndex].plainText)
+        guard session.pages.indices.contains(session.pageIndex) else { return }
+        speech.speak(session.pages[session.pageIndex].plainText)
     }
 
-    // MARK: - Apple Books 式控制层
+    // MARK: - 控制层
 
     private var chrome: some View {
         VStack(spacing: 0) {
             if showControls {
                 LiquidGlassContainer(spacing: 12) {
-                    ReaderTopBar(
-                        title: model.currentChapterTitle,
+                    ReadingTopBar(
+                        title: session.currentChapterTitle,
                         accent: textColor,
                         isBookmarked: isCurrentPageBookmarked,
                         onBack: { dismiss() },
-                        onTitle: { showToc = true },
+                        onTitle: { showContents = true },
                         onSearch: { showSearch = true },
                         onBookmark: { toggleBookmark() }
                     )
@@ -335,16 +335,16 @@ struct BookReaderScreen: View {
             Spacer(minLength: 0)
             if showControls {
                 LiquidGlassContainer(spacing: 14) {
-                    ReaderBottomBar(
-                        pageText: "第 \(model.pageIndex + 1) 页 / 共 \(max(model.pages.count, 1)) 页",
+                    ReadingBottomBar(
+                        pageText: "第 \(session.pageIndex + 1) 页 / 共 \(max(session.pages.count, 1)) 页",
                         accent: textColor,
                         isSpeaking: speech.isSpeaking,
-                        onToc: { showToc = true },
+                        onContents: { showContents = true },
                         onTts: {
-                            guard model.pages.indices.contains(model.pageIndex) else { return }
-                            speech.toggle(model.pages[model.pageIndex].plainText)
+                            guard session.pages.indices.contains(session.pageIndex) else { return }
+                            speech.toggle(session.pages[session.pageIndex].plainText)
                         },
-                        onAa: { showSettings = true }
+                        onAppearance: { showAppearance = true }
                     )
                 }
                 .transition(.asymmetric(
@@ -353,7 +353,7 @@ struct BookReaderScreen: View {
                 ))
             } else {
                 // 沉浸态：仅保留角落小页码。
-                Text("\(model.pageIndex + 1) / \(max(model.pages.count, 1))")
+                Text("\(session.pageIndex + 1) / \(max(session.pages.count, 1))")
                     .font(.caption2)
                     .foregroundStyle(textColor.opacity(0.45))
                     .padding(.bottom, 10)

@@ -5,7 +5,7 @@ import LegadoRuleEngine
 
 /// 正文里的可点对象。阅读引擎内唯一的“链接语义”层：
 /// 段评气泡（正文内嵌 style:"TEXT" 段评图）与兼容模式的段落级入口。
-enum ReaderLinkTarget: Equatable {
+enum InlineLink: Equatable {
     case legacyParagraph(Int)
     case marker(Int)
 
@@ -16,7 +16,7 @@ enum ReaderLinkTarget: Equatable {
         }
     }
 
-    static func from(url: URL) -> ReaderLinkTarget? {
+    static func from(url: URL) -> InlineLink? {
         guard url.scheme == "review", let host = url.host else { return nil }
         let components = url.pathComponents
         guard components.count >= 2, let value = Int(components[1]) else { return nil }
@@ -34,7 +34,7 @@ enum ReaderLinkTarget: Equatable {
 /// 渲染端供给，主题切换零成本），段评角标 run 额外带颜色与链接。
 /// `chapterRange` 指回整章纯文本的 UTF-16 范围（不含角标与换行符），
 /// 供 TTS / 进度恢复使用。
-struct ReaderParagraph {
+struct ChapterParagraph {
     let attributed: NSAttributedString
     let chapterRange: NSRange
     /// 空段落：分页时按一个空行槽占位（保留原作的换行层次）。
@@ -43,15 +43,15 @@ struct ReaderParagraph {
 
 /// 排版本的章节输入。一切“内容”都收敛到这个模型：
 /// 本地 TXT/EPUB 是纯正文；在线书源正文可能带段评标记。
-struct ReaderChapterDocument {
+struct ChapterDocument {
     let title: String
     /// 整章纯文本（含 PUA 段评占位符，不含合成角标）。
     let plainText: String
-    let paragraphs: [ReaderParagraph]
+    let paragraphs: [ChapterParagraph]
     let fingerprint: String
 }
 
-enum ReaderDocumentBuilder {
+enum ChapterDocumentBuilder {
     /// 正文指纹：O(1) 长度 + 首尾采样，作为分页缓存键的内容分量。
     static func fingerprint(of text: String) -> String {
         let head = text.prefix(32)
@@ -70,7 +70,7 @@ enum ReaderDocumentBuilder {
         legacyLinks: Bool,
         font: UIFont,
         badgeColor: UIColor
-    ) -> ReaderChapterDocument {
+    ) -> ChapterDocument {
         let ns = content as NSString
         var markerMap: [Int: InlineReviewMarker] = [:]
         markerMap.reserveCapacity(markers.count)
@@ -102,7 +102,7 @@ enum ReaderDocumentBuilder {
         // 2. 逐段构建合成文本
         let baseAttributes: [NSAttributedString.Key: Any] = [.font: font]
         let badgeFont = UIFont.systemFont(ofSize: max(font.pointSize - 2, 10))
-        var paragraphs: [ReaderParagraph] = []
+        var paragraphs: [ChapterParagraph] = []
         paragraphs.reserveCapacity(ranges.count)
 
         for (index, range) in ranges.enumerated() {
@@ -150,17 +150,17 @@ enum ReaderDocumentBuilder {
                 var linkAttributes = baseAttributes
                 linkAttributes[.font] = badgeFont
                 linkAttributes[.foregroundColor] = badgeColor
-                linkAttributes[.link] = ReaderLinkTarget.legacyParagraph(index).url
+                linkAttributes[.link] = InlineLink.legacyParagraph(index).url
                 attributed.append(NSAttributedString(string: "  💬", attributes: linkAttributes))
             }
 
-            paragraphs.append(ReaderParagraph(
+            paragraphs.append(ChapterParagraph(
                 attributed: attributed,
                 chapterRange: range
             ))
         }
 
-        return ReaderChapterDocument(
+        return ChapterDocument(
             title: title,
             plainText: content,
             paragraphs: paragraphs,
@@ -174,7 +174,7 @@ enum ReaderDocumentBuilder {
         return NSAttributedString(string: title, attributes: [
             .font: font,
             .foregroundColor: color,
-            .link: ReaderLinkTarget.marker(marker.id).url
+            .link: InlineLink.marker(marker.id).url
         ])
     }
 }

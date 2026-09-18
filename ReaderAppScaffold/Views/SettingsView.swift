@@ -25,9 +25,9 @@ struct SettingsView: View {
 
                     sectionLabel("阅读设置")
                     settingGroup {
-                        navRow("字体与排版", icon: "textformat", destination: ReaderSettingsPage())
+                        navRow("字体与排版", icon: "textformat", destination: ReadingSettingsPage())
                         navRow("背景与主题", icon: "circle.lefthalf.filled", destination: AppearancePage())
-                        navRow("翻页方式", icon: "book.pages", destination: ReaderSettingsPage())
+                        navRow("翻页方式", icon: "book.pages", destination: ReadingSettingsPage())
                         navRow("阅读进度", icon: "chart.xyaxis.line", destination: AppearancePage())
                     }
 

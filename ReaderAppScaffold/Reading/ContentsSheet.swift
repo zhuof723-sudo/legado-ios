@@ -1,19 +1,17 @@
 import SwiftUI
-import LegadoRuleEngine
 
-/// 目录面板（Apple Books 式）：分段控件切换「目录 / 书签」，
-/// 顶部搜索过滤章节，书签点击直接跳回对应章 + 页。
-/// 通过闭包与任意阅读驱动解耦（在线书源 / 本地 TXT 共用）。
-struct TocSheet: View {
+/// 目录面板：分段控件切换「目录 / 书签」，顶部搜索过滤章节，
+/// 书签点击直接跳回对应章 + 页。通过闭包与任意内容源解耦。
+struct ContentsSheet: View {
     /// 章节行（调用方把自有章节模型映射进来）
-    struct TocEntry: Identifiable {
+    struct Entry: Identifiable {
         let index: Int
         let name: String
         var id: String { "\(index)-\(name)" }
     }
 
-    let bookUrl: String
-    let entries: [TocEntry]
+    let bookKey: String
+    let entries: [Entry]
     let currentIndex: Int
     /// 点章节（目录 tab）
     var onSelectChapter: (Int) -> Void
@@ -43,7 +41,7 @@ struct TocSheet: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
 
-                // Apple Books 式分段控件
+                // 分段控件
                 Picker("", selection: $tab) {
                     ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
                 }
@@ -88,7 +86,7 @@ struct TocSheet: View {
         .padding(.horizontal, 16)
     }
 
-    private var searchedEntries: [TocEntry] {
+    private var searchedEntries: [Entry] {
         guard !tocSearch.isEmpty else { return entries }
         return entries.filter { $0.name.localizedCaseInsensitiveContains(tocSearch) }
     }
@@ -118,7 +116,7 @@ struct TocSheet: View {
     // MARK: - 书签
 
     private var bookmarks: [BookBookmark] {
-        BookmarkStore.all(for: bookUrl)
+        BookmarkStore.all(for: bookKey)
     }
 
     private var bookmarkList: some View {

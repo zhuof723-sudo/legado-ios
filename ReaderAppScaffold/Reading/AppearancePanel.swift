@@ -1,29 +1,29 @@
 import SwiftUI
 import UIKit
 
-// MARK: - 行距预设（Apple Books Aa 面板三档）
+// MARK: - 行距预设
 
-enum ReaderLineSpacingPreset: Int, CaseIterable, Identifiable {
+enum LineSpacingPreset: Int, CaseIterable, Identifiable {
     case compact = 0
     case standard = 1
     case relaxed = 2
 
     var id: Int { rawValue }
     var name: String { ["紧凑", "标准", "宽松"][rawValue] }
-    /// 映射到 ReaderConfig.lineSpacing（pt）
+    /// 映射到 ReadingPreferences.lineSpacing（pt）
     var lineSpacing: Double { [6, 12, 20][rawValue] }
     /// 从当前行距值反查最近档位，用于面板选中态。
-    static func nearest(to value: Double) -> ReaderLineSpacingPreset {
+    static func nearest(to value: Double) -> LineSpacingPreset {
         allCases.min { abs($0.lineSpacing - value) < abs($1.lineSpacing - value) } ?? .standard
     }
 }
 
-// MARK: - Aa 排版面板
+// MARK: - 排版面板
 
-/// Apple Books 式 Aa 面板：字体（衬线/无衬线）、字号、行距、主题、亮度、
-/// 翻页动画与常用开关，全部集中在一张紧凑面板里。
-struct ReaderAaPanel: View {
-    @ObservedObject private var config = ReaderConfig.shared
+/// 排版面板：字体（衬线/无衬线）、字号、行距、主题、亮度、
+/// 翻页方式与常用开关，全部集中在一张紧凑面板里。
+struct AppearancePanel: View {
+    @ObservedObject private var prefs = ReadingPreferences.shared
     @AppStorage("reader.autoRead") private var autoRead = false
     @Environment(\.dismiss) private var dismiss
 
@@ -62,11 +62,11 @@ struct ReaderAaPanel: View {
                     HStack {
                         Text("字号").font(.subheadline.bold())
                         Spacer()
-                        Text("\(Int(config.fontSize))").font(.caption.bold()).foregroundStyle(Theme.accent)
+                        Text("\(Int(prefs.fontSize))").font(.caption.bold()).foregroundStyle(Theme.accent)
                     }
                     HStack(spacing: 14) {
                         Text("A").font(.system(size: 13, weight: .medium))
-                        Slider(value: $config.fontSize, in: 12...32, step: 1).tint(Theme.accent)
+                        Slider(value: $prefs.fontSize, in: 12...32, step: 1).tint(Theme.accent)
                         Text("A").font(.system(size: 24, weight: .medium))
                     }
                 }
@@ -75,7 +75,7 @@ struct ReaderAaPanel: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("行距").font(.subheadline.bold())
                     HStack(spacing: 10) {
-                        ForEach(ReaderLineSpacingPreset.allCases) { preset in
+                        ForEach(LineSpacingPreset.allCases) { preset in
                             presetOption(preset)
                         }
                     }
@@ -86,7 +86,7 @@ struct ReaderAaPanel: View {
                     Text("主题").font(.subheadline.bold())
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 14) {
-                            ForEach(ReaderTheme.themes) { theme in
+                            ForEach(ReadingTheme.themes) { theme in
                                 themeOption(theme)
                             }
                             Spacer()
@@ -104,14 +104,12 @@ struct ReaderAaPanel: View {
                     }
                 }
 
-                // MARK: - 翻页动画
+                // MARK: - 翻页方式
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("翻页动画").font(.subheadline.bold())
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 10) {
-                            ForEach(PageTurnStyle.allCases) { anim in
-                                animOption(anim)
-                            }
+                    Text("翻页方式").font(.subheadline.bold())
+                    HStack(spacing: 10) {
+                        ForEach(TurnMode.allCases) { mode in
+                            turnModeOption(mode)
                         }
                     }
                 }
@@ -119,8 +117,8 @@ struct ReaderAaPanel: View {
                 // MARK: - 更多
                 VStack(alignment: .leading, spacing: 8) {
                     Text("更多").font(.subheadline.bold())
-                    toggleRow("加粗字体", icon: "bold", isOn: $config.bold)
-                    toggleRow("夜间模式", icon: "moon", isOn: $config.nightMode)
+                    toggleRow("加粗字体", icon: "bold", isOn: $prefs.bold)
+                    toggleRow("夜间模式", icon: "moon", isOn: $prefs.nightMode)
                     toggleRow("自动阅读", icon: "play.circle", isOn: $autoRead)
                 }
             }
@@ -132,10 +130,10 @@ struct ReaderAaPanel: View {
 
     // MARK: - 组件
 
-    private func fontOption(_ family: ReaderConfig.ReaderFontFamily) -> some View {
-        let isActive = config.currentFontFamily == family
+    private func fontOption(_ family: ReadingFontFamily) -> some View {
+        let isActive = prefs.currentFontFamily == family
         return Button {
-            config.fontFamily = family.rawValue
+            prefs.fontFamily = family.rawValue
         } label: {
             VStack(spacing: 4) {
                 Text("Aa")
@@ -151,10 +149,10 @@ struct ReaderAaPanel: View {
         .buttonStyle(.plain)
     }
 
-    private func presetOption(_ preset: ReaderLineSpacingPreset) -> some View {
-        let isActive = ReaderLineSpacingPreset.nearest(to: config.lineSpacing) == preset
+    private func presetOption(_ preset: LineSpacingPreset) -> some View {
+        let isActive = LineSpacingPreset.nearest(to: prefs.lineSpacing) == preset
         return Button {
-            config.lineSpacing = preset.lineSpacing
+            prefs.lineSpacing = preset.lineSpacing
         } label: {
             Text(preset.name)
                 .font(.caption)
@@ -166,11 +164,11 @@ struct ReaderAaPanel: View {
         .buttonStyle(.plain)
     }
 
-    private func themeOption(_ theme: ReaderTheme) -> some View {
-        let isActive = config.themeId == theme.id && !config.nightMode
+    private func themeOption(_ theme: ReadingTheme) -> some View {
+        let isActive = prefs.themeId == theme.id && !prefs.nightMode
         return Button {
-            config.nightMode = false
-            config.themeId = theme.id
+            prefs.nightMode = false
+            prefs.themeId = theme.id
         } label: {
             ZStack {
                 Circle()
@@ -190,19 +188,20 @@ struct ReaderAaPanel: View {
         .buttonStyle(.plain)
     }
 
-    private func animOption(_ anim: PageTurnStyle) -> some View {
-        let isActive = config.turnStyle == anim.rawValue
-        return Button { config.turnStyle = anim.rawValue } label: {
+    private func turnModeOption(_ mode: TurnMode) -> some View {
+        let isActive = prefs.turnMode == mode.rawValue
+        return Button { prefs.turnMode = mode.rawValue } label: {
             VStack(spacing: 4) {
-                Image(systemName: anim.icon)
+                Image(systemName: mode.icon)
                     .font(.system(size: 16, weight: .medium))
-                Text(anim.name)
+                Text(mode.name)
                     .font(.caption2)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
             .foregroundStyle(isActive ? Theme.accent : .primary.opacity(0.6))
-            .frame(width: 64, height: 50)
+            .frame(maxWidth: .infinity)
+            .frame(height: 50)
             .glassCard(RoundedRectangle(cornerRadius: 10), interactive: true)
         }
         .buttonStyle(.plain)

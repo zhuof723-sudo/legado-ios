@@ -168,14 +168,14 @@ struct PDFPageControllerView: UIViewControllerRepresentable {
 // MARK: - PDF 阅读器（SwiftUI 外壳）
 
 /// PDF 阅读器：PDFKit 按页渲染 + UIPageViewController 卷页，
-/// 控制层复用 Apple Books 式 ReaderChrome（顶栏/底栏/进度线/书签/TTS）。
+/// 控制层复用阅读器控制层（顶栏/底栏/进度线/书签/TTS）。
 struct PDFReaderView: View {
     @Environment(\.dismiss) private var dismiss
     let book: PDFBook
 
     @StateObject private var viewModel: PDFReaderViewModel
-    @ObservedObject private var config = ReaderConfig.shared
-    @StateObject private var speech = ReaderSpeechController()
+    @ObservedObject private var prefs = ReadingPreferences.shared
+    @StateObject private var speech = SpeechController()
 
     @State private var showControls = false
     @State private var showSettings = false
@@ -189,8 +189,8 @@ struct PDFReaderView: View {
     }
 
     private var bookUrl: String { "pdf://\(book.id)" }
-    private var textColor: Color { config.currentTheme.textColor }
-    private var backgroundColor: UIColor { UIColor(config.currentTheme.background) }
+    private var textColor: Color { prefs.currentTheme.textColor }
+    private var backgroundColor: UIColor { UIColor(prefs.currentTheme.background) }
 
     private var progress: Double {
         guard viewModel.pageCount > 1 else { return 0 }
@@ -199,7 +199,7 @@ struct PDFReaderView: View {
 
     var body: some View {
         ZStack {
-            config.currentTheme.background.ignoresSafeArea()
+            prefs.currentTheme.background.ignoresSafeArea()
 
             if let error = viewModel.errorMessage {
                 VStack(spacing: 14) {
@@ -225,20 +225,20 @@ struct PDFReaderView: View {
                 .zIndex(20)
         }
         .overlay(alignment: .bottom) {
-            ReaderProgressHairline(progress: progress, accent: config.currentAccent)
+            ProgressHairline(progress: progress, accent: prefs.currentAccent)
         }
         .statusBarHidden(!showControls)
-        .preferredColorScheme(config.nightMode ? .dark : .light)
+        .preferredColorScheme(prefs.nightMode ? .dark : .light)
         .toolbar(.hidden, for: .tabBar)
         .onDisappear { speech.stop() }
         .sheet(isPresented: $showSettings) {
-            ReaderAaPanel().presentationDetents([.medium, .large])
+            AppearancePanel().presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showToc) {
-            TocSheet(
-                bookUrl: bookUrl,
+            ContentsSheet(
+                bookKey: bookUrl,
                 entries: (0..<max(viewModel.pageCount, 1)).map {
-                    TocSheet.TocEntry(index: $0, name: "第 \($0 + 1) 页")
+                    ContentsSheet.Entry(index: $0, name: "第 \($0 + 1) 页")
                 },
                 currentIndex: pageIndex,
                 onSelectChapter: { index in
@@ -267,7 +267,7 @@ struct PDFReaderView: View {
     // MARK: - 点击分区（复用 Apple Books 热区）
 
     private func handlePageTap(x: CGFloat, width: CGFloat) {
-        switch ReaderTapZones.classify(x: x, width: width) {
+        switch TapZones.classify(x: x, width: width) {
         case .previousPage:
             goPrevPage()
         case .nextPage:
@@ -328,7 +328,7 @@ struct PDFReaderView: View {
         VStack(spacing: 0) {
             if showControls {
                 LiquidGlassContainer(spacing: 12) {
-                    ReaderTopBar(
+                    ReadingTopBar(
                         title: book.name,
                         accent: textColor,
                         isBookmarked: isCurrentPageBookmarked,
@@ -347,15 +347,15 @@ struct PDFReaderView: View {
             Spacer(minLength: 0)
             if showControls {
                 LiquidGlassContainer(spacing: 14) {
-                    ReaderBottomBar(
+                    ReadingBottomBar(
                         pageText: "第 \(pageIndex + 1) 页 / 共 \(max(viewModel.pageCount, 1)) 页",
                         accent: textColor,
                         isSpeaking: speech.isSpeaking,
-                        onToc: { showToc = true },
+                        onContents: { showToc = true },
                         onTts: {
                             speech.toggle(viewModel.currentPageText ?? "")
                         },
-                        onAa: { showSettings = true }
+                        onAppearance: { showSettings = true }
                     )
                 }
                 .transition(.asymmetric(

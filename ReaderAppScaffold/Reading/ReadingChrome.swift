@@ -1,17 +1,16 @@
 import SwiftUI
 
-// MARK: - 阅读页点击分区（Apple Books 式）
+// MARK: - 点击分区
 
-enum ReaderTapAction {
+enum TapZoneAction {
     case previousPage
     case nextPage
     case toggleControls
 }
 
-/// 左右翻页热区 + 中间唤出控制层。Apple Books 的翻页热区相当慷慨：
-/// 左右各 24%（至少 72pt），中间才轮到控制层。
-enum ReaderTapZones {
-    static func classify(x: CGFloat, width: CGFloat) -> ReaderTapAction {
+/// 左右翻页热区 + 中间唤出控制层。左右各 24%（至少 72pt）。
+enum TapZones {
+    static func classify(x: CGFloat, width: CGFloat) -> TapZoneAction {
         let edge = max(72, width * 0.24)
         if x <= edge { return .previousPage }
         if x >= width - edge { return .nextPage }
@@ -19,10 +18,10 @@ enum ReaderTapZones {
     }
 }
 
-// MARK: - 圆形玻璃工具按钮
+// MARK: - 圆形玻璃按钮
 
 /// 控制层里的圆形玻璃按钮。`tint` 非空时用它着色（如书签已点亮 / TTS 播放中）。
-struct ReaderBarButton: View {
+struct ChromeButton: View {
     let icon: String
     var tint: Color? = nil
     var accent: Color
@@ -42,8 +41,8 @@ struct ReaderBarButton: View {
 
 // MARK: - 顶部控制条（返回 · 书名 · 搜索 / 书签）
 
-/// Apple Books 式顶栏：左返回，中间书名（点按直接开目录），右侧搜索与书签。
-struct ReaderTopBar: View {
+/// 顶栏：左返回，中间书名（点按直接开目录），右侧搜索与书签。
+struct ReadingTopBar: View {
     let title: String
     let accent: Color
     let isBookmarked: Bool
@@ -56,7 +55,7 @@ struct ReaderTopBar: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            ReaderBarButton(icon: "chevron.left", accent: accent, action: onBack)
+            ChromeButton(icon: "chevron.left", accent: accent, action: onBack)
             Button(action: onTitle) {
                 Text(title)
                     .font(.subheadline.weight(.semibold))
@@ -67,9 +66,9 @@ struct ReaderTopBar: View {
             .buttonStyle(.plain)
             Spacer(minLength: 6)
             if showSearch {
-                ReaderBarButton(icon: "magnifyingglass", accent: accent, action: onSearch)
+                ChromeButton(icon: "magnifyingglass", accent: accent, action: onSearch)
             }
-            ReaderBarButton(
+            ChromeButton(
                 icon: isBookmarked ? "bookmark.fill" : "bookmark",
                 tint: isBookmarked ? Theme.accent : nil,
                 accent: accent,
@@ -83,33 +82,33 @@ struct ReaderTopBar: View {
     }
 }
 
-// MARK: - 底部控制条（目录 · 页码 · TTS / Aa）
+// MARK: - 底部控制条（目录 · 页码 · 朗读 / 排版）
 
-/// Apple Books 式底栏：左侧目录，中间页码，右侧朗读与 Aa 排版。
-struct ReaderBottomBar: View {
+/// 底栏：左侧目录，中间页码，右侧朗读与排版。
+struct ReadingBottomBar: View {
     let pageText: String
     let accent: Color
     var isSpeaking = false
-    var onToc: () -> Void
+    var onContents: () -> Void
     var onTts: () -> Void
-    var onAa: () -> Void
+    var onAppearance: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
-            ReaderBarButton(icon: "list.bullet", accent: accent, action: onToc)
+            ChromeButton(icon: "list.bullet", accent: accent, action: onContents)
             Spacer(minLength: 6)
             Text(pageText)
                 .font(.footnote.weight(.medium))
                 .foregroundStyle(accent)
                 .lineLimit(1)
             Spacer(minLength: 6)
-            ReaderBarButton(
+            ChromeButton(
                 icon: isSpeaking ? "headphones.circle.fill" : "headphones",
                 tint: isSpeaking ? Theme.accent : nil,
                 accent: accent,
                 action: onTts
             )
-            ReaderBarButton(icon: "textformat.size", accent: accent, action: onAa)
+            ChromeButton(icon: "textformat.size", accent: accent, action: onAppearance)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
@@ -120,9 +119,9 @@ struct ReaderBottomBar: View {
 
 // MARK: - 全书进度细线
 
-/// 贴底的一条细进度线（Apple Books 式）：始终可见、不挡内容、不拦截触摸。
-/// progress 为全书进度 0...1，由调用方按“章序号 + 页内占比”折算。
-struct ReaderProgressHairline: View {
+/// 贴底的一条细进度线：始终可见、不挡内容、不拦截触摸。
+/// progress 为全书进度 0...1，由调用方按"章序号 + 页内占比"折算。
+struct ProgressHairline: View {
     let progress: Double
     var accent: Color = Theme.accent
 

@@ -3,30 +3,30 @@ import CoreText
 
 // MARK: - 单页渲染（CoreText 直绘）
 
-/// 一张书页。行数据全部来自分页引擎的 PlacedLine（测量与绘制同源，
+/// 一张书页。行数据全部来自分页引擎的 LayoutLine（测量与绘制同源，
 /// 从根上消除“量页”和“上屏”排版不一致），本视图只做三件事：
 /// 1. draw(_:) 里逐 run 绘制（正文 run 无颜色属性 → 用当前主题色；
 ///    段评角标 run 烘焙了中性灰 → 直接生效，主题切换无需重排）
 /// 2. 点击分发：先链接命中检测（段评入口），再走点击分区
 /// 3. 主题切换热刷新：setNeedsDisplay 只重绘不重排
-final class BookPageContentView: UIView, UIGestureRecognizerDelegate {
-    private let page: ReaderPage
-    private let config: ReaderConfig
+final class PageCanvasView: UIView, UIGestureRecognizerDelegate {
+    private let page: BookPage
+    private let prefs: ReadingPreferences
     /// 文字区相对视图的偏移（阅读边距）。
     private let contentOffset: CGPoint
     private let contentSize: CGSize
 
-    var onZoneTap: ((ReaderTapAction) -> Void)?
-    var onLinkTap: ((ReaderLinkTarget) -> Void)?
+    var onZoneTap: ((TapZoneAction) -> Void)?
+    var onLinkTap: ((InlineLink) -> Void)?
 
-    init(page: ReaderPage, config: ReaderConfig, contentOffset: CGPoint, contentSize: CGSize) {
+    init(page: BookPage, prefs: ReadingPreferences, contentOffset: CGPoint, contentSize: CGSize) {
         self.page = page
-        self.config = config
+        self.prefs = prefs
         self.contentOffset = contentOffset
         self.contentSize = contentSize
         super.init(frame: .zero)
 
-        backgroundColor = UIColor(config.currentTheme.background)
+        backgroundColor = UIColor(prefs.currentTheme.background)
         isOpaque = true
         contentMode = .redraw
 
@@ -43,7 +43,7 @@ final class BookPageContentView: UIView, UIGestureRecognizerDelegate {
         guard let context = UIGraphicsGetCurrentContext() else { return }
         context.textMatrix = .identity
 
-        let bodyColor = UIColor(config.currentTheme.textColor).cgColor
+        let bodyColor = UIColor(prefs.currentTheme.textColor).cgColor
         let badgeColor = UIColor.systemGray.cgColor
 
         for placed in page.lines {
@@ -73,7 +73,7 @@ final class BookPageContentView: UIView, UIGestureRecognizerDelegate {
 
     /// 主题/夜间切换：背景 + 文字颜色重绘，不触碰分页产物。
     func refreshAppearance() {
-        backgroundColor = UIColor(config.currentTheme.background)
+        backgroundColor = UIColor(prefs.currentTheme.background)
         setNeedsDisplay()
     }
 
@@ -86,12 +86,12 @@ final class BookPageContentView: UIView, UIGestureRecognizerDelegate {
             onLinkTap?(target)
             return
         }
-        onZoneTap?(ReaderTapZones.classify(x: point.x, width: bounds.width))
+        onZoneTap?(TapZones.classify(x: point.x, width: bounds.width))
     }
 
     /// 命中检测：先按行槽找行，再用 CTLineGetStringIndexForPosition 反查字符，
     /// 最后查合成文本的 .link 属性。
-    private func linkTarget(at point: CGPoint) -> ReaderLinkTarget? {
+    private func linkTarget(at point: CGPoint) -> InlineLink? {
         let local = CGPoint(x: point.x - contentOffset.x, y: point.y - contentOffset.y)
         guard local.x >= 0, local.x <= contentSize.width,
               local.y >= 0, local.y <= contentSize.height else { return nil }
@@ -108,7 +108,7 @@ final class BookPageContentView: UIView, UIGestureRecognizerDelegate {
                     at: index,
                     effectiveRange: nil
                   ) as? URL else { return nil }
-            return ReaderLinkTarget.from(url: url)
+            return InlineLink.from(url: url)
         }
         return nil
     }

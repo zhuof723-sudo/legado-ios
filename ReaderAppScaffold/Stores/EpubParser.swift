@@ -5,7 +5,7 @@ import Fuzi
 
 /// EPUB 读取管线：MiniZIP 解包 → container.xml 定位 OPF → 解析
 /// manifest/spine → 逐章 XHTML 抽取正文 → 产出与 TXT 相同的 [LocalChapter]，
-/// 与 TXT 一样产出 [LocalChapter]，统一进入阅读引擎（BookReaderScreen）。
+/// 与 TXT 一样产出 [LocalChapter]，统一进入阅读引擎（ReadingScreen）。
 enum EpubParser {
 
     struct Book {

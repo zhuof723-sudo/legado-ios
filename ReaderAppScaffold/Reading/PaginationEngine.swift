@@ -5,13 +5,13 @@ import CoreText
 
 /// 排版参数快照：决定一次分页结果的全部输入。
 /// 任何一项变化都必须产生不同的分页缓存键（由 `signature` 保证）。
-struct ReaderTypography {
+struct LayoutParams {
     let font: UIFont
     /// 单行槽高 = 字体行高 + 行距。行距按“槽内均匀上下分布”落位，见 baseline。
     let lineSlotHeight: CGFloat
     /// 段间距（仅在页面中部生效；页顶不落段距，避免页首悬挂空隙）。
     let paragraphGap: CGFloat
-    /// 首行缩进（pt）。中文书籍惯例 = 2 个字符宽，由 ReaderConfig 换算。
+    /// 首行缩进（pt）。中文书籍惯例 = 2 个字符宽，由 ReadingPreferences 换算。
     let firstLineIndent: CGFloat
     /// 文字区尺寸（屏幕尺寸减去阅读边距）。
     let pageSize: CGSize
@@ -24,7 +24,7 @@ struct ReaderTypography {
         self.pageSize = pageSize
     }
 
-    /// ReaderConfig 以 Double 存偏好设置，这里做一次收敛转换。
+    /// ReadingPreferences 以 Double 存偏好设置，这里做一次收敛转换。
     init(font: UIFont, lineSpacing: Double, paragraphGap: Double, firstLineIndent: CGFloat, pageSize: CGSize) {
         self.init(
             font: font,
@@ -51,7 +51,7 @@ struct ReaderTypography {
 
 /// 一行已经定好位的文字。`line` 由 CTTypesetter 产出（非段末行已两端对齐），
 /// 行内 run 的字符区间相对于所在段落的合成文本。
-struct PlacedLine {
+struct LayoutLine {
     let line: CTLine
     /// 所属段落的合成文本（行内 run 查询颜色/链接用）。
     let paragraphAttributed: NSAttributedString
@@ -70,8 +70,8 @@ struct PlacedLine {
 
 /// 排版完成的一页。页码、页内文字范围都来自分页结果本身；
 /// 渲染端只做纯绘制，不参与任何测量——量页与上屏天然同源。
-struct ReaderPage: Equatable {
-    let lines: [PlacedLine]
+struct BookPage: Equatable {
+    let lines: [LayoutLine]
     /// 本页覆盖的整章纯文本 UTF-16 范围（进度恢复用）。
     let chapterRange: NSRange
     /// 本页纯文本（TTS 用，已剔除段评占位符与角标）。
@@ -79,7 +79,7 @@ struct ReaderPage: Equatable {
     /// 分页批次标识（分页缓存键），用于低成本相等比较。
     let buildKey: String
 
-    static func == (lhs: ReaderPage, rhs: ReaderPage) -> Bool {
+    static func == (lhs: BookPage, rhs: BookPage) -> Bool {
         lhs.buildKey == rhs.buildKey
             && lhs.chapterRange.location == rhs.chapterRange.location
             && lhs.lines.count == rhs.lines.count
@@ -96,22 +96,22 @@ struct ReaderPage: Equatable {
 /// 两端对齐：非段末行经 CTLineCreateJustifiedLine 拉满整行宽度；
 /// 段末行保持自然长度左对齐（书籍惯例）。
 /// 首行缩进：每段第一行 x 起点 = firstLineIndent，对齐宽度同步收进。
-enum ReaderPaginator {
+enum PaginationEngine {
 
     /// 把章节文档切成一页一页。纯函数，可在后台线程执行。
     static func paginate(
-        document: ReaderChapterDocument,
-        typography: ReaderTypography,
+        document: ChapterDocument,
+        layout: LayoutParams,
         buildKey: String
-    ) -> [ReaderPage] {
-        let width = typography.pageSize.width
-        let pageHeight = typography.pageSize.height
+    ) -> [BookPage] {
+        let width = layout.pageSize.width
+        let pageHeight = layout.pageSize.height
         guard width > 8, pageHeight > 8,
               document.paragraphs.contains(where: { !$0.isBlank }) else { return [] }
 
         let chapterLength = (document.plainText as NSString).length
-        var pages: [ReaderPage] = []
-        var lines: [PlacedLine] = []
+        var pages: [BookPage] = []
+        var lines: [LayoutLine] = []
         var y: CGFloat = 0
 
         func flushPage() {
@@ -129,7 +129,7 @@ enum ReaderPaginator {
             } else {
                 pageText = ""
             }
-            pages.append(ReaderPage(
+            pages.append(BookPage(
                 lines: lines,
                 chapterRange: NSRange(location: min(location, clampedEnd), length: max(clampedEnd - location, 0)),
                 plainText: pageText,
@@ -144,13 +144,13 @@ enum ReaderPaginator {
 
             // 段距：只落在页面中部；页顶不落（新页从段落首行直接开始）。
             if paragraphIndex > 0, !lines.isEmpty {
-                y += typography.paragraphGap
+                y += layout.paragraphGap
             }
 
             if paragraph.isBlank {
                 // 空段落 = 一个空行槽。页顶不留空行。
                 if !lines.isEmpty {
-                    y += typography.lineSlotHeight
+                    y += layout.lineSlotHeight
                 }
                 continue
             }
@@ -163,7 +163,7 @@ enum ReaderPaginator {
             var isFirstLine = true
             while start < total {
                 if Task.isCancelled { return [] }
-                let availableWidth = max(width - (isFirstLine ? typography.firstLineIndent : 0), 10)
+                let availableWidth = max(width - (isFirstLine ? layout.firstLineIndent : 0), 10)
                 var count = CTTypesetterSuggestLineBreak(typesetter, start, Double(availableWidth))
                 if count <= 0 {
                     // 极端情况（比如宽度极小）：至少推进一个字符，杜绝死循环。
@@ -178,25 +178,25 @@ enum ReaderPaginator {
                 }
 
                 // 页满换页：整行不放进当前页，新开一页。
-                if !lines.isEmpty, y + typography.lineSlotHeight > pageHeight + 0.5 {
+                if !lines.isEmpty, y + layout.lineSlotHeight > pageHeight + 0.5 {
                     flushPage()
                 }
 
                 // 槽内基线：字体行高在槽内垂直居中，行距上下均分。
                 let baseline = y
-                    + (typography.lineSlotHeight - typography.font.lineHeight) / 2
-                    + typography.font.ascender
+                    + (layout.lineSlotHeight - layout.font.lineHeight) / 2
+                    + layout.font.ascender
 
-                lines.append(PlacedLine(
+                lines.append(LayoutLine(
                     line: line,
                     paragraphAttributed: attributed,
                     paragraphIndex: paragraphIndex,
-                    x: isFirstLine ? typography.firstLineIndent : 0,
+                    x: isFirstLine ? layout.firstLineIndent : 0,
                     slotTop: y,
                     baselineY: baseline,
-                    slotHeight: typography.lineSlotHeight
+                    slotHeight: layout.lineSlotHeight
                 ))
-                y += typography.lineSlotHeight
+                y += layout.lineSlotHeight
                 start += count
                 isFirstLine = false
             }
@@ -220,17 +220,17 @@ enum ReaderPaginator {
 
 /// 分页产物缓存：同一份内容 + 排版参数命中即返回，Aa 面板拖动滑杆
 /// 反复横跳时零重排。LRU 上限 8 章，足够覆盖前后章缓存。
-final class ReaderPageCache {
-    static let shared = ReaderPageCache()
+final class PageCache {
+    static let shared = PageCache()
 
     private let capacity = 8
-    private var storage: [String: [ReaderPage]] = [:]
+    private var storage: [String: [BookPage]] = [:]
     private var order: [String] = []
     private let lock = NSLock()
 
     private init() {}
 
-    func pages(for key: String) -> [ReaderPage]? {
+    func pages(for key: String) -> [BookPage]? {
         lock.lock()
         defer { lock.unlock() }
         guard let pages = storage[key] else { return nil }
@@ -242,7 +242,7 @@ final class ReaderPageCache {
         return pages
     }
 
-    func store(_ pages: [ReaderPage], for key: String) {
+    func store(_ pages: [BookPage], for key: String) {
         lock.lock()
         defer { lock.unlock() }
         storage[key] = pages
