@@ -42,14 +42,20 @@ enum FilePicker {
         completion: @escaping (Result<[URL], Error>) -> Void
     ) {
         guard let host = topViewController() else {
+            LogStore.shared.log("文件选择器：找不到呈现目标", tag: "导入", level: .error)
             completion(.failure(PickerError.noPresenter))
             return
         }
         // 已经有选择器在呈现时不要再叠一个（否则同样会静默失败）
         if host.presentedViewController is UIDocumentPickerViewController {
+            LogStore.shared.log("文件选择器：已有选择器在呈现", tag: "导入", level: .warn)
             completion(.failure(PickerError.alreadyPresenting))
             return
         }
+        LogStore.shared.log(
+            "文件选择器：正在呈现（types=\(contentTypes.map(\.identifier).joined(separator: ","))）",
+            tag: "导入", level: .info
+        )
 
         let delegate = PickerDelegate { result in
             retainedDelegate = nil
@@ -103,10 +109,12 @@ enum FilePicker {
             _ controller: UIDocumentPickerViewController,
             didPickDocumentsAt urls: [URL]
         ) {
+            LogStore.shared.log("文件选择器：已选 \(urls.count) 个文件", tag: "导入", level: .info)
             completion(.success(urls))
         }
 
         func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            LogStore.shared.log("文件选择器：用户取消", tag: "导入", level: .info)
             completion(.failure(PickerError.cancelled))
         }
     }

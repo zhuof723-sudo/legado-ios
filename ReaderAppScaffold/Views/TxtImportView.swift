@@ -36,6 +36,10 @@ struct TxtImportView: View {
                 .foregroundStyle(.white)
                 .disabled(isPicking)
 
+                if isPicking {
+                    Text("正在打开文件选择器…").font(.footnote).foregroundStyle(Theme.accent)
+                }
+
                 if let message {
                     Text(message)
                         .font(.footnote)
