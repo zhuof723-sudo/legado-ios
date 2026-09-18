@@ -24,6 +24,13 @@ struct ShelfView: View {
         var id: String { rawValue }
     }
     @State private var activeSheet: ShelfSheet?
+
+    /// 从 Menu 的按钮动作里**同步**设置呈现状态时，菜单自身还在关闭过程中，
+    /// SwiftUI 会静默丢弃这次呈现（表现为点了完全没反应）。
+    /// 延后到下一个主线程周期再赋值，等菜单收起完成，呈现就能正常工作。
+    private func present(_ sheet: ShelfSheet) {
+        DispatchQueue.main.async { activeSheet = sheet }
+    }
     @State private var sortByRecent = true
 
     private var recentBook: ShelfBook? {
@@ -104,8 +111,8 @@ struct ShelfView: View {
                 .font(.system(size: 32, weight: .bold))
             Spacer()
             Menu {
-                Button { activeSheet = .importSource } label: { Label("导入书源", systemImage: "square.and.arrow.down") }
-                Button { activeSheet = .importTxt } label: { Label("导入 TXT", systemImage: "doc.text") }
+                Button { present(.importSource) } label: { Label("导入书源", systemImage: "square.and.arrow.down") }
+                Button { present(.importTxt) } label: { Label("导入 TXT", systemImage: "doc.text") }
             } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 18, weight: .medium))
@@ -114,7 +121,7 @@ struct ShelfView: View {
                     .glassCircle()
             }
             Menu {
-                Button { activeSheet = .sourceList } label: { Label("书源管理", systemImage: "tray.full") }
+                Button { present(.sourceList) } label: { Label("书源管理", systemImage: "tray.full") }
                 Button(sortByRecent ? "按加入时间排序" : "按最近阅读排序") { sortByRecent.toggle() }
             } label: {
                 Image(systemName: "ellipsis")
@@ -210,14 +217,14 @@ struct ShelfView: View {
             Text("书架为空").font(.title3.bold())
             Text("从发现页找书，或先导入一个书源").font(.footnote).foregroundStyle(Theme.textSecondary)
             HStack(spacing: 12) {
-                Button { activeSheet = .importSource } label: {
+                Button { present(.importSource) } label: {
                     Label("导入书源", systemImage: "square.and.arrow.down")
                         .font(.subheadline.bold())
                         .padding(.horizontal, 16).padding(.vertical, 10)
                 }
                 .prominentGlassButton()
                 .tint(Theme.accent)
-                Button { activeSheet = .importTxt } label: {
+                Button { present(.importTxt) } label: {
                     Label("导入 TXT", systemImage: "doc.text")
                         .font(.subheadline.bold())
                         .padding(.horizontal, 16).padding(.vertical, 10)

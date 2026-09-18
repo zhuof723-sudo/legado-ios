@@ -25,6 +25,14 @@ struct BookSourceListView: View {
         var id: String { rawValue }
     }
     @State private var activeSheet: SourceSheet?
+
+    /// 同 ShelfView：Menu 动作里同步触发呈现会被 SwiftUI 丢弃，延后一拍。
+    private func present(_ sheet: SourceSheet) {
+        DispatchQueue.main.async { activeSheet = sheet }
+    }
+    private func presentBatchTest() {
+        DispatchQueue.main.async { showBatchTest = true }
+    }
     @State private var testingSource: BookSourceRecord?
     @State private var editingSource: BookSourceRecord?
     @State private var loginSource: BookSourceRecord?
@@ -69,12 +77,12 @@ struct BookSourceListView: View {
                         .foregroundStyle(Theme.accent)
                     } else {
                         Menu {
-                            Button { activeSheet = .importSource } label: { Label("粘贴 JSON 导入", systemImage: "doc.on.clipboard") }
-                            Button { activeSheet = .importUrl } label: { Label("从网络地址导入", systemImage: "link") }
+                            Button { present(.importSource) } label: { Label("粘贴 JSON 导入", systemImage: "doc.on.clipboard") }
+                            Button { present(.importUrl) } label: { Label("从网络地址导入", systemImage: "link") }
                             if !sources.isEmpty {
                                 Divider()
                                 Button { editing = true } label: { Label("编辑书源", systemImage: "checklist") }
-                                Button { showBatchTest = true } label: { Label("批量测试", systemImage: "play.circle") }
+                                Button { presentBatchTest() } label: { Label("批量测试", systemImage: "play.circle") }
                                 Button { exportAll() } label: { Label("导出全部", systemImage: "square.and.arrow.up") }
                             }
                         } label: {
@@ -268,7 +276,7 @@ struct BookSourceListView: View {
                 Text(searchText.isEmpty && groupFilter == nil ? "还没有书源" : "没有匹配的书源")
                     .font(.subheadline).foregroundStyle(.secondary)
                 if searchText.isEmpty && groupFilter == nil {
-                    Button { activeSheet = .importSource } label: {
+                    Button { present(.importSource) } label: {
                         Label("导入书源 JSON", systemImage: "square.and.arrow.down")
                             .prominentGlassButton().tint(Theme.accent)
                     }
@@ -295,12 +303,12 @@ struct BookSourceListView: View {
                         Button("编辑") { editing = true }
                     }
                     Menu {
-                        Button { activeSheet = .importSource } label: { Label("粘贴 JSON 导入", systemImage: "doc.on.clipboard") }
-                        Button { activeSheet = .importUrl } label: { Label("从网络地址导入", systemImage: "link") }
+                        Button { present(.importSource) } label: { Label("粘贴 JSON 导入", systemImage: "doc.on.clipboard") }
+                        Button { present(.importUrl) } label: { Label("从网络地址导入", systemImage: "link") }
                         Divider()
                         Button { exportAll() } label: { Label("导出全部书源", systemImage: "square.and.arrow.up") }
                         Divider()
-                        Button { showBatchTest = true } label: { Label("批量测试", systemImage: "play.circle") }
+                        Button { presentBatchTest() } label: { Label("批量测试", systemImage: "play.circle") }
                     } label: {
                         Image(systemName: "plus")
                     }
