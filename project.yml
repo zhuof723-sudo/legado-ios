@@ -38,6 +38,22 @@ targets:
           NSAllowsArbitraryLoads: true
         ITSAppUsesNonExemptEncryption: false
         LSRequiresIPhoneOS: true
+        # 声明可接收的文档类型：便于「用其他 App 打开 / 分享到 Legado」直接导入
+        # （文件选择器本身靠 UTType 过滤，不依赖这里，但外部打开入口需要它）。
+        LSSupportsOpeningDocumentsInPlace: true
+        UISupportsDocumentBrowser: false
+        UIFileSharingEnabled: true
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Legado Book Source
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.json
+            CFBundleTypeRole: Viewer
+          - CFBundleTypeName: Plain Text
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.plain-text
+            CFBundleTypeRole: Viewer
     settings:
       base:
         # Bundle ID 不写死：默认由上面的 bundleIdPrefix(com.example) + target 名派生，
