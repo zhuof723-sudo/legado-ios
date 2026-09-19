@@ -70,15 +70,20 @@ enum ReadingTextNormalizer {
 
     private static func normalizeLineWhitespace(_ line: Substring) -> String {
         let invisible = CharacterSet(charactersIn: "\u{200B}\u{2060}\u{FEFF}")
-        let scalars = line.unicodeScalars.filter { !invisible.contains($0) }
+        var scalars: [Unicode.Scalar] = []
+        scalars.reserveCapacity(line.unicodeScalars.count)
+        for scalar in line.unicodeScalars where !invisible.contains(scalar) {
+            scalars.append(scalar)
+        }
+
         var result = ""
-        var previous: UnicodeScalar?
+        var previous: Unicode.Scalar?
         var index = 0
 
         while index < scalars.count {
             let scalar = scalars[index]
             guard CharacterSet.whitespaces.contains(scalar) else {
-                result.append(contentsOf: String(scalar))
+                result.append(String(scalar))
                 previous = scalar
                 index += 1
                 continue
@@ -88,8 +93,8 @@ enum ReadingTextNormalizer {
             while nextIndex < scalars.count, CharacterSet.whitespaces.contains(scalars[nextIndex]) {
                 nextIndex += 1
             }
-            let next = nextIndex < scalars.count ? scalars[nextIndex] : nil
-            if let previous, let next, shouldPreserveSpace(between: previous, and: next) {
+            if let previous, nextIndex < scalars.count,
+               shouldPreserveSpace(between: previous, and: scalars[nextIndex]) {
                 result.append(" ")
             }
             index = nextIndex
