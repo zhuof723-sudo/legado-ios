@@ -92,6 +92,12 @@ enum BookReaderDocumentBuilder {
         "\(text.count)-\(text.prefix(32))-\(text.suffix(32))"
     }
 
+    static func normalizedTitle(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .widthInsensitive], locale: .current)
+            .components(separatedBy: .whitespacesAndNewlines).joined()
+            .trimmingCharacters(in: CharacterSet.punctuationCharacters.union(.symbols))
+    }
+
     /// 章标题识别：整行且很短、形如「第X章 …」或在首行的书名式标题。
     static func isChapterTitleLine(_ line: String) -> Bool {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -148,7 +154,8 @@ enum BookReaderDocumentBuilder {
         var synthesizedTitle = false
         if let firstRange = ranges.first {
             let firstLine = source.substring(with: firstRange)
-            synthesizedTitle = !isChapterTitleLine(firstLine)
+            let sameAsChapterTitle = normalizedTitle(firstLine) == normalizedTitle(title)
+            synthesizedTitle = !sameAsChapterTitle && !isChapterTitleLine(firstLine)
         } else {
             synthesizedTitle = true
         }

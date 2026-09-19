@@ -77,6 +77,7 @@ final class BookReaderOnlineSource: Identifiable, Hashable, BookReaderContentSou
     private var requestID = UUID()
     private var tocID = UUID()
     private var cache: [Int: ReaderChapterContent] = [:]
+    private var markersByID: [Int: InlineReviewMarker] = [:]
 
     init(bookSource: BookSource, persistentBookURL: String? = nil) {
         self.bookSource = bookSource
@@ -98,7 +99,7 @@ final class BookReaderOnlineSource: Identifiable, Hashable, BookReaderContentSou
         !markers.isEmpty || !(bookSource.ruleReview?.reviewUrl?.isEmpty ?? true)
     }
 
-    func marker(id: Int) -> InlineReviewMarker? { markers.first { $0.id == id } }
+    func marker(id: Int) -> InlineReviewMarker? { markersByID[id] }
 
     func executeMarkerAction(id: Int, openBrowser: @escaping (String, String?) -> Void) {
         guard let marker = marker(id: id), chapters.indices.contains(currentChapterIndex), let action = marker.action else { return }
@@ -170,6 +171,7 @@ final class BookReaderOnlineSource: Identifiable, Hashable, BookReaderContentSou
         requestID = UUID()
         currentContent = ""
         markers = []
+        markersByID = [:]
         errorMessage = nil
         await loadChapter()
     }
@@ -212,6 +214,7 @@ final class BookReaderOnlineSource: Identifiable, Hashable, BookReaderContentSou
             }
             currentContent = ReadingTextNormalizer.normalizePlainText(document.text)
             markers = document.inlineReviewMarkers
+            markersByID = Dictionary(uniqueKeysWithValues: markers.map { ($0.id, $0) })
         } catch is TimeoutError {
             if requestID == id { errorMessage = "获取正文超时，请检查网络或更换书源" }
         } catch {

@@ -198,7 +198,9 @@ final class BookReaderSession: Identifiable {
     }
 
     func updateScrollPosition(_ offset: Int) {
-        scrollCharacterOffset = max(offset, 0)
+        let newOffset = max(offset, 0)
+        guard newOffset != scrollCharacterOffset else { return }
+        scrollCharacterOffset = newOffset
         BookReaderPositionStore.save(
             BookReaderPosition(chapterIndex: chapterIndex, characterOffset: scrollCharacterOffset),
             key: bookKey

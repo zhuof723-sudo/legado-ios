@@ -112,13 +112,8 @@ struct BookReaderScreen: View {
             Text(clockText)
                 .font(.caption2.monospacedDigit())
             Spacer()
-            if style.mode != .scroll {
-                Text("\(session.pageIndex + 1)/\(max(session.pages.count, 1))")
-                    .font(.caption2.monospacedDigit())
-            } else {
-                Text("\(Int(session.progress * 100))%")
-                    .font(.caption2.monospacedDigit())
-            }
+            Text("\(Int(session.progress * 100))%")
+                .font(.caption2.monospacedDigit())
             Spacer()
             HStack(spacing: 4) {
                 Text("\(Int(batteryLevel * 100))%")
@@ -168,11 +163,6 @@ struct BookReaderScreen: View {
                     Text(session.chapterTitle).font(.caption2).lineLimit(1).opacity(0.7)
                 }
                 Spacer()
-                if style.mode != .scroll {
-                    Text("\(session.pageIndex + 1) / \(max(session.pages.count, 1))")
-                        .font(.caption.monospacedDigit())
-                        .opacity(0.75)
-                }
             }
             .foregroundStyle(style.theme.text)
             .padding(.horizontal, 16)

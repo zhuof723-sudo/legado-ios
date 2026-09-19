@@ -187,6 +187,8 @@ final class BookReaderScrollController: UIViewController, UITextViewDelegate {
     private let textView = UITextView()
     private var lastWidth: CGFloat = 0
     private var renderedSignature = ""
+    private var pendingRebuild = false
+    private var lastReportedOffset = -1
     var onCharacterOffset: ((Int) -> Void)?
     var initialCharacterOffset = 0
 
@@ -238,6 +240,8 @@ final class BookReaderScrollController: UIViewController, UITextViewDelegate {
         }
         let signature = "\(document.fingerprint)|\(style.font.fontName)|\(style.font.pointSize)|\(style.lineSpacing)|\(style.paragraphSpacing)|\(style.titleSpacing)|\(style.firstLineIndent)|\(contentSize.width)"
         guard signature != renderedSignature || abs(lastWidth - contentSize.width) > 0.5 else { return }
+        if textView.isTracking || textView.isDecelerating { pendingRebuild = true; return }
+        pendingRebuild = false
 
         let oldHeight = max(textView.contentSize.height - textView.bounds.height, 1)
         let oldOffset = max(textView.contentOffset.y, 0)
@@ -271,7 +275,18 @@ final class BookReaderScrollController: UIViewController, UITextViewDelegate {
         guard scrollView.isTracking || scrollView.isDecelerating else { return }
         let point = CGPoint(x: textView.textContainerInset.left + 1, y: max(textView.contentOffset.y + textView.textContainerInset.top, 0))
         let position = textView.closestPosition(to: point)
-        if let position { onCharacterOffset?(textView.offset(from: textView.beginningOfDocument, to: position)) }
+        if let position {
+            let offset = textView.offset(from: textView.beginningOfDocument, to: position)
+            if abs(offset - lastReportedOffset) >= 64 { lastReportedOffset = offset }
+        }
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { finishScrolling() }
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { if !decelerate { finishScrolling() } }
+
+    private func finishScrolling() {
+        if lastReportedOffset >= 0 { onCharacterOffset?(lastReportedOffset) }
+        if pendingRebuild { rebuild() }
     }
 
     func textView(_ textView: UITextView, shouldInteractWith URL: URL, in characterRange: NSRange, interaction: UITextItemInteraction) -> Bool {
@@ -343,7 +358,7 @@ struct BookReaderModeView: UIViewControllerRepresentable {
         case let scroll as BookReaderScrollController:
             scroll.contentOffset = contentOffset
             scroll.contentSize = contentSize
-            scroll.document = document
+            if scroll.document?.fingerprint != document?.fingerprint { scroll.document = document }
             scroll.rebuild()
             scroll.refresh()
         default: break
