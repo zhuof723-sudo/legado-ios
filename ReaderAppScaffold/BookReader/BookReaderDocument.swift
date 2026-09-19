@@ -52,19 +52,23 @@ struct BookReaderDocument {
     func continuousText(font: UIFont, lineSpacing: Double, paragraphSpacing: Double, indent: CGFloat, titleSpacing: Double) -> NSAttributedString {
         let result = NSMutableAttributedString()
         let bodyStyle = NSMutableParagraphStyle()
-        bodyStyle.alignment = .justified
+        bodyStyle.alignment = .natural
         bodyStyle.lineBreakMode = .byCharWrapping
         bodyStyle.lineSpacing = CGFloat(max(lineSpacing, 0))
         bodyStyle.paragraphSpacing = CGFloat(max(paragraphSpacing, 0))
         bodyStyle.firstLineHeadIndent = indent
         bodyStyle.headIndent = 0
+        bodyStyle.tailIndent = 0
+        bodyStyle.hyphenationFactor = 0
 
         let titleStyle = NSMutableParagraphStyle()
-        titleStyle.alignment = .left
-        titleStyle.lineBreakMode = .byWordWrapping
+        titleStyle.alignment = .natural
+        titleStyle.lineBreakMode = .byCharWrapping
         titleStyle.paragraphSpacing = CGFloat(max(titleSpacing, 0))
         titleStyle.firstLineHeadIndent = 0
         titleStyle.headIndent = 0
+        titleStyle.tailIndent = 0
+        titleStyle.hyphenationFactor = 0
 
         for (index, paragraph) in paragraphs.enumerated() {
             if paragraph.attributed.length > 0 {

@@ -124,8 +124,9 @@ enum BookReaderPagination {
                 let naturalWidth = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
                 if !isTitle,
                    !lastLine,
-                   naturalWidth >= available * 0.72,
-                   let justified = CTLineCreateJustifiedLine(line, 1.0, Double(available)) {
+                   count > 1,
+                   naturalWidth >= available * 0.82,
+                   let justified = CTLineCreateJustifiedLine(line, 0.85, Double(available)) {
                     line = justified
                 }
 
