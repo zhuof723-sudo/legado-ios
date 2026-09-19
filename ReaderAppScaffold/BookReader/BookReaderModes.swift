@@ -186,6 +186,7 @@ final class BookReaderScrollController: UIViewController, UITextViewDelegate {
     var contentSize: CGSize
     private let textView = UITextView()
     private var lastWidth: CGFloat = 0
+    private var renderedSignature = ""
 
     init(document: BookReaderDocument?, style: BookReaderStyle, contentOffset: CGPoint, contentSize: CGSize) {
         self.document = document
@@ -229,9 +230,16 @@ final class BookReaderScrollController: UIViewController, UITextViewDelegate {
 
     func rebuild() {
         guard let document else {
-            textView.attributedText = nil
+            if textView.attributedText?.length != 0 { textView.attributedText = nil }
+            renderedSignature = ""
             return
         }
+        let signature = "\(document.fingerprint)|\(style.font.fontName)|\(style.font.pointSize)|\(style.lineSpacing)|\(style.paragraphSpacing)|\(style.firstLineIndent)|\(contentSize.width)"
+        guard signature != renderedSignature || abs(lastWidth - contentSize.width) > 0.5 else { return }
+
+        let oldHeight = max(textView.contentSize.height - textView.bounds.height, 1)
+        let oldOffset = max(textView.contentOffset.y, 0)
+        let fraction = min(max(oldOffset / oldHeight, 0), 1)
         let text = document.continuousText(
             font: style.font,
             lineSpacing: style.lineSpacing,
@@ -240,7 +248,11 @@ final class BookReaderScrollController: UIViewController, UITextViewDelegate {
         )
         textView.attributedText = text
         textView.textColor = UIColor(style.theme.text)
-        lastWidth = textView.bounds.width
+        textView.layoutIfNeeded()
+        let newHeight = max(textView.contentSize.height - textView.bounds.height, 0)
+        textView.setContentOffset(CGPoint(x: 0, y: newHeight * fraction), animated: false)
+        renderedSignature = signature
+        lastWidth = contentSize.width
     }
 
     func refresh() {
