@@ -134,9 +134,9 @@ final class BookReaderFadeController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = UIColor(style.theme.background)
         show(index: currentIndex, animated: false)
-        let left = UISwipeGestureRecognizer(target: self, action: #selector(previous))
+        let left = UISwipeGestureRecognizer(target: self, action: #selector(handlePreviousSwipe))
         left.direction = .right
-        let right = UISwipeGestureRecognizer(target: self, action: #selector(next))
+        let right = UISwipeGestureRecognizer(target: self, action: #selector(handleNextSwipe))
         right.direction = .left
         view.addGestureRecognizer(left)
         view.addGestureRecognizer(right)
@@ -165,8 +165,8 @@ final class BookReaderFadeController: UIViewController {
         currentIndex = index
     }
 
-    @objc private func previous() { callbacks.onTurn?(.previous) }
-    @objc private func next() { callbacks.onTurn?(.next) }
+    @objc private func handlePreviousSwipe() { callbacks.onTurn?(.previous) }
+    @objc private func handleNextSwipe() { callbacks.onTurn?(.next) }
 
     func update(pages: [BookReaderPage], index: Int) {
         self.pages = pages
