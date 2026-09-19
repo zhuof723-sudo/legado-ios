@@ -111,7 +111,8 @@ enum BookReaderDocumentBuilder {
         font: UIFont,
         markerColor: UIColor
     ) -> BookReaderDocument {
-        let source = text as NSString
+        let normalizedText = ReadingTextNormalizer.normalizePlainText(text)
+        let source = normalizedText as NSString
         var ranges: [NSRange] = []
         var start = 0
         while start <= source.length {
@@ -216,9 +217,9 @@ enum BookReaderDocumentBuilder {
 
         return BookReaderDocument(
             title: title,
-            sourceText: text,
+            sourceText: normalizedText,
             paragraphs: paragraphs,
-            fingerprint: fingerprint(text)
+            fingerprint: fingerprint(normalizedText)
         )
     }
 }

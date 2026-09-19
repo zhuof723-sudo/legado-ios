@@ -210,7 +210,7 @@ final class BookReaderOnlineSource: Identifiable, Hashable, BookReaderContentSou
                 errorMessage = "正文为空：当前章节没有返回内容"
                 return
             }
-            currentContent = document.text
+            currentContent = ReadingTextNormalizer.normalizePlainText(document.text)
             markers = document.inlineReviewMarkers
         } catch is TimeoutError {
             if requestID == id { errorMessage = "获取正文超时，请检查网络或更换书源" }

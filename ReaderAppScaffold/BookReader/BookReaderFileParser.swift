@@ -57,7 +57,7 @@ enum BookReaderFileParser {
     }
 
     static func chapters(from text: String) -> [BookReaderChapter] {
-        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        let normalized = ReadingTextNormalizer.normalizePlainText(text)
         let chapterPattern = "^\\s{0,4}(第[0-9零〇一二三四五六七八九十百千万两]+[章节卷回部集篇话幕][^\\n]{0,40}|序章|楔子|引子|尾声|终章|后记|番外[^\\n]{0,24}|Chapter\\s+\\d+[^\\n]{0,40})\\s*$"
         let regex = try? NSRegularExpression(pattern: chapterPattern, options: [.caseInsensitive])
         let lines = normalized.components(separatedBy: "\n")
