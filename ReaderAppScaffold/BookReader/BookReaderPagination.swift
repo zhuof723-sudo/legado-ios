@@ -118,17 +118,7 @@ enum BookReaderPagination {
                 let available = max(layout.pageSize.width - indent, 10)
                 var count = CTTypesetterSuggestLineBreak(typesetter, position, Double(available))
                 if count <= 0 { count = 1 }
-                var line = CTTypesetterCreateLine(typesetter, CFRange(location: position, length: count))
-                let lastLine = position + count >= paragraph.attributed.length
-                // 段末行和过短行保持自然字距，避免闭引号被拉到页面右边界。
-                let naturalWidth = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
-                if !isTitle,
-                   !lastLine,
-                   count > 1,
-                   naturalWidth >= available * 0.82,
-                   let justified = CTLineCreateJustifiedLine(line, 0.85, Double(available)) {
-                    line = justified
-                }
+                let line = CTTypesetterCreateLine(typesetter, CFRange(location: position, length: count))
 
                 if !current.isEmpty, y + layout.lineHeight > layout.pageSize.height + 0.5 { flush() }
                 let baseline = y + (layout.lineHeight - layout.font.lineHeight) / 2 + layout.font.ascender

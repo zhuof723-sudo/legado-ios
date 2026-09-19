@@ -11,16 +11,7 @@ enum ReadingTextNormalizer {
 
     static func normalizePlainText(_ input: String) -> String {
         var text = normalizeLineEndings(input)
-        text = text.replacingOccurrences(
-            of: "[\\t\\u{00A0}\\u{3000} ]+",
-            with: " ",
-            options: .regularExpression
-        )
-        text = text.replacingOccurrences(
-            of: "[\\t\\u{00A0}\\u{3000} ]*\\n[\\t\\u{00A0}\\u{3000} ]*",
-            with: "\n",
-            options: .regularExpression
-        )
+        text = normalizeHorizontalWhitespace(text)
         text = repairDetachedClosingQuotes(text)
         return trimOuterBlankLines(text)
     }
@@ -69,6 +60,63 @@ enum ReadingTextNormalizer {
             .replacingOccurrences(of: "\r", with: "\n")
             .replacingOccurrences(of: "\u{2028}", with: "\n")
             .replacingOccurrences(of: "\u{2029}", with: "\n")
+    }
+
+    private static func normalizeHorizontalWhitespace(_ input: String) -> String {
+        input.split(separator: "\n", omittingEmptySubsequences: false)
+            .map(normalizeLineWhitespace)
+            .joined(separator: "\n")
+    }
+
+    private static func normalizeLineWhitespace(_ line: Substring) -> String {
+        let invisible = CharacterSet(charactersIn: "\u{200B}\u{2060}\u{FEFF}")
+        let scalars = line.unicodeScalars.filter { !invisible.contains($0) }
+        var result = ""
+        var previous: UnicodeScalar?
+        var index = 0
+
+        while index < scalars.count {
+            let scalar = scalars[index]
+            guard CharacterSet.whitespaces.contains(scalar) else {
+                result.append(contentsOf: String(scalar))
+                previous = scalar
+                index += 1
+                continue
+            }
+
+            var nextIndex = index + 1
+            while nextIndex < scalars.count, CharacterSet.whitespaces.contains(scalars[nextIndex]) {
+                nextIndex += 1
+            }
+            let next = nextIndex < scalars.count ? scalars[nextIndex] : nil
+            if let previous, let next, shouldPreserveSpace(between: previous, and: next) {
+                result.append(" ")
+            }
+            index = nextIndex
+        }
+        return result
+    }
+
+    private static func shouldPreserveSpace(between left: UnicodeScalar, and right: UnicodeScalar) -> Bool {
+        let cjkPunctuation = CharacterSet(charactersIn: "，。！？；：、（）《》〈〉【】「」『』“”‘’…—")
+        if cjkPunctuation.contains(left) || cjkPunctuation.contains(right) { return false }
+        return !(isEastAsian(left) && isEastAsian(right))
+    }
+
+    private static func isEastAsian(_ scalar: UnicodeScalar) -> Bool {
+        switch scalar.value {
+        case 0x2E80...0x2FDF,
+             0x3000...0x30FF,
+             0x31F0...0x31FF,
+             0x3400...0x4DBF,
+             0x4E00...0x9FFF,
+             0xAC00...0xD7AF,
+             0xF900...0xFAFF,
+             0x20000...0x3134F:
+            return true
+        default:
+            return false
+        }
     }
 
     private static func repairDetachedClosingQuotes(_ input: String) -> String {

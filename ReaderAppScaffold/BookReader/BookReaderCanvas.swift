@@ -34,23 +34,15 @@ final class BookReaderCanvas: UIView {
         context.translateBy(x: 0, y: bounds.height)
         context.scaleBy(x: 1, y: -1)
 
+        context.textMatrix = .identity
         let textColor = UIColor(style.theme.text).cgColor
-        let markerColor = UIColor.systemGray.cgColor
         for line in page.lines {
-            guard let runs = CTLineGetGlyphRuns(line.line) as? [CTRun] else { continue }
-            for run in runs {
-                let range = CTRunGetStringRange(run)
-                guard range.length > 0 else { continue }
-                let isMarker = line.attributed.attribute(.foregroundColor, at: range.location, effectiveRange: nil) != nil
-                context.setFillColor(isMarker ? markerColor : textColor)
-                let runX = CGFloat(CTLineGetOffsetForStringIndex(line.line, range.location, nil))
-                let baselineFromBottom = bounds.height - contentOffset.y - line.baseline
-                context.textPosition = CGPoint(
-                    x: contentOffset.x + line.x + runX,
-                    y: baselineFromBottom
-                )
-                CTRunDraw(run, context, CFRange(location: 0, length: 0))
-            }
+            context.setFillColor(textColor)
+            context.textPosition = CGPoint(
+                x: contentOffset.x + line.x,
+                y: bounds.height - contentOffset.y - line.baseline
+            )
+            CTLineDraw(line.line, context)
         }
         context.restoreGState()
     }
