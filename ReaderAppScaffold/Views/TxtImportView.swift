@@ -105,7 +105,7 @@ struct TxtImportView: View {
     private func importTXT(_ url: URL, fallbackName: String) {
         let text: String
         do {
-            text = try FileTextReader.readText(from: url)
+            text = try BookReaderFileParser.readText(url: url)
         } catch {
             message = error.localizedDescription
             return

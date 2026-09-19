@@ -228,7 +228,10 @@ final class BookReaderScrollController: UIViewController, UITextViewDelegate {
     }
 
     func rebuild() {
-        guard let document else { return }
+        guard let document else {
+            textView.attributedText = nil
+            return
+        }
         let text = document.continuousText(
             font: style.font,
             lineSpacing: style.lineSpacing,
