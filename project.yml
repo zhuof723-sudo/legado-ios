@@ -64,6 +64,15 @@ targets:
         # PROVISIONING_PROFILE_SPECIFIER 同样不写入仓库。
         # CI 签名构建由 secrets 经 xcodebuild 命令行参数注入；
         # 本地在 Xcode 里选一次 Team 即可，请勿把它们提交回来。
+  LegadoTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: ReaderAppScaffoldTests
+    dependencies:
+      - target: Legado
+
 packages:
   LegadoRuleEngine:
     path: LegadoRuleEngine

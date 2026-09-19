@@ -195,8 +195,16 @@ enum BookReaderDocumentBuilder {
             }
         }
 
+        let firstNonEmptyParagraphIndex = ranges.firstIndex {
+            !source.substring(with: $0).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+
         for (paragraphIndex, range) in ranges.enumerated() {
-            if synthesizedTitle, paragraphIndex == 0, isDuplicateChapterTitle(source.substring(with: range), title: title) { continue }
+            if synthesizedTitle,
+               paragraphIndex == firstNonEmptyParagraphIndex,
+               isDuplicateChapterTitle(source.substring(with: range), title: title) {
+                continue
+            }
             let raw = source.substring(with: range)
             let rawNS = raw as NSString
             let output = NSMutableAttributedString()
