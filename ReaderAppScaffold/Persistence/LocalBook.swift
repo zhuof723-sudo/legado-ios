@@ -8,13 +8,15 @@ final class LocalBook {
     var name: String
     var author: String
     var chaptersData: String
+    @Attribute(.externalStorage) var coverData: Data?
     var createdAt: Date
 
-    init(name: String, author: String, chaptersData: String) {
+    init(name: String, author: String, chaptersData: String, coverData: Data? = nil) {
         self.id = UUID().uuidString
         self.name = name
         self.author = author
         self.chaptersData = chaptersData
+        self.coverData = coverData
         self.createdAt = Date()
     }
 }

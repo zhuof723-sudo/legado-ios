@@ -34,6 +34,7 @@ struct BookReaderScreen: View {
                 lineSpacing: style.lineSpacing,
                 paragraphSpacing: style.paragraphSpacing,
                 indent: style.firstLineIndent,
+                titleSpacing: style.titleSpacing,
                 size: contentSize
             )
             let key = "\(BookReaderDocumentBuilder.fingerprint(session.content))|\(layout.signature)|\(session.markers.map { "\($0.id):\($0.paragraphIndex):\($0.count)" }.joined(separator: ","))|\(session.chapterIndex)"
@@ -80,17 +81,7 @@ struct BookReaderScreen: View {
         .preferredColorScheme(style.nightMode ? .dark : .light)
         .toolbar(.hidden, for: .tabBar)
         .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(style.theme.text.opacity(0.18))
-                .frame(height: 2)
-                .overlay(alignment: .leading) {
-                    GeometryReader { proxy in
-                        Rectangle()
-                            .fill(style.theme.text.opacity(0.75))
-                            .frame(width: proxy.size.width * session.progress)
-                    }
-                }
-                .allowsHitTesting(false)
+            readerStatusBar
         }
         .onChange(of: session.chapterIndex) { _, _ in session.savePosition() }
         .onChange(of: session.pageIndex) { _, _ in session.savePosition() }
@@ -112,6 +103,54 @@ struct BookReaderScreen: View {
                 .presentationDetents([.fraction(0.65), .fraction(0.90)])
                 .presentationDragIndicator(.visible)
         }
+    }
+
+    private var readerStatusBar: some View {
+        HStack {
+            Text(clockText)
+                .font(.caption2.monospacedDigit())
+            Spacer()
+            if style.mode != .scroll {
+                Text("\(session.pageIndex + 1)/\(max(session.pages.count, 1))")
+                    .font(.caption2.monospacedDigit())
+            } else {
+                Text("\(Int(session.progress * 100))%")
+                    .font(.caption2.monospacedDigit())
+            }
+            Spacer()
+            HStack(spacing: 4) {
+                Text("\(Int(batteryLevel * 100))%")
+                    .font(.caption2.monospacedDigit())
+                Image(systemName: batteryIcon)
+                    .font(.caption2)
+            }
+        }
+        .foregroundStyle(style.theme.text.opacity(showControls ? 0.55 : 0.4))
+        .padding(.horizontal, max(CGFloat(style.paddingH), 18))
+        .padding(.bottom, 2)
+        .allowsHitTesting(false)
+    }
+
+    private var clockText: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: Date())
+    }
+
+    private var batteryLevel: Double {
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        let level = UIDevice.current.batteryLevel
+        guard level >= 0 else { return 1 }
+        return Double(level)
+    }
+
+    private var batteryIcon: String {
+        let percent = batteryLevel
+        if percent >= 0.85 { return "battery.100" }
+        if percent >= 0.6 { return "battery.75" }
+        if percent >= 0.35 { return "battery.50" }
+        if percent >= 0.15 { return "battery.25" }
+        return "battery.0"
     }
 
     private var controls: some View {

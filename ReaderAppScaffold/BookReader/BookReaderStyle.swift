@@ -41,49 +41,65 @@ enum BookReaderTurnMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// 目标排版的默认值（对齐设计稿第一张）：行距 35%、段距 40%、
+/// 左右边距 22%、上边距 30%、下边距 20%、标题间距 45%。
+enum BookReaderDefaults {
+    static let lineSpacingPercent = 35.0
+    static let paragraphSpacingPercent = 40.0
+    static let paddingHorizontalPercent = 22.0
+    static let paddingTopPercent = 30.0
+    static let paddingBottomPercent = 20.0
+    static let titleSpacingPercent = 45.0
+    /// 百分比 → 点的基准（字号 18pt 时行距 ≈ 12pt，与 Apple Books 观感一致）。
+    static let spacingBase = 34.0
+}
+
 final class BookReaderStyle: ObservableObject {
     static let shared = BookReaderStyle()
     private let defaults: UserDefaults
 
     @Published var fontSize: Double { didSet { defaults.set(fontSize, forKey: Keys.fontSize) } }
     @Published var bold: Bool { didSet { defaults.set(bold, forKey: Keys.bold) } }
-    @Published var lineSpacing: Double { didSet { defaults.set(lineSpacing, forKey: Keys.lineSpacing) } }
-    @Published var paragraphSpacing: Double { didSet { defaults.set(paragraphSpacing, forKey: Keys.paragraphSpacing) } }
+    @Published var lineSpacingPercent: Double { didSet { defaults.set(lineSpacingPercent, forKey: Keys.lineSpacingPercent) } }
+    @Published var paragraphSpacingPercent: Double { didSet { defaults.set(paragraphSpacingPercent, forKey: Keys.paragraphSpacingPercent) } }
+    @Published var paddingHorizontalPercent: Double { didSet { defaults.set(paddingHorizontalPercent, forKey: Keys.paddingHorizontalPercent) } }
+    @Published var paddingTopPercent: Double { didSet { defaults.set(paddingTopPercent, forKey: Keys.paddingTopPercent) } }
+    @Published var paddingBottomPercent: Double { didSet { defaults.set(paddingBottomPercent, forKey: Keys.paddingBottomPercent) } }
+    @Published var titleSpacingPercent: Double { didSet { defaults.set(titleSpacingPercent, forKey: Keys.titleSpacingPercent) } }
     @Published var paragraphIndent: Int { didSet { defaults.set(paragraphIndent, forKey: Keys.paragraphIndent) } }
-    @Published var paddingH: Double { didSet { defaults.set(paddingH, forKey: Keys.paddingH) } }
-    @Published var paddingTop: Double { didSet { defaults.set(paddingTop, forKey: Keys.paddingTop) } }
-    @Published var paddingBottom: Double { didSet { defaults.set(paddingBottom, forKey: Keys.paddingBottom) } }
     @Published var themeID: String { didSet { defaults.set(themeID, forKey: Keys.themeID) } }
     @Published var nightMode: Bool { didSet { defaults.set(nightMode, forKey: Keys.nightMode) } }
     @Published var fontFamily: Int { didSet { defaults.set(fontFamily, forKey: Keys.fontFamily) } }
     @Published var turnMode: String { didSet { defaults.set(turnMode, forKey: Keys.turnMode) } }
 
     private enum Keys {
-        static let fontSize = "reader.book.fontSize"
-        static let bold = "reader.book.bold"
-        static let lineSpacing = "reader.book.lineSpacing"
-        static let paragraphSpacing = "reader.book.paragraphSpacing"
-        static let paragraphIndent = "reader.book.paragraphIndent"
-        static let paddingH = "reader.book.paddingH"
-        static let paddingTop = "reader.book.paddingTop"
-        static let paddingBottom = "reader.book.paddingBottom"
-        static let themeID = "reader.book.themeID"
-        static let nightMode = "reader.book.nightMode"
-        static let fontFamily = "reader.book.fontFamily"
-        static let turnMode = "reader.book.turnMode"
+        static let fontSize = "reader.book2.fontSize"
+        static let bold = "reader.book2.bold"
+        static let lineSpacingPercent = "reader.book2.lineSpacingPercent"
+        static let paragraphSpacingPercent = "reader.book2.paragraphSpacingPercent"
+        static let paddingHorizontalPercent = "reader.book2.paddingHorizontalPercent"
+        static let paddingTopPercent = "reader.book2.paddingTopPercent"
+        static let paddingBottomPercent = "reader.book2.paddingBottomPercent"
+        static let titleSpacingPercent = "reader.book2.titleSpacingPercent"
+        static let paragraphIndent = "reader.book2.paragraphIndent"
+        static let themeID = "reader.book2.themeID"
+        static let nightMode = "reader.book2.nightMode"
+        static let fontFamily = "reader.book2.fontFamily"
+        static let turnMode = "reader.book2.turnMode"
     }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        self.fontSize = defaults.object(forKey: Keys.fontSize) as? Double ?? 18
+        self.fontSize = defaults.object(forKey: Keys.fontSize) as? Double ?? 19
         self.bold = defaults.object(forKey: Keys.bold) as? Bool ?? false
-        self.lineSpacing = defaults.object(forKey: Keys.lineSpacing) as? Double ?? 12
-        self.paragraphSpacing = defaults.object(forKey: Keys.paragraphSpacing) as? Double ?? 14
+        self.lineSpacingPercent = defaults.object(forKey: Keys.lineSpacingPercent) as? Double ?? BookReaderDefaults.lineSpacingPercent
+        self.paragraphSpacingPercent = defaults.object(forKey: Keys.paragraphSpacingPercent) as? Double ?? BookReaderDefaults.paragraphSpacingPercent
+        self.paddingHorizontalPercent = defaults.object(forKey: Keys.paddingHorizontalPercent) as? Double ?? BookReaderDefaults.paddingHorizontalPercent
+        self.paddingTopPercent = defaults.object(forKey: Keys.paddingTopPercent) as? Double ?? BookReaderDefaults.paddingTopPercent
+        self.paddingBottomPercent = defaults.object(forKey: Keys.paddingBottomPercent) as? Double ?? BookReaderDefaults.paddingBottomPercent
+        self.titleSpacingPercent = defaults.object(forKey: Keys.titleSpacingPercent) as? Double ?? BookReaderDefaults.titleSpacingPercent
         self.paragraphIndent = defaults.object(forKey: Keys.paragraphIndent) as? Int ?? 2
-        self.paddingH = defaults.object(forKey: Keys.paddingH) as? Double ?? 24
-        self.paddingTop = defaults.object(forKey: Keys.paddingTop) as? Double ?? 50
-        self.paddingBottom = defaults.object(forKey: Keys.paddingBottom) as? Double ?? 40
-        self.themeID = defaults.object(forKey: Keys.themeID) as? String ?? "sepia"
+        self.themeID = defaults.object(forKey: Keys.themeID) as? String ?? "green"
         self.nightMode = defaults.object(forKey: Keys.nightMode) as? Bool ?? false
         self.fontFamily = defaults.object(forKey: Keys.fontFamily) as? Int ?? 1
         self.turnMode = defaults.object(forKey: Keys.turnMode) as? String ?? BookReaderTurnMode.curl.rawValue
@@ -102,5 +118,26 @@ final class BookReaderStyle: ObservableObject {
         return UIFont(descriptor: descriptor, size: 0)
     }
 
+    // MARK: - 百分比 → 点值
+
+    /// 行距、段距、标题间距按字号缩放：字号越大，同一百分比给出的绝对间距越大。
+    private var base: Double { fontSize * 1.8 }
+
+    var lineSpacing: Double { base * lineSpacingPercent / 100 }
+    var paragraphSpacing: Double { base * paragraphSpacingPercent / 100 }
+    var titleSpacing: Double { base * titleSpacingPercent / 100 }
+
+    /// 边距按屏幕宽度缩放，保证不同机型版心比例一致。
+    var paddingH: Double { Self.screenWidth * paddingHorizontalPercent / 100 }
+    var paddingTop: Double { Self.screenHeight * paddingTopPercent / 100 }
+    var paddingBottom: Double { Self.screenHeight * paddingBottomPercent / 100 }
+
     var firstLineIndent: CGFloat { CGFloat(fontSize * Double(max(paragraphIndent, 0))) }
+
+    private static var screenWidth: Double {
+        Double(UIScreen.main.bounds.width > 0 ? UIScreen.main.bounds.width : 390)
+    }
+    private static var screenHeight: Double {
+        Double(UIScreen.main.bounds.height > 0 ? UIScreen.main.bounds.height : 844)
+    }
 }

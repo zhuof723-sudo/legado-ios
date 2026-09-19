@@ -129,8 +129,8 @@ final class BookReaderSession: Identifiable {
         await openChapter(bookmark.chapterIndex)
     }
 
-    func makeLayout(font: UIFont, lineSpacing: Double, paragraphSpacing: Double, indent: CGFloat, size: CGSize) -> BookReaderLayout {
-        BookReaderLayout(font: font, lineSpacing: lineSpacing, paragraphSpacing: paragraphSpacing, firstLineIndent: indent, pageSize: size)
+    func makeLayout(font: UIFont, lineSpacing: Double, paragraphSpacing: Double, indent: CGFloat, titleSpacing: Double, size: CGSize) -> BookReaderLayout {
+        BookReaderLayout(font: font, lineSpacing: lineSpacing, paragraphSpacing: paragraphSpacing, firstLineIndent: indent, titleSpacing: titleSpacing, pageSize: size)
     }
 
     func ensureDocument(style: BookReaderStyle) {
@@ -196,7 +196,14 @@ final class BookReaderSession: Identifiable {
     }
 
     func savePosition() {
-        let offset = pages.indices.contains(pageIndex) ? pages[pageIndex].sourceRange.location : 0
-        BookReaderPositionStore.save(BookReaderPosition(chapterIndex: chapterIndex, characterOffset: offset), key: bookKey)
+        // 首次打开、切章和布局变化期间，分页结果可能暂时为空或仍属于上一章。
+        // 此时不写入 offset=0，避免覆盖本地书已经保存的真实阅读位置。
+        guard chapterForPages == chapterIndex,
+              pages.indices.contains(pageIndex) else { return }
+        let offset = pages[pageIndex].sourceRange.location
+        BookReaderPositionStore.save(
+            BookReaderPosition(chapterIndex: chapterIndex, characterOffset: offset),
+            key: bookKey
+        )
     }
 }

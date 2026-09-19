@@ -148,7 +148,8 @@ struct TxtImportView: View {
         let book = LocalBook(
             name: title,
             author: parsed.author,
-            chaptersData: BookReaderFileParser.encode(parsed.chapters)
+            chaptersData: BookReaderFileParser.encode(parsed.chapters),
+            coverData: parsed.coverData
         )
         context.insert(book)
         do {

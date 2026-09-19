@@ -11,6 +11,7 @@ enum BookReaderFileParser {
         let title: String
         let author: String
         let chapters: [BookReaderChapter]
+        let coverData: Data?
     }
 
     enum ParserError: LocalizedError {
@@ -128,11 +129,33 @@ enum BookReaderFileParser {
         let title = firstText(packageDoc, named: "title") ?? "未命名"
         let author = firstText(packageDoc, named: "creator") ?? "未知作者"
 
-        var manifest: [String: (href: String, type: String)] = [:]
+        var manifest: [String: (href: String, type: String, properties: String)] = [:]
         for item in localElements(packageDoc, named: "item") {
             guard let id = item.attributes["id"], let href = item.attributes["href"] else { continue }
-            manifest[id] = (href, item.attributes["media-type"] ?? "")
+            manifest[id] = (
+                href,
+                item.attributes["media-type"] ?? "",
+                item.attributes["properties"] ?? ""
+            )
         }
+
+        // EPUB 3: manifest item properties="cover-image"。
+        // EPUB 2: <meta name="cover" content="manifest-id">。
+        // 兼容旧书：回退到 id/href 中包含 cover 且媒体类型为图片的项目。
+        let epub2CoverID = localElements(packageDoc, named: "meta").first { element in
+            element.attributes["name"]?.lowercased() == "cover"
+        }?.attributes["content"]
+        let coverItem = manifest.first { _, item in
+            item.properties.split(separator: " ").contains("cover-image")
+        }?.value ?? epub2CoverID.flatMap { manifest[$0] } ?? manifest.first { id, item in
+            let isImage = item.type.lowercased().hasPrefix("image/")
+            let nameSuggestsCover = id.lowercased().contains("cover") || item.href.lowercased().contains("cover")
+            return isImage && nameSuggestsCover
+        }?.value
+        let coverData = coverItem.flatMap { item in
+            entry(entries, named: resolve(item.href, relativeTo: packageDirectory))
+        }
+
         let spine = localElements(packageDoc, named: "itemref").compactMap { $0.attributes["idref"] }
         var chapters: [BookReaderChapter] = []
         for (index, id) in spine.enumerated() {
@@ -148,7 +171,12 @@ enum BookReaderFileParser {
             }
         }
         guard !chapters.isEmpty else { throw ParserError.emptyEPUB }
-        return EPUBBook(title: title, author: author, chapters: chapters)
+        return EPUBBook(
+            title: title,
+            author: author,
+            chapters: chapters,
+            coverData: coverData
+        )
     }
 
     private static func entry(_ entries: [String: Data], named name: String) -> Data? {

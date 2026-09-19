@@ -234,7 +234,7 @@ final class BookReaderScrollController: UIViewController, UITextViewDelegate {
             renderedSignature = ""
             return
         }
-        let signature = "\(document.fingerprint)|\(style.font.fontName)|\(style.font.pointSize)|\(style.lineSpacing)|\(style.paragraphSpacing)|\(style.firstLineIndent)|\(contentSize.width)"
+        let signature = "\(document.fingerprint)|\(style.font.fontName)|\(style.font.pointSize)|\(style.lineSpacing)|\(style.paragraphSpacing)|\(style.titleSpacing)|\(style.firstLineIndent)|\(contentSize.width)"
         guard signature != renderedSignature || abs(lastWidth - contentSize.width) > 0.5 else { return }
 
         let oldHeight = max(textView.contentSize.height - textView.bounds.height, 1)
@@ -244,7 +244,8 @@ final class BookReaderScrollController: UIViewController, UITextViewDelegate {
             font: style.font,
             lineSpacing: style.lineSpacing,
             paragraphSpacing: style.paragraphSpacing,
-            indent: style.firstLineIndent
+            indent: style.firstLineIndent,
+            titleSpacing: style.titleSpacing
         )
         textView.attributedText = text
         textView.textColor = UIColor(style.theme.text)

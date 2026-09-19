@@ -134,7 +134,8 @@ enum ExternalFileImporter {
         let book = LocalBook(
             name: parsed.title.isEmpty ? fallbackName : parsed.title,
             author: parsed.author,
-            chaptersData: BookReaderFileParser.encode(parsed.chapters)
+            chaptersData: BookReaderFileParser.encode(parsed.chapters),
+            coverData: parsed.coverData
         )
         context.insert(book)
         do {

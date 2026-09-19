@@ -302,8 +302,19 @@ struct ShelfView: View {
             ForEach(localBooks) { book in
                 Button { openLocal = book } label: {
                     HStack(spacing: 12) {
-                        PlaceholderCover(title: book.name)
-                            .frame(width: 40, height: 54)
+                        Group {
+                            if let coverData = book.coverData,
+                               let image = UIImage(data: coverData) {
+                                Image(uiImage: image)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                            } else {
+                                PlaceholderCover(title: book.name)
+                            }
+                        }
+                        .frame(width: 40, height: 54)
+                        .clipped()
                         VStack(alignment: .leading, spacing: 4) {
                             Text(book.name).font(.subheadline.bold()).foregroundStyle(.primary).lineLimit(1)
                             Text("\(book.author) · \(BookReaderFileParser.decode(book.chaptersData).count) 章")

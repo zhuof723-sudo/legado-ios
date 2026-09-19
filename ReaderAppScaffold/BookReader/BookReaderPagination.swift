@@ -7,17 +7,20 @@ struct BookReaderLayout {
     let paragraphSpacing: CGFloat
     let firstLineIndent: CGFloat
     let pageSize: CGSize
+    /// 章标题与正文之间的额外间距。
+    let titleSpacing: CGFloat
 
-    init(font: UIFont, lineSpacing: Double, paragraphSpacing: Double, firstLineIndent: CGFloat, pageSize: CGSize) {
+    init(font: UIFont, lineSpacing: Double, paragraphSpacing: Double, firstLineIndent: CGFloat, titleSpacing: Double, pageSize: CGSize) {
         self.font = font
         self.lineHeight = font.lineHeight + CGFloat(max(lineSpacing, 0))
         self.paragraphSpacing = CGFloat(max(paragraphSpacing, 0))
         self.firstLineIndent = max(firstLineIndent, 0)
+        self.titleSpacing = CGFloat(max(titleSpacing, 0))
         self.pageSize = pageSize
     }
 
     var signature: String {
-        "\(font.fontName)|\(font.pointSize)|\(lineHeight)|\(paragraphSpacing)|\(firstLineIndent)|\(pageSize.width)x\(pageSize.height)"
+        "\(font.fontName)|\(font.pointSize)|\(lineHeight)|\(paragraphSpacing)|\(firstLineIndent)|\(titleSpacing)|\(pageSize.width)x\(pageSize.height)"
     }
 }
 
@@ -90,22 +93,34 @@ enum BookReaderPagination {
 
         for (paragraphIndex, paragraph) in document.paragraphs.enumerated() {
             if Task.isCancelled { return [] }
-            if paragraphIndex > 0, !current.isEmpty { y += layout.paragraphSpacing }
+
+            // 段间距：页顶不落空隙；标题段用自己的间距。
+            if !current.isEmpty {
+                if paragraph.kind == .chapterTitle {
+                    y += layout.titleSpacing
+                } else if paragraphIndex > 0 {
+                    y += layout.paragraphSpacing
+                }
+            }
+
             if paragraph.isBlank {
-                if !current.isEmpty { y += layout.lineHeight }
+                if !current.isEmpty { y += layout.lineHeight * 0.5 }
                 continue
             }
 
+            let isTitle = paragraph.kind == .chapterTitle
             let typesetter = CTTypesetterCreateWithAttributedString(paragraph.attributed)
             var position = 0
             var firstLine = true
             while position < paragraph.attributed.length {
-                let available = max(layout.pageSize.width - (firstLine ? layout.firstLineIndent : 0), 10)
+                // 标题不缩进、不两端对齐，保持自然左对齐。
+                let indent = isTitle ? 0 : (firstLine ? layout.firstLineIndent : 0)
+                let available = max(layout.pageSize.width - indent, 10)
                 var count = CTTypesetterSuggestLineBreak(typesetter, position, Double(available))
                 if count <= 0 { count = 1 }
                 var line = CTTypesetterCreateLine(typesetter, CFRange(location: position, length: count))
                 let lastLine = position + count >= paragraph.attributed.length
-                if !lastLine, let justified = CTLineCreateJustifiedLine(line, 0, Double(available)) { line = justified }
+                if !isTitle, !lastLine, let justified = CTLineCreateJustifiedLine(line, 0, Double(available)) { line = justified }
 
                 if !current.isEmpty, y + layout.lineHeight > layout.pageSize.height + 0.5 { flush() }
                 let baseline = y + (layout.lineHeight - layout.font.lineHeight) / 2 + layout.font.ascender
@@ -113,7 +128,7 @@ enum BookReaderPagination {
                     line: line,
                     attributed: paragraph.attributed,
                     paragraphIndex: paragraphIndex,
-                    x: firstLine ? layout.firstLineIndent : 0,
+                    x: indent,
                     top: y,
                     baseline: baseline,
                     height: layout.lineHeight
