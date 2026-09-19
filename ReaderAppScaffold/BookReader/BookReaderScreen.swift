@@ -52,7 +52,9 @@ struct BookReaderScreen: View {
                         contentOffset: contentOffset,
                         contentSize: contentSize,
                         onTurn: handleTurn,
-                        onLink: handleLink
+                        onLink: handleLink,
+                        initialScrollOffset: session.scrollCharacterOffset,
+                        onScrollOffset: { session.updateScrollPosition($0) }
                     )
                     .id(style.mode)
                     .ignoresSafeArea(.container, edges: .all)

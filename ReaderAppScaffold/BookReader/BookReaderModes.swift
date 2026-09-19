@@ -187,6 +187,8 @@ final class BookReaderScrollController: UIViewController, UITextViewDelegate {
     private let textView = UITextView()
     private var lastWidth: CGFloat = 0
     private var renderedSignature = ""
+    var onCharacterOffset: ((Int) -> Void)?
+    var initialCharacterOffset = 0
 
     init(document: BookReaderDocument?, style: BookReaderStyle, contentOffset: CGPoint, contentSize: CGSize) {
         self.document = document
@@ -252,6 +254,9 @@ final class BookReaderScrollController: UIViewController, UITextViewDelegate {
         textView.layoutIfNeeded()
         let newHeight = max(textView.contentSize.height - textView.bounds.height, 0)
         textView.setContentOffset(CGPoint(x: 0, y: newHeight * fraction), animated: false)
+        if let position = textView.position(from: textView.beginningOfDocument, offset: initialCharacterOffset) {
+            textView.scrollRangeToVisible(NSRange(location: textView.offset(from: textView.beginningOfDocument, to: position), length: 0))
+        }
         renderedSignature = signature
         lastWidth = contentSize.width
     }
@@ -260,6 +265,13 @@ final class BookReaderScrollController: UIViewController, UITextViewDelegate {
         view.backgroundColor = UIColor(style.theme.background)
         textView.textColor = UIColor(style.theme.text)
         textView.setNeedsDisplay()
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard scrollView.isTracking || scrollView.isDecelerating else { return }
+        let point = CGPoint(x: textView.textContainerInset.left + 1, y: max(textView.contentOffset.y + textView.textContainerInset.top, 0))
+        let position = textView.closestPosition(to: point)
+        if let position { onCharacterOffset?(textView.offset(from: textView.beginningOfDocument, to: position)) }
     }
 
     func textView(_ textView: UITextView, shouldInteractWith URL: URL, in characterRange: NSRange, interaction: UITextItemInteraction) -> Bool {
@@ -278,6 +290,8 @@ struct BookReaderModeView: UIViewControllerRepresentable {
     let contentSize: CGSize
     var onTurn: (BookReaderTurnIntent) -> Void
     var onLink: (BookReaderLink) -> Void
+    let initialScrollOffset: Int
+    var onScrollOffset: (Int) -> Void
 
     func makeUIViewController(context: Context) -> UIViewController {
         let controller: UIViewController
@@ -305,6 +319,8 @@ struct BookReaderModeView: UIViewControllerRepresentable {
             fade.callbacks = callbacks
         case let scroll as BookReaderScrollController:
             scroll.callbacks = callbacks
+            scroll.onCharacterOffset = onScrollOffset
+            scroll.initialCharacterOffset = initialScrollOffset
         default: break
         }
     }

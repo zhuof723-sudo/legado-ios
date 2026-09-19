@@ -41,6 +41,7 @@ final class BookReaderSession: Identifiable {
     private(set) var requestedPage: Int?
     private(set) var requestedLastPage = false
     var pageIndex = 0
+    private(set) var scrollCharacterOffset = 0
 
     init(source: Source) {
         self.source = source
@@ -49,6 +50,7 @@ final class BookReaderSession: Identifiable {
         case .online(_, let url, _): bookKey = url
         }
         saved = BookReaderPositionStore.load(key: bookKey)
+        scrollCharacterOffset = saved?.characterOffset ?? 0
     }
 
     private var contentSource: any BookReaderContentSource {
@@ -193,6 +195,14 @@ final class BookReaderSession: Identifiable {
             pageIndex = 0
         }
         paginationKey = key
+    }
+
+    func updateScrollPosition(_ offset: Int) {
+        scrollCharacterOffset = max(offset, 0)
+        BookReaderPositionStore.save(
+            BookReaderPosition(chapterIndex: chapterIndex, characterOffset: scrollCharacterOffset),
+            key: bookKey
+        )
     }
 
     func savePosition() {
