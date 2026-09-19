@@ -93,9 +93,29 @@ enum BookReaderDocumentBuilder {
     }
 
     static func normalizedTitle(_ text: String) -> String {
-        text.folding(options: [.caseInsensitive, .widthInsensitive], locale: .current)
-            .components(separatedBy: .whitespacesAndNewlines).joined()
-            .trimmingCharacters(in: CharacterSet.punctuationCharacters.union(.symbols))
+        let folded = text.folding(options: [.caseInsensitive, .widthInsensitive], locale: .current)
+        let ignored = CharacterSet.whitespacesAndNewlines
+            .union(.punctuationCharacters)
+            .union(.symbols)
+        return folded.unicodeScalars.filter { !ignored.contains($0) }.map(String.init).joined()
+    }
+
+    static func isDuplicateChapterTitle(_ line: String, title: String) -> Bool {
+        let candidate = normalizedTitle(line)
+        let chapter = normalizedTitle(title)
+        guard !candidate.isEmpty, !chapter.isEmpty else { return false }
+        if candidate == chapter { return true }
+
+        // Accept a visually truncated title, or a title followed by a short leaked
+        // fragment, but require a substantial common prefix to avoid deleting prose.
+        let prefixLength = zip(candidate, chapter).prefix { $0 == $1 }.count
+        let shorter = min(candidate.count, chapter.count)
+        guard shorter >= 6, prefixLength >= min(shorter, 12) else { return false }
+        if candidate.count < chapter.count {
+            return candidate.hasSuffix("…") || prefixLength == candidate.count
+        }
+        let remainder = candidate.dropFirst(chapter.count)
+        return prefixLength == chapter.count && remainder.count <= 16
     }
 
     /// 章标题识别：整行且很短、形如「第X章 …」或在首行的书名式标题。
@@ -154,7 +174,7 @@ enum BookReaderDocumentBuilder {
         var synthesizedTitle = false
         if let firstRange = ranges.first {
             let firstLine = source.substring(with: firstRange)
-            let sameAsChapterTitle = normalizedTitle(firstLine) == normalizedTitle(title)
+            let sameAsChapterTitle = isDuplicateChapterTitle(firstLine, title: title)
             synthesizedTitle = !sameAsChapterTitle && !isChapterTitleLine(firstLine)
         } else {
             synthesizedTitle = true
@@ -176,6 +196,7 @@ enum BookReaderDocumentBuilder {
         }
 
         for (paragraphIndex, range) in ranges.enumerated() {
+            if synthesizedTitle, paragraphIndex == 0, isDuplicateChapterTitle(source.substring(with: range), title: title) { continue }
             let raw = source.substring(with: range)
             let rawNS = raw as NSString
             let output = NSMutableAttributedString()

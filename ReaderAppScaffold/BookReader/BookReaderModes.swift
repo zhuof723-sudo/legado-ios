@@ -189,6 +189,7 @@ final class BookReaderScrollController: UIViewController, UITextViewDelegate {
     private var renderedSignature = ""
     private var pendingRebuild = false
     private var lastReportedOffset = -1
+    private var didRequestNextChapter = false
     var onCharacterOffset: ((Int) -> Void)?
     var initialCharacterOffset = 0
 
@@ -211,6 +212,7 @@ final class BookReaderScrollController: UIViewController, UITextViewDelegate {
         textView.isSelectable = true
         textView.isScrollEnabled = true
         textView.delegate = self
+        textView.showsVerticalScrollIndicator = false
         textView.textContainerInset = UIEdgeInsets(top: contentOffset.y, left: contentOffset.x, bottom: contentOffset.y, right: contentOffset.x)
         textView.textContainer.lineFragmentPadding = 0
         textView.linkTextAttributes = [.foregroundColor: UIColor.systemGray, .underlineStyle: 0]
@@ -263,6 +265,7 @@ final class BookReaderScrollController: UIViewController, UITextViewDelegate {
         }
         renderedSignature = signature
         lastWidth = contentSize.width
+        didRequestNextChapter = false
     }
 
     func refresh() {
@@ -282,7 +285,14 @@ final class BookReaderScrollController: UIViewController, UITextViewDelegate {
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { finishScrolling() }
-    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { if !decelerate { finishScrolling() } }
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate { finishScrolling() }
+        let bottom = max(scrollView.contentSize.height - scrollView.bounds.height, 0)
+        if scrollView.contentOffset.y > bottom + 36, !didRequestNextChapter {
+            didRequestNextChapter = true
+            callbacks.onTurn?(.next)
+        }
+    }
 
     private func finishScrolling() {
         if lastReportedOffset >= 0 { onCharacterOffset?(lastReportedOffset) }
