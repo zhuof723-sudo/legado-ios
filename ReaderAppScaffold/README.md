@@ -28,7 +28,7 @@ ReaderAppScaffold/
 ├── Stores/
 │   ├── BookSourceStore.swift    # 导入/启用禁用/列出书源
 │   ├── SearchViewModel.swift    # 并发跨书源搜索
-│   ├── ReaderPage/              # 全新正文阅读内核（TXT/EPUB/在线 + 段评 + pageCurl）
+│   ├── BookReader/              # 全新正文阅读内核（TXT/EPUB/在线 + 段评 + 四种翻页）
 │   └── ImageLoader.swift        # 带自定义header的图片加载+内存缓存
 ├── Views/
 │   ├── BookSourceListView.swift # 书源管理页
@@ -43,21 +43,22 @@ ReaderAppScaffold/
 
 ## 阅读页架构（2026-09 再次重构）
 
-正文阅读层位于 `ReaderPage/`，上一版 `Reading/` 已整体删除。正文只保留段评和仿真翻页：
+正文阅读层位于 `BookReader/`，上一版 `ReaderPage/` 已整体删除。TXT、EPUB 和在线正文共用新的文档/排版模型：
 
 | 组件 | 文件 | 职责 |
 |---|---|---|
-| `ReaderPageScreen` | `ReaderPage/ReaderPageScreen.swift` | 唯一正文阅读页：章节、页码、返回、段评入口 |
-| `ReaderPageSession` | `ReaderPage/ReaderPageSession.swift` | 阅读会话、章节切换、分页任务、字符偏移进度 |
-| `ReaderPageLocalSource` / `ReaderPageOnlineSource` | `ReaderPage/ReaderPageSource.swift` | TXT/EPUB 与在线正文内容源，在线源保留段评数据 |
-| `ReaderPageDocumentBuilder` | `ReaderPage/ReaderPageDocument.swift` | 中文段落切分、段评占位符与可点击角标 |
-| `ReaderPagePagination` | `ReaderPage/ReaderPagePagination.swift` | CoreText 中文断行、标点禁则、两端对齐、首行缩进、按屏幕尺寸分页 |
-| `ReaderPageCanvas` | `ReaderPage/ReaderPageCanvas.swift` | CoreText 逐 run 直绘、段评链接命中、左右翻页热区 |
-| `ReaderPageCurlController` | `ReaderPage/ReaderPageCurl.swift` | 唯一翻页实现：`UIPageViewController.pageCurl` 仿真翻页 |
-| `ReaderPageStyle` | `ReaderPage/ReaderPageStyle.swift` | 字体、字号、行距、段距、边距、主题；不包含翻页模式 |
-| `ReaderPageSettingsPage` | `ReaderPage/ReaderPageSettings.swift` | 新排版设置页；仅调整正文样式 |
+| `BookReaderScreen` | `BookReader/BookReaderScreen.swift` | 唯一正文阅读页与模式选择、段评入口 |
+| `BookReaderSession` | `BookReader/BookReaderSession.swift` | 章节、页码、分页缓存和字符偏移进度 |
+| `BookReaderLocalSource` / `BookReaderOnlineSource` | `BookReader/BookReaderSource.swift` | 本地 TXT/EPUB 与在线正文、段评数据 |
+| `BookReaderFileParser` | `BookReader/BookReaderFileParser.swift` | UTF-8/UTF-16/GB18030 TXT、章节切分、EPUB container/OPF/spine/XHTML |
+| `BookReaderPagination` | `BookReader/BookReaderPagination.swift` | 分页专用 CoreText：中文断行、禁则、两端对齐、首行缩进 |
+| `BookReaderScrollController` | `BookReader/BookReaderModes.swift` | 滚动专用连续 TextKit 排版，不读取分页结果 |
+| `BookReaderFlowController` | `BookReader/BookReaderModes.swift` | 滑动（`.scroll`）或仿真（`.pageCurl`） |
+| `BookReaderFadeController` | `BookReader/BookReaderModes.swift` | 快速淡入淡出 |
+| `BookReaderCanvas` | `BookReader/BookReaderCanvas.swift` | CoreText 逐 run 绘制、坐标转换、段评链接命中 |
+| `BookReaderStyle` / `BookReaderTurnMode` | `BookReader/BookReaderStyle.swift` | 字体、字号、主题与四种翻页模式 |
 
-已从正文阅读页移除：平移翻页、无动画翻页、旧控制层、旧目录、书签、TTS、章内搜索和旧 Aa 面板。PDF 仍是独立 PDFKit 格式模块，但使用相同的极简样式模型和 `pageCurl`。
+四种模式：滑动、滚动、仿真、快速淡入淡出。滚动模式单独排整章连续文本；分页模式才执行按屏幕尺寸切页。PDF 仍由 PDFKit 独立渲染，但采用相同的四模式样式设置。
 
 
 ## 已知没做的（自己按需补）
